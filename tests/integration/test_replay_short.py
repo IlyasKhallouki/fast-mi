@@ -128,6 +128,63 @@ def test_bad_plan(engine_ready, tmp_path, home_scummvm_guard):
 
 
 @pytest.mark.integration
+def test_bad_plan_range_error_names_no_step(engine_ready, tmp_path, home_scummvm_guard):
+    # Ranges are checked at load, before any step runs: the error record must
+    # not claim step 0. The message names the offending step instead.
+    plan = _write_plan(tmp_path / "plan.jsonl", [
+        _step(verb=11, obj=428, obj2=0),
+        _step(action="bad object", verb=11, obj=99999, obj2=0),
+    ])
+    cfg = EngineConfig(out_dir=tmp_path / "run", plan=plan, max_ticks=DOCK_MAX_TICKS, timeout_s=20)
+    result = run_engine(cfg)
+    assert not result.timed_out and result.returncode != 0
+    records = _read_trace(cfg.out_dir)
+    assert [r["type"] for r in records] == ["error", "end"], records
+    error = records[0]
+    assert error["code"] == "bad_plan", error
+    assert "step" not in error, error
+    assert "step 1 (bad object)" in error["message"] and "99999" in error["message"], error
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("case", ["active", "pending"])
+def test_step_timeout_names_the_stall_blocker(engine_ready, tmp_path, home_scummvm_guard, case):
+    # The step_timeout message names the blocker the stall records report, not
+    # the idle kind. Both cases wait, sentence-idle on the dock, for a menu that
+    # never opens: "active" after looking at the poster (429), "pending" for a
+    # dialogue-only step that cannot start. A timeout over the 3600-tick stall
+    # interval makes sure a stall record is written first.
+    step = (_step(action="look at poster", verb=8, obj=429, obj2=0, room=33, choose=["no such menu"])
+            if case == "active" else _step(action="answer a menu", choose=["no such menu"]))
+    plan = _write_plan(tmp_path / "plan.jsonl", [step])
+    cfg = EngineConfig(out_dir=tmp_path / "run", plan=plan, step_timeout=4000,
+                       max_ticks=DOCK_MAX_TICKS + 7200, timeout_s=TIMEOUT_S)
+    records = _run(cfg)
+    (error,) = _of_type(records, "error")
+    assert error["code"] == "step_timeout" and error["step"] == 0, error
+    stalls = _of_type(records, "stall")
+    assert stalls and stalls[-1]["reason"] == "awaiting_menu", stalls
+    assert error["message"].endswith("blocked by awaiting_menu"), error
+    assert len(_of_type(records, "step_start")) == (1 if case == "active" else 0)
+
+
+@pytest.mark.integration
+def test_plan_exhausted_waits_for_segment_start(engine_ready, tmp_path, home_scummvm_guard):
+    # The post-plan wait for the goal is not checked before segment start
+    # (docs/plan.md, Timeouts). The plan finishes on the dock; the segment
+    # starts in the lookout's room (38), which ego never reaches, so the run
+    # must end at max_ticks, not plan_exhausted.
+    plan = _write_plan(tmp_path / "plan.jsonl", [_step(action="click look at", room=33, click=[{"verb": 8}])])
+    cfg = EngineConfig(out_dir=tmp_path / "run", plan=plan, start=[{"room": 38}], step_timeout=600,
+                       max_ticks=DOCK_MAX_TICKS, timeout_s=TIMEOUT_S)
+    records = _run(cfg)
+    assert _of_type(records, "error") == [], _of_type(records, "error")
+    assert [r["step"] for r in _of_type(records, "step_end")] == [0]
+    assert _of_type(records, "segment_start") == []
+    assert records[-1]["reason"] == "max_ticks", records[-3:]
+
+
+@pytest.mark.integration
 def test_choice_not_found(engine_ready, tmp_path, home_scummvm_guard):
     # Up the cliff to the lookout (426 cliffside -> room 38), then talk to him
     # (489): his first-talk menu (room-038-lookout/local-202.txt [012B]) has no
@@ -165,6 +222,26 @@ def test_click_steps(engine_ready, tmp_path, home_scummvm_guard):
     assert end0["changes"]["vars"]["107"][1] == 8, end0["changes"]
     (error,) = _of_type(records, "error")
     assert error["code"] == "click_target_missing" and error["step"] == 1, error
+    assert records[-1]["reason"] == "error"
+
+
+@pytest.mark.integration
+def test_inventory_offset_outside_layout(engine_ready, tmp_path, home_scummvm_guard):
+    # An offset must stay inside the slot layout: past it lie other verbs, such
+    # as the inventory scroll arrows 208/209 (global/script-009.txt [00FB],
+    # [0120]). With the real layout those are dimmed on the dock, so this uses
+    # a one-slot layout whose slot is the visible "Open" verb (2), showing
+    # Var[1] (VAR_EGO = 1): offset 6 would reach the visible "Look at" (8).
+    plan = _write_plan(tmp_path / "plan.jsonl", [
+        _step(action="click past the layout", room=33, click=[{"inventory": 1, "offset": 6}]),
+    ])
+    cfg = EngineConfig(out_dir=tmp_path / "run", plan=plan,
+                       inventory={"verb_first": 2, "count": 1, "var_first": 1},
+                       max_ticks=DOCK_MAX_TICKS, timeout_s=TIMEOUT_S)
+    records = _run(cfg)
+    assert _of_type(records, "click") == []
+    (error,) = _of_type(records, "error")
+    assert error["code"] == "click_target_missing" and error["step"] == 0, error
     assert records[-1]["reason"] == "error"
 
 

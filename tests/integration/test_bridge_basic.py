@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 
+from speedrun import engine
 from speedrun.engine import EngineConfig, build_argv, build_env, run_engine, write_ini
 
 BRIDGE_VERSION = "speedrun-bridge v1"
@@ -85,6 +86,31 @@ def test_ticks_deterministic_boot(engine_ready, tmp_path, home_scummvm_guard):
         _assert_fingerprint(end)
         ends.append(end)
     assert ends[0] == ends[1]
+
+
+@pytest.mark.integration
+def test_trace_survives_kill(engine_ready, tmp_path, home_scummvm_guard, monkeypatch):
+    # A crash, SIGKILL or wall-clock kill must keep every record flushed so far
+    # in $SPEEDRUN_OUT/trace.jsonl (C5), not lose it in an unrenamed temp file.
+    # run_engine's own SIGTERM lets ScummVM quit cleanly, so kill outright.
+    def kill(proc):
+        proc.kill()
+        proc.wait()
+
+    monkeypatch.setattr(engine, "_stop", kill)
+    cfg = EngineConfig(out_dir=tmp_path / "run", fast=True, max_ticks=10**9, timeout_s=8)
+    result = run_engine(cfg)
+    assert result.timed_out and result.returncode < 0, result
+
+    records = _read_trace(cfg.out_dir)  # every line parses, the last one is complete
+    types = [r["type"] for r in records]
+    assert types[0] == "boot", types
+    assert records[0]["bridge"] == BRIDGE_VERSION
+    assert "end" not in types, types
+    # The single-shot dumps are written whole: segment_start follows state-start.json.
+    assert "segment_start" in types, types
+    assert json.loads((cfg.out_dir / "state-start.json").read_text())["room"] == 33
+    assert not list(cfg.out_dir.glob("*.tmp"))
 
 
 @pytest.mark.integration

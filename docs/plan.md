@@ -151,7 +151,7 @@ There is one step per line. Unknown keys are an error.
 - `click` (list, optional): coordinate-free verb-slot clicks, performed in order through the game's own input script. Each entry is clicked at its own decision point via `runInputScript(kVerbClickArea, verbid, 1)`, which is exactly what the engine does for a click on that verb, and which dialogue choices already use. A `click` step has no `verb`/`obj`. Entries:
   - `{"verb": 7}` clicks the visible verb slot with verb id 7, e.g. "Use".
   - `{"inventory": 567}` clicks the visible inventory slot that currently shows object 567. The bridge resolves the slot at runtime from the `inventory` description in `segment.toml`, passed as `SPEEDRUN_INVENTORY`.
-  - `{"inventory": 567, "offset": -1}` clicks the slot `offset` positions away from the one showing 567. The resulting slot must exist and be visible; otherwise the step fails with `click_target_missing`.
+  - `{"inventory": 567, "offset": -1}` clicks the slot `offset` positions away from the one showing 567. The resulting slot must lie inside the layout (`0 ≤ k + offset < count`) and be visible; otherwise the step fails with `click_target_missing`. Past the layout lie other verbs, such as the inventory scroll arrows 208/209 (`global/script-009.txt [00FB]`, `[0120]`).
     - This reproduces a script quirk. The circus tent's input script reads `Var[134+k]` while the inventory display fills `Var[133+k]` (`room-051-circus-te/local-200.txt [0107]` vs `global/script-009.txt [0092]`).
     - So "Use pot" there is accepted only when the player clicks the slot just before the pot (`docs/part1/input-scripts.md`).
 
@@ -181,6 +181,7 @@ The flow for each step:
 {"type":"end","tick":90270,"frame":21010,"reason":"goal","room":33,"audio_frames":33169500,"music_timer":12,"vars_fnv1a":"9f3c1a2b"}
 ```
 
+- **Durability:** the trace is written in place and flushed after every record, so a run that crashes or is killed without a chance to quit (SIGKILL) keeps every record so far; such a trace has no `end` record. `state-start.json`, `state-end.json` and `objects.json` are written whole: a temporary file is renamed into place.
 - **`end` reasons:** `goal`, `plan_exhausted`, `max_ticks`, `error`, `dump_done`, or `quit`. `quit` means the engine was closed externally, e.g. the window was closed or SIGTERM was sent.
 - **`end` fingerprint:** the record carries `room`, `audio_frames`, `music_timer` and `vars_fnv1a`, an FNV-1a hash over all global vars. Determinism tests compare whole `end` records.
 - **`error` codes:**
@@ -254,7 +255,8 @@ Stall `reason` values are:
 - **Sentence consumption.** A sentence counts as consumed at the first sentence-idle decision point after the push frame.
 - **Untouchable check** (class 32 → `untouchable_target`). Actors and objects in ego's inventory are exempt. Inventory clicks go through slot verbs, and inventory objects can carry class 32 (e.g. the drugged meat).
 - **`objects.json` verb names** are the unexpanded verb text. The rendered sentence line, verb 100, would otherwise duplicate "Walk to".
-- **Timeouts.** The step timeout counts from `step_start`. The post-plan wait counts from the later of the last `step_end` and `tick0`, and is not checked before segment start.
+- **Timeouts.** The step timeout counts from `step_start`. The post-plan wait counts from the later of the last `step_end` and `tick0`, and is not checked before segment start. A `step_timeout` message ends with `blocked by <reason>`, the reason a `stall` record gives at that decision point (e.g. `awaiting_menu`, `until`).
+- **`bad_plan` at load** (parse or range errors) has no `step` field; the message names the line or step.
 - **`unexpected_choice`** also covers a menu with no pending step to answer it.
 - **Extra record fields:** `step_end.ticks`; `click` carries `slot`, `inventory` and `offset`; `stall` carries `step`, `ego_pos` and `ego_box`. Stall reasons also include `until`, `awaiting_menu`, `menu_answered` and `dialog`.
 - **Goal mid-step.** If the goal fires during the last step, that step has no `step_end`. The goal record closes it.

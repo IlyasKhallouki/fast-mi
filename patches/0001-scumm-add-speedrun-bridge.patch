@@ -1,15 +1,17 @@
 diff --git a/engines/scumm/module.mk b/engines/scumm/module.mk
-index 2cee05ab..68b01e7c 100644
+index 2cee05ab..ff9d432a 100644
 --- a/engines/scumm/module.mk
 +++ b/engines/scumm/module.mk
-@@ -97,6 +97,12 @@ MODULE_OBJS := \
+@@ -97,6 +97,14 @@ MODULE_OBJS := \
  	vars.o \
  	verbs.o
  
 +MODULE_OBJS += \
 +	speedrun/speedrun_bridge.o \
 +	speedrun/speedrun_conditions.o \
++	speedrun/speedrun_json.o \
 +	speedrun/speedrun_plan.o \
++	speedrun/speedrun_plan_parser.o \
 +	speedrun/speedrun_state.o
 +
  ifdef USE_IMGUI
@@ -106,10 +108,10 @@ index ae7b4bb7..816bf55d 100644
  
 diff --git a/engines/scumm/speedrun/speedrun_bridge.cpp b/engines/scumm/speedrun/speedrun_bridge.cpp
 new file mode 100644
-index 00000000..295c0dd3
+index 00000000..7099d07a
 --- /dev/null
 +++ b/engines/scumm/speedrun/speedrun_bridge.cpp
-@@ -0,0 +1,632 @@
+@@ -0,0 +1,516 @@
 +/* ScummVM - Graphic Adventure Engine
 + *
 + * ScummVM is the legal property of its developers, whose names
@@ -181,109 +183,6 @@ index 00000000..295c0dd3
 +	return true;
 +}
 +
-+#pragma mark - JSON
-+
-+Common::String jsonString(const char *s) {
-+	if (!s)
-+		return "null";
-+	Common::String out("\"");
-+	// Unsigned, so bytes >= 0x80 are not mistaken for control characters.
-+	for (const byte *p = (const byte *)s; *p; ++p) {
-+		const byte c = *p;
-+		switch (c) {
-+		case '"':
-+			out += "\\\"";
-+			break;
-+		case '\\':
-+			out += "\\\\";
-+			break;
-+		case '\n':
-+			out += "\\n";
-+			break;
-+		case '\r':
-+			out += "\\r";
-+			break;
-+		case '\t':
-+			out += "\\t";
-+			break;
-+		case '\b':
-+			out += "\\b";
-+			break;
-+		case '\f':
-+			out += "\\f";
-+			break;
-+		default:
-+			if (c < 0x20 || c >= 0x7F)
-+				out += Common::String::format("\\u%04x", (uint)c);
-+			else
-+				out += (char)c;
-+			break;
-+		}
-+	}
-+	out += '"';
-+	return out;
-+}
-+
-+JsonObject &JsonObject::addRaw(const char *key, const Common::String &json) {
-+	if (!_members.empty())
-+		_members += ',';
-+	_members += jsonString(key);
-+	_members += ':';
-+	_members += json;
-+	return *this;
-+}
-+
-+JsonObject &JsonObject::add(const char *key, int value) {
-+	return addRaw(key, Common::String::format("%d", value));
-+}
-+
-+JsonObject &JsonObject::add(const char *key, uint value) {
-+	return addRaw(key, Common::String::format("%u", value));
-+}
-+
-+JsonObject &JsonObject::add(const char *key, int64 value) {
-+	return addRaw(key, Common::String::format("%lld", (long long)value));
-+}
-+
-+JsonObject &JsonObject::add(const char *key, uint64 value) {
-+	return addRaw(key, Common::String::format("%llu", (unsigned long long)value));
-+}
-+
-+JsonObject &JsonObject::add(const char *key, bool value) {
-+	return addRaw(key, value ? "true" : "false");
-+}
-+
-+JsonObject &JsonObject::add(const char *key, const char *value) {
-+	return addRaw(key, jsonString(value));
-+}
-+
-+JsonObject &JsonObject::add(const char *key, const Common::String &value) {
-+	return addRaw(key, jsonString(value.c_str()));
-+}
-+
-+JsonObject &JsonObject::addNull(const char *key) {
-+	return addRaw(key, "null");
-+}
-+
-+Common::String JsonObject::str() const {
-+	return "{" + _members + "}";
-+}
-+
-+JsonArray &JsonArray::addRaw(const Common::String &json) {
-+	if (!_elements.empty())
-+		_elements += ',';
-+	_elements += json;
-+	return *this;
-+}
-+
-+JsonArray &JsonArray::add(int value) {
-+	return addRaw(Common::String::format("%d", value));
-+}
-+
-+Common::String JsonArray::str() const {
-+	return "[" + _elements + "]";
-+}
-+
 +#pragma mark - Lifetime
 +
 +SpeedrunBridge::SpeedrunBridge(ScummEngine *vm) : _vm(vm) {
@@ -305,7 +204,7 @@ index 00000000..295c0dd3
 +	Common::setErrorHandler(errorHandler);
 +
 +	const Common::Path tracePath = Common::Path(bridge->_outDir, Common::Path::kNativeSeparator).appendComponent(kTraceName);
-+	if (!bridge->_trace.open(tracePath, true))
++	if (!bridge->_trace.open(tracePath))
 +		error("speedrun: cannot open trace file '%s'", tracePath.toString(Common::Path::kNativeSeparator).c_str());
 +
 +	bridge->validateEnv();
@@ -487,8 +386,10 @@ index 00000000..295c0dd3
 +		return;
 +	}
 +
-+	// After the last step the run waits up to SPEEDRUN_STEP_TIMEOUT for the goal.
-+	if (_planDone && _ticks - _planDoneTick >= _stepTimeout) {
++	// After the last step the run waits up to SPEEDRUN_STEP_TIMEOUT for the
++	// goal, counted like a step's wait: from the later of the last step_end
++	// and the segment start, and not before the segment starts.
++	if (_planDone && _segmentStarted && _ticks - MAX(_planDoneTick, _tick0) >= _stepTimeout) {
 +		finish("plan_exhausted");
 +		return;
 +	}
@@ -586,14 +487,7 @@ index 00000000..295c0dd3
 +
 +bool SpeedrunBridge::writeFile(const char *name, const Common::String &contents) {
 +	const Common::Path path = Common::Path(_outDir, Common::Path::kNativeSeparator).appendComponent(name);
-+	Common::DumpFile file;
-+	bool ok = file.open(path, true);
-+	if (ok) {
-+		file.writeString(contents);
-+		file.writeByte('\n');
-+		ok = file.flush() && !file.err();
-+		file.close();
-+	}
++	const bool ok = writeJsonFile(path, contents);
 +	if (!ok)
 +		raiseError("engine_error", Common::String::format("cannot write %s in '%s'", name, _outDir.c_str()));
 +	return ok;
@@ -718,15 +612,7 @@ index 00000000..295c0dd3
 +}
 +
 +void SpeedrunBridge::writeRecord(const JsonObject &rec) {
-+	if (!_trace.isOpen())
-+		return;
-+	_trace.writeString(rec.str());
-+	_trace.writeByte('\n');
-+	const bool flushed = _trace.flush();
-+	if ((!flushed || _trace.err()) && !_traceWriteFailed) {
-+		_traceWriteFailed = true;
-+		warning("speedrun: cannot write to %s in '%s'", kTraceName, _outDir.c_str());
-+	}
++	_trace.writeLine(rec.str()); // flushed: a killed run keeps every record so far
 +}
 +
 +Common::String SpeedrunBridge::varsFingerprint() const {
@@ -744,10 +630,10 @@ index 00000000..295c0dd3
 +} // End of namespace Scumm
 diff --git a/engines/scumm/speedrun/speedrun_bridge.h b/engines/scumm/speedrun/speedrun_bridge.h
 new file mode 100644
-index 00000000..8ec4d959
+index 00000000..1c4907d8
 --- /dev/null
 +++ b/engines/scumm/speedrun/speedrun_bridge.h
-@@ -0,0 +1,340 @@
+@@ -0,0 +1,306 @@
 +/* ScummVM - Graphic Adventure Engine
 + *
 + * ScummVM is the legal property of its developers, whose names
@@ -774,8 +660,9 @@ index 00000000..8ec4d959
 +
 +#include "common/scummsys.h"
 +#include "common/array.h"
-+#include "common/file.h"
 +#include "common/str.h"
++
++#include "scumm/speedrun/speedrun_json.h"
 +
 +namespace Common {
 +class JSONValue;
@@ -784,47 +671,6 @@ index 00000000..8ec4d959
 +namespace Scumm {
 +
 +class ScummEngine;
-+
-+/**
-+ * JSON string literal, pure ASCII: escapes quotes, backslashes and control
-+ * characters; bytes >= 0x80 become \u00XX (the byte read as Latin-1).
-+ * nullptr gives null.
-+ */
-+Common::String jsonString(const char *s);
-+
-+/** Builds one JSON object; members appear in the order they are added. */
-+class JsonObject {
-+public:
-+	JsonObject &add(const char *key, int value);
-+	JsonObject &add(const char *key, uint value);
-+	JsonObject &add(const char *key, int64 value);
-+	JsonObject &add(const char *key, uint64 value);
-+	JsonObject &add(const char *key, bool value);
-+	/** nullptr gives null. */
-+	JsonObject &add(const char *key, const char *value);
-+	JsonObject &add(const char *key, const Common::String &value);
-+	JsonObject &addNull(const char *key);
-+	/** @p json must already be valid JSON (a nested object or array). */
-+	JsonObject &addRaw(const char *key, const Common::String &json);
-+	Common::String str() const;
-+
-+private:
-+	Common::String _members; // comma-separated "key":value pairs
-+};
-+
-+/** Builds one JSON array; elements appear in the order they are added. */
-+class JsonArray {
-+public:
-+	JsonArray &add(int value);
-+	/** @p json must already be valid JSON. */
-+	JsonArray &addRaw(const Common::String &json);
-+	JsonArray &add(const JsonObject &value) { return addRaw(value.str()); }
-+	bool empty() const { return _elements.empty(); }
-+	Common::String str() const;
-+
-+private:
-+	Common::String _elements;
-+};
 +
 +/** One C3 condition (docs/plan.md, contract C3). */
 +struct SpeedrunCondition {
@@ -870,7 +716,7 @@ index 00000000..8ec4d959
 +/**
 + * Parse a plan (JSONL, one step per line; blank lines are skipped) with the
 + * exact keys of src/speedrun/compiler.py C4_KEYS. On failure returns false
-+ * and sets @p error.
++ * and sets @p error. In speedrun_plan_parser.cpp.
 + */
 +bool parseSpeedrunPlan(const Common::String &text, Common::Array<SpeedrunStep> &out, Common::String &error);
 +
@@ -974,6 +820,7 @@ index 00000000..8ec4d959
 +	Common::Array<int> egoInventory() const;
 +	Common::String stateJson() const;
 +	Common::String objectsJson();
++	/** Write $SPEEDRUN_OUT/@p name whole (atomically); engine_error if that fails. */
 +	bool writeFile(const char *name, const Common::String &contents);
 +
 +	// Run control
@@ -989,6 +836,12 @@ index 00000000..8ec4d959
 +	void loadPlan();
 +	void runPlan();
 +	bool tryStartStep();
++	/**
++	 * What keeps the active (pending) step from acting (starting) at this
++	 * decision point, named as stall records name it; nullptr if nothing.
++	 */
++	const char *activeStepBlocker() const;
++	const char *pendingStepBlocker() const;
 +	void startStep();
 +	void completeStep();
 +	void performClick();
@@ -1079,8 +932,7 @@ index 00000000..8ec4d959
 +	uint64 _audioPumped = 0;        // frames mixed so far
 +	int16 _audioBuf[kAudioChunkFrames * 2];
 +
-+	Common::DumpFile _trace;
-+	bool _traceWriteFailed = false;
++	JsonlWriter _trace;            // $SPEEDRUN_OUT/trace.jsonl, written in place
 +	const char *_errorCode = "engine_error"; // code for the next error() record
 +	bool _finished = false;
 +};
@@ -1382,12 +1234,12 @@ index 00000000..f60caba5
 +}
 +
 +} // End of namespace Scumm
-diff --git a/engines/scumm/speedrun/speedrun_plan.cpp b/engines/scumm/speedrun/speedrun_plan.cpp
+diff --git a/engines/scumm/speedrun/speedrun_json.cpp b/engines/scumm/speedrun/speedrun_json.cpp
 new file mode 100644
-index 00000000..1c6fef7e
+index 00000000..647cf78f
 --- /dev/null
-+++ b/engines/scumm/speedrun/speedrun_plan.cpp
-@@ -0,0 +1,567 @@
++++ b/engines/scumm/speedrun/speedrun_json.cpp
+@@ -0,0 +1,174 @@
 +/* ScummVM - Graphic Adventure Engine
 + *
 + * ScummVM is the legal property of its developers, whose names
@@ -1409,13 +1261,315 @@ index 00000000..1c6fef7e
 + *
 + */
 +
-+// The plan player (docs/plan.md contract C4): parses SPEEDRUN_PLAN and replays
-+// its steps at the decision point, through the engine's own entry points:
-+// doSentence() for sentences, runInputScript(kVerbClickArea, verb, 1) for verb
-+// and dialogue clicks (what checkExecVerbs() calls for a real click).
++#include "common/fs.h"
++#include "common/textconsole.h"
++
++#include "scumm/speedrun/speedrun_json.h"
++
++namespace Scumm {
++
++#pragma mark - Builders
++
++Common::String jsonString(const char *s) {
++	if (!s)
++		return "null";
++	Common::String out("\"");
++	// Unsigned, so bytes >= 0x80 are not mistaken for control characters.
++	for (const byte *p = (const byte *)s; *p; ++p) {
++		const byte c = *p;
++		switch (c) {
++		case '"':
++			out += "\\\"";
++			break;
++		case '\\':
++			out += "\\\\";
++			break;
++		case '\n':
++			out += "\\n";
++			break;
++		case '\r':
++			out += "\\r";
++			break;
++		case '\t':
++			out += "\\t";
++			break;
++		case '\b':
++			out += "\\b";
++			break;
++		case '\f':
++			out += "\\f";
++			break;
++		default:
++			if (c < 0x20 || c >= 0x7F)
++				out += Common::String::format("\\u%04x", (uint)c);
++			else
++				out += (char)c;
++			break;
++		}
++	}
++	out += '"';
++	return out;
++}
++
++JsonObject &JsonObject::addRaw(const char *key, const Common::String &json) {
++	if (!_members.empty())
++		_members += ',';
++	_members += jsonString(key);
++	_members += ':';
++	_members += json;
++	return *this;
++}
++
++JsonObject &JsonObject::add(const char *key, int value) {
++	return addRaw(key, Common::String::format("%d", value));
++}
++
++JsonObject &JsonObject::add(const char *key, uint value) {
++	return addRaw(key, Common::String::format("%u", value));
++}
++
++JsonObject &JsonObject::add(const char *key, int64 value) {
++	return addRaw(key, Common::String::format("%lld", (long long)value));
++}
++
++JsonObject &JsonObject::add(const char *key, uint64 value) {
++	return addRaw(key, Common::String::format("%llu", (unsigned long long)value));
++}
++
++JsonObject &JsonObject::add(const char *key, bool value) {
++	return addRaw(key, value ? "true" : "false");
++}
++
++JsonObject &JsonObject::add(const char *key, const char *value) {
++	return addRaw(key, jsonString(value));
++}
++
++JsonObject &JsonObject::add(const char *key, const Common::String &value) {
++	return addRaw(key, jsonString(value.c_str()));
++}
++
++JsonObject &JsonObject::addNull(const char *key) {
++	return addRaw(key, "null");
++}
++
++Common::String JsonObject::str() const {
++	return "{" + _members + "}";
++}
++
++JsonArray &JsonArray::addRaw(const Common::String &json) {
++	if (!_elements.empty())
++		_elements += ',';
++	_elements += json;
++	return *this;
++}
++
++JsonArray &JsonArray::add(int value) {
++	return addRaw(Common::String::format("%d", value));
++}
++
++Common::String JsonArray::str() const {
++	return "[" + _elements + "]";
++}
++
++#pragma mark - Files
++
++bool JsonlWriter::InPlaceFile::open(const Common::FSNode &node) {
++	// DumpFile::open(node), minus the atomic write: createWriteStream()
++	// defaults to a temporary file that only close() renames into place.
++	assert(!_handle);
++	if (node.isDirectory())
++		return false;
++	_handle = node.createWriteStream(false);
++	return _handle != nullptr;
++}
++
++bool JsonlWriter::open(const Common::Path &path) {
++	_name = path.toString(Common::Path::kNativeSeparator);
++	_writeFailed = false;
++	return _file.open(path, true);
++}
++
++void JsonlWriter::writeLine(const Common::String &json) {
++	if (!_file.isOpen())
++		return;
++	_file.writeString(json);
++	_file.writeByte('\n');
++	const bool flushed = _file.flush();
++	if ((!flushed || _file.err()) && !_writeFailed) {
++		_writeFailed = true;
++		warning("speedrun: cannot write to '%s'", _name.c_str());
++	}
++}
++
++bool writeJsonFile(const Common::Path &path, const Common::String &json) {
++	Common::DumpFile file; // atomic: renamed into place by close()
++	bool ok = file.open(path, true);
++	if (ok) {
++		file.writeString(json);
++		file.writeByte('\n');
++		ok = file.flush() && !file.err();
++		file.close();
++	}
++	return ok;
++}
++
++} // End of namespace Scumm
+diff --git a/engines/scumm/speedrun/speedrun_json.h b/engines/scumm/speedrun/speedrun_json.h
+new file mode 100644
+index 00000000..6976afbc
+--- /dev/null
++++ b/engines/scumm/speedrun/speedrun_json.h
+@@ -0,0 +1,116 @@
++/* ScummVM - Graphic Adventure Engine
++ *
++ * ScummVM is the legal property of its developers, whose names
++ * are too numerous to list here. Please refer to the COPYRIGHT
++ * file distributed with this source distribution.
++ *
++ * This program is free software: you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License as published by
++ * the Free Software Foundation, either version 3 of the License, or
++ * (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
++ *
++ */
++
++#ifndef SCUMM_SPEEDRUN_SPEEDRUN_JSON_H
++#define SCUMM_SPEEDRUN_SPEEDRUN_JSON_H
++
++// JSON output for the speedrun bridge: builders for the trace records and
++// dumps, the JSON Lines trace file, and whole-file dumps.
++
++#include "common/scummsys.h"
++#include "common/file.h"
++#include "common/path.h"
++#include "common/str.h"
++
++namespace Common {
++class FSNode;
++}
++
++namespace Scumm {
++
++/**
++ * JSON string literal, pure ASCII: escapes quotes, backslashes and control
++ * characters; bytes >= 0x80 become \u00XX (the byte read as Latin-1).
++ * nullptr gives null.
++ */
++Common::String jsonString(const char *s);
++
++/** Builds one JSON object; members appear in the order they are added. */
++class JsonObject {
++public:
++	JsonObject &add(const char *key, int value);
++	JsonObject &add(const char *key, uint value);
++	JsonObject &add(const char *key, int64 value);
++	JsonObject &add(const char *key, uint64 value);
++	JsonObject &add(const char *key, bool value);
++	/** nullptr gives null. */
++	JsonObject &add(const char *key, const char *value);
++	JsonObject &add(const char *key, const Common::String &value);
++	JsonObject &addNull(const char *key);
++	/** @p json must already be valid JSON (a nested object or array). */
++	JsonObject &addRaw(const char *key, const Common::String &json);
++	Common::String str() const;
++
++private:
++	Common::String _members; // comma-separated "key":value pairs
++};
++
++/** Builds one JSON array; elements appear in the order they are added. */
++class JsonArray {
++public:
++	JsonArray &add(int value);
++	/** @p json must already be valid JSON. */
++	JsonArray &addRaw(const Common::String &json);
++	JsonArray &add(const JsonObject &value) { return addRaw(value.str()); }
++	bool empty() const { return _elements.empty(); }
++	Common::String str() const;
++
++private:
++	Common::String _elements;
++};
++
++/**
++ * A JSON Lines file (the trace, contract C5): one value per line, flushed
++ * as soon as it is written. The file is written in place, not through the
++ * temporary file DumpFile renames over the target on close, so a run that
++ * crashes or is killed keeps every line written so far.
++ */
++class JsonlWriter {
++public:
++	/** Create or truncate @p path, creating its parent directories as needed. */
++	bool open(const Common::Path &path);
++	bool isOpen() const { return _file.isOpen(); }
++	/** Append @p json and a newline, then flush. Warns once if writing fails. */
++	void writeLine(const Common::String &json);
++	void close() { _file.close(); }
++
++private:
++	/** DumpFile::open(path, true) creates the directories, then calls open(node). */
++	class InPlaceFile : public Common::DumpFile {
++	public:
++		using Common::DumpFile::open;
++		bool open(const Common::FSNode &node) override;
++	};
++
++	InPlaceFile _file;
++	Common::String _name; // for the warning
++	bool _writeFailed = false;
++};
++
++/**
++ * Write @p json and a newline to @p path, creating its parent directories.
++ * Atomic: readers see the old file or the whole new one, never a part.
++ */
++bool writeJsonFile(const Common::Path &path, const Common::String &json);
++
++} // End of namespace Scumm
++
++#endif
+diff --git a/engines/scumm/speedrun/speedrun_plan.cpp b/engines/scumm/speedrun/speedrun_plan.cpp
+new file mode 100644
+index 00000000..82beb275
+--- /dev/null
++++ b/engines/scumm/speedrun/speedrun_plan.cpp
+@@ -0,0 +1,446 @@
++/* ScummVM - Graphic Adventure Engine
++ *
++ * ScummVM is the legal property of its developers, whose names
++ * are too numerous to list here. Please refer to the COPYRIGHT
++ * file distributed with this source distribution.
++ *
++ * This program is free software: you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License as published by
++ * the Free Software Foundation, either version 3 of the License, or
++ * (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
++ *
++ */
++
++// The plan player (docs/plan.md contract C4): loads SPEEDRUN_PLAN (parsed in
++// speedrun_plan_parser.cpp) and replays its steps at the decision point,
++// through the engine's own entry points: doSentence() for sentences,
++// runInputScript(kVerbClickArea, verb, 1) for verb and dialogue clicks (what
++// checkExecVerbs() calls for a real click).
 +
 +#include "common/algorithm.h"
-+#include "common/formats/json.h"
 +#include "common/fs.h"
 +#include "common/stream.h"
 +
@@ -1441,6 +1595,16 @@ index 00000000..1c6fef7e
 +	       (var >= 44 && var <= 47) || var == 53;
 +}
 +
++// A step without a sentence or clicks only answers a menu the game opens.
++bool isDialogOnly(const SpeedrunStep &st) {
++	return !st.hasVerb && st.clicks.empty();
++}
++
++// The tail of a step_timeout message: the blocker as stall records name it.
++Common::String blockedBy(const char *blocker) {
++	return blocker ? Common::String("blocked by ") + blocker : Common::String("not blocked at the deadline");
++}
++
 +Common::String asciiLower(const Common::String &s) {
 +	Common::String out;
 +	for (uint i = 0; i < s.size(); i++) {
@@ -1449,6 +1613,419 @@ index 00000000..1c6fef7e
 +	}
 +	return out;
 +}
++
++} // End of anonymous namespace
++
++#pragma mark - Loading
++
++void SpeedrunBridge::loadPlan() {
++	const Common::FSNode node(Common::Path(_planPath, Common::Path::kNativeSeparator));
++	Common::SeekableReadStream *stream = node.createReadStream();
++	if (!stream)
++		raiseError("bad_plan", Common::String::format("cannot read SPEEDRUN_PLAN '%s'", _planPath.c_str()));
++	const Common::String text = stream->readString(0, (uint32)stream->size());
++	delete stream;
++
++	// Parsed and checked into a local array, committed only once valid: until
++	// then errorStep() is -1, so a load error names no step in its record
++	// (its message does).
++	Common::Array<SpeedrunStep> plan;
++	Common::String error;
++	if (!parseSpeedrunPlan(text, plan, error))
++		raiseError("bad_plan", Common::String::format("SPEEDRUN_PLAN '%s': %s", _planPath.c_str(), error.c_str()));
++
++	// Ranges need the game's counts, known from init() on.
++	for (uint i = 0; i < plan.size(); i++) {
++		const SpeedrunStep &st = plan[i];
++		const Common::String where = Common::String::format("step %u (%s)", i, st.action.c_str());
++		const int32 objs[] = {st.hasVerb ? st.obj : 1, st.obj2};
++		for (int32 o : objs) {
++			if (o < 0 || o >= _vm->_numGlobalObjects)
++				raiseError("bad_plan", Common::String::format("%s: object %d out of range", where.c_str(), o));
++		}
++		if (st.hasVerb && (st.verb <= 0 || st.verb > 0xFF || st.obj == 0))
++			raiseError("bad_plan", Common::String::format("%s: sentence needs a verb 1..255 and an object", where.c_str()));
++		for (uint k = 0; k < st.clicks.size(); k++) {
++			const SpeedrunClick &c = st.clicks[k];
++			if (c.inventory && !_inventory.valid)
++				raiseError("bad_plan", Common::String::format("%s: inventory click needs SPEEDRUN_INVENTORY", where.c_str()));
++			if (c.inventory ? (c.value <= 0 || c.value >= _vm->_numGlobalObjects) : (c.value <= 0 || c.value > 0xFFFF))
++				raiseError("bad_plan", Common::String::format("%s: click %u target %d out of range", where.c_str(), k, c.value));
++		}
++		checkConditionRanges(st.until, (where + " until").c_str(), "bad_plan");
++	}
++	_plan.swap(plan);
++	_stepIndex = 0;
++	_stepWaitSince = 0;
++}
++
++#pragma mark - Execution
++
++void SpeedrunBridge::runPlan() {
++	// One engine action (push, click or answer) per decision point: each
++	// must be seen by checkAndRunSentenceScript() and the next frame first.
++	const IdleKind kind = _lastIdle.kind;
++	if (kind != kIdleDialog)
++		_menuAnswered = false;
++
++	if (_stepActive) {
++		const SpeedrunStep &st = _plan[_stepIndex];
++		const char *blocker = activeStepBlocker();
++		if (_ticks - _stepStartTick >= _stepTimeout) {
++			fail("step_timeout", Common::String::format(
++				"step %u (%s) did not complete within %llu ticks: clicks %u/%u, choices %u/%u, %s",
++				_stepIndex, st.action.c_str(), (unsigned long long)_stepTimeout, _clickIndex, st.clicks.size(),
++				_chooseIndex, st.choose.size(), blockedBy(blocker).c_str()));
++			return;
++		}
++		if (kind == kNotIdle)
++			return; // the idle blocker, with its script slot, is already set
++		if (blocker) {
++			setBlocker(blocker);
++			return;
++		}
++		if (kind == kIdleDialog) {
++			answerChoice();
++			return;
++		}
++		if (_clickIndex < st.clicks.size()) {
++			performClick();
++			return;
++		}
++		// Sentence-idle after the push frame: the queue has drained, so the
++		// sentence (and anything it queued) ran.
++		completeStep();
++	}
++
++	if (_planDone) {
++		if (kind == kIdleDialog)
++			fail("unexpected_choice", "dialogue menu after the last step: " + visibleChoices());
++		return;
++	}
++	tryStartStep();
++}
++
++bool SpeedrunBridge::tryStartStep() {
++	const SpeedrunStep &st = _plan[_stepIndex];
++	const IdleKind kind = _lastIdle.kind;
++	const char *blocker = pendingStepBlocker();
++
++	// The waiting time counts from the later of the previous step's end and
++	// the segment start; before the segment starts, max_ticks is the cap.
++	if (_segmentStarted) {
++		const uint64 since = MAX(_stepWaitSince, _tick0);
++		if (_ticks - since >= _stepTimeout) {
++			fail("step_timeout", Common::String::format(
++				"step %u (%s) could not start within %llu ticks: %s", _stepIndex, st.action.c_str(),
++				(unsigned long long)_stepTimeout, blockedBy(blocker).c_str()));
++			return false;
++		}
++	}
++
++	if (kind == kIdleDialog && !isDialogOnly(st)) {
++		fail("unexpected_choice", Common::String::format("dialogue menu before step %u (%s), which does not answer one: %s",
++		                                                 _stepIndex, st.action.c_str(), visibleChoices().c_str()));
++		return false;
++	}
++	if (kind == kNotIdle)
++		return false; // the idle blocker, with its script slot, is already set
++	if (blocker) {
++		setBlocker(blocker);
++		return false;
++	}
++	if (_idleStreak < kIdleStreakRequired)
++		return false;
++	startStep();
++	return true;
++}
++
++const char *SpeedrunBridge::activeStepBlocker() const {
++	// What keeps the active step from acting at this decision point, named
++	// as the stall records name it; nullptr if it clicks, answers or ends.
++	const SpeedrunStep &st = _plan[_stepIndex];
++	switch (_lastIdle.kind) {
++	case kNotIdle:
++		return _lastIdle.blocker;
++	case kIdleDialog:
++		// An answered menu has to go away before the next one is answered.
++		return _menuAnswered ? "menu_answered" : nullptr;
++	case kIdleSentence:
++		// The sentence ran, but the menu this step answers has not come up.
++		return (_clickIndex >= st.clicks.size() && _chooseIndex < st.choose.size()) ? "awaiting_menu" : nullptr;
++	}
++	return nullptr;
++}
++
++const char *SpeedrunBridge::pendingStepBlocker() const {
++	// What keeps the next step from starting at this decision point, named
++	// as the stall records name it; nullptr if it may start. The step's
++	// `until` is only evaluated once the idle kind is right.
++	const SpeedrunStep &st = _plan[_stepIndex];
++	const bool dialogOnly = isDialogOnly(st);
++	const IdleKind kind = _lastIdle.kind;
++	if (kind == kNotIdle)
++		return _lastIdle.blocker;
++	if (kind != (dialogOnly ? kIdleDialog : kIdleSentence))
++		return dialogOnly ? "awaiting_menu" : "dialog";
++	return allHold(st.until) ? nullptr : "until";
++}
++
++void SpeedrunBridge::startStep() {
++	const SpeedrunStep &st = _plan[_stepIndex];
++	ScummEngine &e = *_vm;
++
++	if (st.hasRoom && e._currentRoom != st.room) {
++		fail("room_mismatch", Common::String::format("expected room %d, ego in %d", st.room, e._currentRoom));
++		return;
++	}
++	if (st.hasVerb) {
++		// A scene click can never select an untouchable object (findObject()
++		// skips class 32), so neither may a pushed sentence. Exempt: actors,
++		// and ego's inventory, which is clicked through the slot verbs and
++		// Var[133+k], never findObject() (global/script-004.txt [0304]-[0345]);
++		// MI1 inventory items often carry class 32 (e.g. the meat once used).
++		const int32 objs[] = {st.obj, st.obj2};
++		const int ego = e._scummVars[e.VAR_EGO];
++		for (int32 o : objs) {
++			if (o >= e._numActors && e._objectOwnerTable[o] != ego &&
++			    (e._classData[o] & (1u << (kObjectClassUntouchable - 1)))) {
++				fail("untouchable_target", Common::String::format("object %d is untouchable (class %d) at step start", o, (int)kObjectClassUntouchable));
++				return;
++			}
++		}
++	}
++
++	takeSnapshot();
++	JsonObject rec = record("step_start");
++	rec.add("step", (int)_stepIndex).add("action", st.action).add("room", (int)e._currentRoom);
++	if (st.hasVerb)
++		rec.addRaw("sentence", JsonArray().add(st.verb).add(st.obj).add(st.obj2).str());
++	writeRecord(rec);
++
++	_stepActive = true;
++	_stepStartTick = _ticks;
++	_clickIndex = 0;
++	_chooseIndex = 0;
++	markProgress();
++
++	if (st.hasVerb) {
++		e.doSentence(st.verb, st.obj, st.obj2); // sentence-idle: _sentenceNum is 0
++	} else if (!st.clicks.empty()) {
++		performClick();
++	} else {
++		answerChoice();
++	}
++}
++
++void SpeedrunBridge::completeStep() {
++	JsonObject rec = record("step_end");
++	rec.add("step", (int)_stepIndex)
++	   .add("room", (int)_vm->_currentRoom)
++	   .add("ticks", _ticks - _stepStartTick)
++	   .addRaw("changes", changesJson());
++	writeRecord(rec);
++
++	_stepActive = false;
++	_stepIndex++;
++	_stepWaitSince = _ticks;
++	markProgress();
++	if (_stepIndex >= _plan.size()) {
++		_planDone = true;
++		_planDoneTick = _ticks;
++	}
++}
++
++void SpeedrunBridge::performClick() {
++	const SpeedrunStep &st = _plan[_stepIndex];
++	const SpeedrunClick &c = st.clicks[_clickIndex];
++	ScummEngine &e = *_vm;
++
++	int slotOf = -1; // slot of the verb to click
++	int verbId = c.value;
++	if (c.inventory) {
++		// The slot showing object c.value: verb verbFirst+k is visible and
++		// Var[varFirst+k] holds the object (global/script-009.txt [0092]).
++		int k = -1;
++		for (int i = 0; i < _inventory.count && k < 0; i++) {
++			const int vid = _inventory.verbFirst + i;
++			for (int slot = 1; slot < e._numVerbs && k < 0; slot++) {
++				if (e._verbs[slot].verbid == vid && verbVisible(slot) && e._scummVars[_inventory.varFirst + i] == c.value)
++					k = i;
++			}
++		}
++		if (k < 0) {
++			fail("click_target_missing", Common::String::format("click %u: object %d is in no visible inventory slot", _clickIndex, c.value));
++			return;
++		}
++		// The offset must stay inside the slot layout: next to it are other
++		// verbs, e.g. the scroll arrows 208/209 (global/script-009.txt [00FB], [0120]).
++		const int64 target = (int64)k + c.offset;
++		if (target < 0 || target >= _inventory.count) {
++			fail("click_target_missing", Common::String::format(
++				"click %u: offset %d from object %d's slot %d is outside the %d inventory slots",
++				_clickIndex, c.offset, c.value, k, _inventory.count));
++			return;
++		}
++		verbId = _inventory.verbFirst + (int)target;
++	}
++	for (int slot = 1; slot < e._numVerbs && slotOf < 0; slot++) {
++		if (e._verbs[slot].verbid == verbId && verbVisible(slot))
++			slotOf = slot;
++	}
++	if (slotOf < 0) {
++		fail("click_target_missing", Common::String::format("click %u: verb %d is not a visible verb slot", _clickIndex, verbId));
++		return;
++	}
++
++	e.runInputScript(kVerbClickArea, verbId, 1); // what checkExecVerbs() runs for a left click
++	JsonObject rec = record("click");
++	rec.add("step", (int)_stepIndex).add("verb_id", verbId).add("slot", slotOf);
++	if (c.inventory)
++		rec.add("inventory", c.value).add("offset", c.offset);
++	writeRecord(rec);
++	_clickIndex++;
++	markProgress();
++}
++
++void SpeedrunBridge::answerChoice() {
++	const SpeedrunStep &st = _plan[_stepIndex];
++	if (_chooseIndex >= st.choose.size()) {
++		fail("unexpected_choice", Common::String::format("step %u (%s) has no choose entry left for this menu: %s",
++		                                                 _stepIndex, st.action.c_str(), visibleChoices().c_str()));
++		return;
++	}
++	const Common::String needle = asciiLower(st.choose[_chooseIndex]);
++	int match = -1, matches = 0;
++	Common::String matchText;
++	for (int slot = 1; slot < _vm->_numVerbs; slot++) {
++		const int id = _vm->_verbs[slot].verbid;
++		Common::String text;
++		if (id < kDialogVerbFirst || id > kDialogVerbLast || !verbVisible(slot) || !verbText(slot, true, text))
++			continue;
++		if (asciiLower(text).contains(needle)) {
++			matches++;
++			match = id;
++			matchText = text;
++		}
++	}
++	if (matches == 0) {
++		fail("choice_not_found", Common::String::format("no visible choice contains \"%s\"; visible: %s",
++		                                                st.choose[_chooseIndex].c_str(), visibleChoices().c_str()));
++		return;
++	}
++	if (matches > 1) {
++		fail("choice_ambiguous", Common::String::format("\"%s\" matches %d visible choices: %s",
++		                                                st.choose[_chooseIndex].c_str(), matches, visibleChoices().c_str()));
++		return;
++	}
++
++	_vm->runInputScript(kVerbClickArea, match, 1);
++	JsonObject rec = record("choice");
++	rec.add("step", (int)_stepIndex).add("verb_id", match).add("text", matchText);
++	writeRecord(rec);
++	_chooseIndex++;
++	_menuAnswered = true; // the next answer needs a new menu
++	markProgress();
++}
++
++Common::String SpeedrunBridge::visibleChoices() const {
++	Common::String out;
++	for (int id = kDialogVerbFirst; id <= kDialogVerbLast; id++) {
++		for (int slot = 1; slot < _vm->_numVerbs; slot++) {
++			Common::String text;
++			if (_vm->_verbs[slot].verbid != id || !verbVisible(slot) || !verbText(slot, true, text))
++				continue;
++			out += Common::String::format("%s%d: \"%s\"", out.empty() ? "" : "; ", id, text.c_str());
++		}
++	}
++	return out.empty() ? Common::String("(none)") : out;
++}
++
++#pragma mark - Step changes
++
++void SpeedrunBridge::takeSnapshot() {
++	const ScummEngine &e = *_vm;
++	_snapVars.resize(e._numVariables);
++	for (int i = 0; i < e._numVariables; i++)
++		_snapVars[i] = e._scummVars[i];
++	const int bitBytes = (e._numBitVariables + 7) / 8;
++	_snapBits.resize(bitBytes);
++	for (int i = 0; i < bitBytes; i++)
++		_snapBits[i] = e._bitVars[i];
++	_snapInventory = egoInventory();
++	_snapRoom = e._currentRoom;
++}
++
++Common::String SpeedrunBridge::changesJson() const {
++	const ScummEngine &e = *_vm;
++	JsonObject vars, bits;
++	for (int i = 0; i < e._numVariables && i < (int)_snapVars.size(); i++) {
++		if (!isNoisyVar(i) && _snapVars[i] != e._scummVars[i])
++			vars.addRaw(Common::String::format("%d", i).c_str(), JsonArray().add(_snapVars[i]).add(e._scummVars[i]).str());
++	}
++	for (int n = 0; n < e._numBitVariables && (n >> 3) < (int)_snapBits.size(); n++) {
++		const int before = (_snapBits[n >> 3] >> (n & 7)) & 1;
++		const int after = (e._bitVars[n >> 3] >> (n & 7)) & 1;
++		if (before != after)
++			bits.addRaw(Common::String::format("%d", n).c_str(), JsonArray().add(before).add(after).str());
++	}
++	const Common::Array<int> now = egoInventory();
++	JsonArray added, removed;
++	for (uint i = 0; i < now.size(); i++) {
++		if (Common::find(_snapInventory.begin(), _snapInventory.end(), now[i]) == _snapInventory.end())
++			added.add(now[i]);
++	}
++	for (uint i = 0; i < _snapInventory.size(); i++) {
++		if (Common::find(now.begin(), now.end(), _snapInventory[i]) == now.end())
++			removed.add(_snapInventory[i]);
++	}
++	JsonObject changes;
++	changes.addRaw("vars", vars.str()).addRaw("bits", bits.str());
++	changes.addRaw("inventory", JsonObject().addRaw("added", added.str()).addRaw("removed", removed.str()).str());
++	if (_snapRoom != e._currentRoom)
++		changes.addRaw("room", JsonArray().add(_snapRoom).add((int)e._currentRoom).str());
++	return changes.str();
++}
++
++} // End of namespace Scumm
+diff --git a/engines/scumm/speedrun/speedrun_plan_parser.cpp b/engines/scumm/speedrun/speedrun_plan_parser.cpp
+new file mode 100644
+index 00000000..a24bb1df
+--- /dev/null
++++ b/engines/scumm/speedrun/speedrun_plan_parser.cpp
+@@ -0,0 +1,205 @@
++/* ScummVM - Graphic Adventure Engine
++ *
++ * ScummVM is the legal property of its developers, whose names
++ * are too numerous to list here. Please refer to the COPYRIGHT
++ * file distributed with this source distribution.
++ *
++ * This program is free software: you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License as published by
++ * the Free Software Foundation, either version 3 of the License, or
++ * (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
++ *
++ */
++
++// Parses SPEEDRUN_PLAN (docs/plan.md contract C4): JSONL, one step per line,
++// with exactly the keys of src/speedrun/compiler.py C4_KEYS. Ranges that need
++// the game's counts are checked later, in SpeedrunBridge::loadPlan().
++
++#include "common/formats/json.h"
++
++#include "scumm/speedrun/speedrun_bridge.h"
++
++namespace Scumm {
++
++namespace {
 +
 +bool readInt(const Common::JSONValue *v, int32 &out) {
 +	if (!v || !v->isIntegerNumber())
@@ -1621,346 +2198,13 @@ index 00000000..1c6fef7e
 +	return true;
 +}
 +
-+#pragma mark - Loading
-+
-+void SpeedrunBridge::loadPlan() {
-+	const Common::FSNode node(Common::Path(_planPath, Common::Path::kNativeSeparator));
-+	Common::SeekableReadStream *stream = node.createReadStream();
-+	if (!stream)
-+		raiseError("bad_plan", Common::String::format("cannot read SPEEDRUN_PLAN '%s'", _planPath.c_str()));
-+	const Common::String text = stream->readString(0, (uint32)stream->size());
-+	delete stream;
-+
-+	Common::String error;
-+	if (!parseSpeedrunPlan(text, _plan, error))
-+		raiseError("bad_plan", Common::String::format("SPEEDRUN_PLAN '%s': %s", _planPath.c_str(), error.c_str()));
-+
-+	// Ranges need the game's counts, known from init() on.
-+	for (uint i = 0; i < _plan.size(); i++) {
-+		const SpeedrunStep &st = _plan[i];
-+		const Common::String where = Common::String::format("step %u (%s)", i, st.action.c_str());
-+		const int32 objs[] = {st.hasVerb ? st.obj : 1, st.obj2};
-+		for (int32 o : objs) {
-+			if (o < 0 || o >= _vm->_numGlobalObjects)
-+				raiseError("bad_plan", Common::String::format("%s: object %d out of range", where.c_str(), o));
-+		}
-+		if (st.hasVerb && (st.verb <= 0 || st.verb > 0xFF || st.obj == 0))
-+			raiseError("bad_plan", Common::String::format("%s: sentence needs a verb 1..255 and an object", where.c_str()));
-+		for (uint k = 0; k < st.clicks.size(); k++) {
-+			const SpeedrunClick &c = st.clicks[k];
-+			if (c.inventory && !_inventory.valid)
-+				raiseError("bad_plan", Common::String::format("%s: inventory click needs SPEEDRUN_INVENTORY", where.c_str()));
-+			if (c.inventory ? (c.value <= 0 || c.value >= _vm->_numGlobalObjects) : (c.value <= 0 || c.value > 0xFFFF))
-+				raiseError("bad_plan", Common::String::format("%s: click %u target %d out of range", where.c_str(), k, c.value));
-+		}
-+		checkConditionRanges(st.until, (where + " until").c_str(), "bad_plan");
-+	}
-+	_stepIndex = 0;
-+	_stepWaitSince = 0;
-+}
-+
-+#pragma mark - Execution
-+
-+void SpeedrunBridge::runPlan() {
-+	// One engine action (push, click or answer) per decision point: each
-+	// must be seen by checkAndRunSentenceScript() and the next frame first.
-+	const IdleKind kind = _lastIdle.kind;
-+	if (kind != kIdleDialog)
-+		_menuAnswered = false;
-+
-+	if (_stepActive) {
-+		const SpeedrunStep &st = _plan[_stepIndex];
-+		if (_ticks - _stepStartTick >= _stepTimeout) {
-+			fail("step_timeout", Common::String::format(
-+				"step %u (%s) did not complete within %llu ticks: clicks %u/%u, choices %u/%u, blocked by %s",
-+				_stepIndex, st.action.c_str(), (unsigned long long)_stepTimeout, _clickIndex, st.clicks.size(),
-+				_chooseIndex, st.choose.size(), _blocker.blocker ? _blocker.blocker : (kind == kIdleSentence ? "sentence-idle" : "dialog-idle")));
-+			return;
-+		}
-+		if (kind == kIdleDialog) {
-+			if (_menuAnswered)
-+				setBlocker("menu_answered");
-+			else
-+				answerChoice();
-+			return;
-+		}
-+		if (kind != kIdleSentence)
-+			return; // the idle blocker is already set
-+		if (_clickIndex < st.clicks.size()) {
-+			performClick();
-+			return;
-+		}
-+		if (_chooseIndex < st.choose.size()) {
-+			// The sentence ran, but the menu this step answers has not come up.
-+			setBlocker("awaiting_menu");
-+			return;
-+		}
-+		// Sentence-idle after the push frame: the queue has drained, so the
-+		// sentence (and anything it queued) ran.
-+		completeStep();
-+	}
-+
-+	if (_planDone) {
-+		if (kind == kIdleDialog)
-+			fail("unexpected_choice", "dialogue menu after the last step: " + visibleChoices());
-+		return;
-+	}
-+	tryStartStep();
-+}
-+
-+bool SpeedrunBridge::tryStartStep() {
-+	const SpeedrunStep &st = _plan[_stepIndex];
-+	const bool dialogOnly = !st.hasVerb && st.clicks.empty();
-+	const IdleKind kind = _lastIdle.kind;
-+
-+	// The waiting time counts from the later of the previous step's end and
-+	// the segment start; before the segment starts, max_ticks is the cap.
-+	if (_segmentStarted) {
-+		const uint64 since = MAX(_stepWaitSince, _tick0);
-+		if (_ticks - since >= _stepTimeout) {
-+			fail("step_timeout", Common::String::format(
-+				"step %u (%s) could not start within %llu ticks: %s", _stepIndex, st.action.c_str(),
-+				(unsigned long long)_stepTimeout,
-+				kind == kNotIdle ? _lastIdle.blocker : (!allHold(st.until) ? "until does not hold" : "wrong idle kind")));
-+			return false;
-+		}
-+	}
-+
-+	if (kind == kIdleDialog && !dialogOnly) {
-+		fail("unexpected_choice", Common::String::format("dialogue menu before step %u (%s), which does not answer one: %s",
-+		                                                 _stepIndex, st.action.c_str(), visibleChoices().c_str()));
-+		return false;
-+	}
-+	if (kind != (dialogOnly ? kIdleDialog : kIdleSentence)) {
-+		if (kind != kNotIdle)
-+			setBlocker(dialogOnly ? "awaiting_menu" : "dialog");
-+		return false;
-+	}
-+	if (_idleStreak < kIdleStreakRequired)
-+		return false;
-+	if (!allHold(st.until)) {
-+		setBlocker("until");
-+		return false;
-+	}
-+	startStep();
-+	return true;
-+}
-+
-+void SpeedrunBridge::startStep() {
-+	const SpeedrunStep &st = _plan[_stepIndex];
-+	ScummEngine &e = *_vm;
-+
-+	if (st.hasRoom && e._currentRoom != st.room) {
-+		fail("room_mismatch", Common::String::format("expected room %d, ego in %d", st.room, e._currentRoom));
-+		return;
-+	}
-+	if (st.hasVerb) {
-+		// A scene click can never select an untouchable object (findObject()
-+		// skips class 32), so neither may a pushed sentence. Exempt: actors,
-+		// and ego's inventory, which is clicked through the slot verbs and
-+		// Var[133+k], never findObject() (global/script-004.txt [0304]-[0345]);
-+		// MI1 inventory items often carry class 32 (e.g. the meat once used).
-+		const int32 objs[] = {st.obj, st.obj2};
-+		const int ego = e._scummVars[e.VAR_EGO];
-+		for (int32 o : objs) {
-+			if (o >= e._numActors && e._objectOwnerTable[o] != ego &&
-+			    (e._classData[o] & (1u << (kObjectClassUntouchable - 1)))) {
-+				fail("untouchable_target", Common::String::format("object %d is untouchable (class %d) at step start", o, (int)kObjectClassUntouchable));
-+				return;
-+			}
-+		}
-+	}
-+
-+	takeSnapshot();
-+	JsonObject rec = record("step_start");
-+	rec.add("step", (int)_stepIndex).add("action", st.action).add("room", (int)e._currentRoom);
-+	if (st.hasVerb)
-+		rec.addRaw("sentence", JsonArray().add(st.verb).add(st.obj).add(st.obj2).str());
-+	writeRecord(rec);
-+
-+	_stepActive = true;
-+	_stepStartTick = _ticks;
-+	_clickIndex = 0;
-+	_chooseIndex = 0;
-+	markProgress();
-+
-+	if (st.hasVerb) {
-+		e.doSentence(st.verb, st.obj, st.obj2); // sentence-idle: _sentenceNum is 0
-+	} else if (!st.clicks.empty()) {
-+		performClick();
-+	} else {
-+		answerChoice();
-+	}
-+}
-+
-+void SpeedrunBridge::completeStep() {
-+	JsonObject rec = record("step_end");
-+	rec.add("step", (int)_stepIndex)
-+	   .add("room", (int)_vm->_currentRoom)
-+	   .add("ticks", _ticks - _stepStartTick)
-+	   .addRaw("changes", changesJson());
-+	writeRecord(rec);
-+
-+	_stepActive = false;
-+	_stepIndex++;
-+	_stepWaitSince = _ticks;
-+	markProgress();
-+	if (_stepIndex >= _plan.size()) {
-+		_planDone = true;
-+		_planDoneTick = _ticks;
-+	}
-+}
-+
-+void SpeedrunBridge::performClick() {
-+	const SpeedrunStep &st = _plan[_stepIndex];
-+	const SpeedrunClick &c = st.clicks[_clickIndex];
-+	ScummEngine &e = *_vm;
-+
-+	int slotOf = -1; // slot of the verb to click
-+	int verbId = c.value;
-+	if (c.inventory) {
-+		// The slot showing object c.value: verb verbFirst+k is visible and
-+		// Var[varFirst+k] holds the object (global/script-009.txt [0092]).
-+		int k = -1;
-+		for (int i = 0; i < _inventory.count && k < 0; i++) {
-+			const int vid = _inventory.verbFirst + i;
-+			for (int slot = 1; slot < e._numVerbs && k < 0; slot++) {
-+				if (e._verbs[slot].verbid == vid && verbVisible(slot) && e._scummVars[_inventory.varFirst + i] == c.value)
-+					k = i;
-+			}
-+		}
-+		if (k < 0) {
-+			fail("click_target_missing", Common::String::format("click %u: object %d is in no visible inventory slot", _clickIndex, c.value));
-+			return;
-+		}
-+		verbId = _inventory.verbFirst + k + c.offset;
-+	}
-+	for (int slot = 1; slot < e._numVerbs && slotOf < 0; slot++) {
-+		if (e._verbs[slot].verbid == verbId && verbVisible(slot))
-+			slotOf = slot;
-+	}
-+	if (slotOf < 0) {
-+		fail("click_target_missing", Common::String::format("click %u: verb %d is not a visible verb slot", _clickIndex, verbId));
-+		return;
-+	}
-+
-+	e.runInputScript(kVerbClickArea, verbId, 1); // what checkExecVerbs() runs for a left click
-+	JsonObject rec = record("click");
-+	rec.add("step", (int)_stepIndex).add("verb_id", verbId).add("slot", slotOf);
-+	if (c.inventory)
-+		rec.add("inventory", c.value).add("offset", c.offset);
-+	writeRecord(rec);
-+	_clickIndex++;
-+	markProgress();
-+}
-+
-+void SpeedrunBridge::answerChoice() {
-+	const SpeedrunStep &st = _plan[_stepIndex];
-+	if (_chooseIndex >= st.choose.size()) {
-+		fail("unexpected_choice", Common::String::format("step %u (%s) has no choose entry left for this menu: %s",
-+		                                                 _stepIndex, st.action.c_str(), visibleChoices().c_str()));
-+		return;
-+	}
-+	const Common::String needle = asciiLower(st.choose[_chooseIndex]);
-+	int match = -1, matches = 0;
-+	Common::String matchText;
-+	for (int slot = 1; slot < _vm->_numVerbs; slot++) {
-+		const int id = _vm->_verbs[slot].verbid;
-+		Common::String text;
-+		if (id < kDialogVerbFirst || id > kDialogVerbLast || !verbVisible(slot) || !verbText(slot, true, text))
-+			continue;
-+		if (asciiLower(text).contains(needle)) {
-+			matches++;
-+			match = id;
-+			matchText = text;
-+		}
-+	}
-+	if (matches == 0) {
-+		fail("choice_not_found", Common::String::format("no visible choice contains \"%s\"; visible: %s",
-+		                                                st.choose[_chooseIndex].c_str(), visibleChoices().c_str()));
-+		return;
-+	}
-+	if (matches > 1) {
-+		fail("choice_ambiguous", Common::String::format("\"%s\" matches %d visible choices: %s",
-+		                                                st.choose[_chooseIndex].c_str(), matches, visibleChoices().c_str()));
-+		return;
-+	}
-+
-+	_vm->runInputScript(kVerbClickArea, match, 1);
-+	JsonObject rec = record("choice");
-+	rec.add("step", (int)_stepIndex).add("verb_id", match).add("text", matchText);
-+	writeRecord(rec);
-+	_chooseIndex++;
-+	_menuAnswered = true; // the next answer needs a new menu
-+	markProgress();
-+}
-+
-+Common::String SpeedrunBridge::visibleChoices() const {
-+	Common::String out;
-+	for (int id = kDialogVerbFirst; id <= kDialogVerbLast; id++) {
-+		for (int slot = 1; slot < _vm->_numVerbs; slot++) {
-+			Common::String text;
-+			if (_vm->_verbs[slot].verbid != id || !verbVisible(slot) || !verbText(slot, true, text))
-+				continue;
-+			out += Common::String::format("%s%d: \"%s\"", out.empty() ? "" : "; ", id, text.c_str());
-+		}
-+	}
-+	return out.empty() ? Common::String("(none)") : out;
-+}
-+
-+#pragma mark - Step changes
-+
-+void SpeedrunBridge::takeSnapshot() {
-+	const ScummEngine &e = *_vm;
-+	_snapVars.resize(e._numVariables);
-+	for (int i = 0; i < e._numVariables; i++)
-+		_snapVars[i] = e._scummVars[i];
-+	const int bitBytes = (e._numBitVariables + 7) / 8;
-+	_snapBits.resize(bitBytes);
-+	for (int i = 0; i < bitBytes; i++)
-+		_snapBits[i] = e._bitVars[i];
-+	_snapInventory = egoInventory();
-+	_snapRoom = e._currentRoom;
-+}
-+
-+Common::String SpeedrunBridge::changesJson() const {
-+	const ScummEngine &e = *_vm;
-+	JsonObject vars, bits;
-+	for (int i = 0; i < e._numVariables && i < (int)_snapVars.size(); i++) {
-+		if (!isNoisyVar(i) && _snapVars[i] != e._scummVars[i])
-+			vars.addRaw(Common::String::format("%d", i).c_str(), JsonArray().add(_snapVars[i]).add(e._scummVars[i]).str());
-+	}
-+	for (int n = 0; n < e._numBitVariables && (n >> 3) < (int)_snapBits.size(); n++) {
-+		const int before = (_snapBits[n >> 3] >> (n & 7)) & 1;
-+		const int after = (e._bitVars[n >> 3] >> (n & 7)) & 1;
-+		if (before != after)
-+			bits.addRaw(Common::String::format("%d", n).c_str(), JsonArray().add(before).add(after).str());
-+	}
-+	const Common::Array<int> now = egoInventory();
-+	JsonArray added, removed;
-+	for (uint i = 0; i < now.size(); i++) {
-+		if (Common::find(_snapInventory.begin(), _snapInventory.end(), now[i]) == _snapInventory.end())
-+			added.add(now[i]);
-+	}
-+	for (uint i = 0; i < _snapInventory.size(); i++) {
-+		if (Common::find(now.begin(), now.end(), _snapInventory[i]) == now.end())
-+			removed.add(_snapInventory[i]);
-+	}
-+	JsonObject changes;
-+	changes.addRaw("vars", vars.str()).addRaw("bits", bits.str());
-+	changes.addRaw("inventory", JsonObject().addRaw("added", added.str()).addRaw("removed", removed.str()).str());
-+	if (_snapRoom != e._currentRoom)
-+		changes.addRaw("room", JsonArray().add(_snapRoom).add((int)e._currentRoom).str());
-+	return changes.str();
-+}
-+
 +} // End of namespace Scumm
 diff --git a/engines/scumm/speedrun/speedrun_state.cpp b/engines/scumm/speedrun/speedrun_state.cpp
 new file mode 100644
-index 00000000..bdd79bac
+index 00000000..6763d245
 --- /dev/null
 +++ b/engines/scumm/speedrun/speedrun_state.cpp
-@@ -0,0 +1,495 @@
+@@ -0,0 +1,497 @@
 +/* ScummVM - Graphic Adventure Engine
 + *
 + * ScummVM is the legal property of its developers, whose names
@@ -2012,7 +2256,9 @@ index 00000000..bdd79bac
 +//   [00AA]-[00B7]). Not yet confirmed against live verb slots in a menu: no
 +//   menu is reachable before the plan player (task 1.3).
 +// - Not used here: prepositions 129..132 (script-022 [01C8]-[01E5]), the
-+//   sentence line 100, inventory arrows 109/110, inventory slots 200..207.
++//   sentence line 100, the dialogue scroll arrows 109/110 (script-017
++//   [02FB]-[0319]), inventory slots 200..207 and their scroll arrows 208/209
++//   (global/script-009.txt [0092], [00FB], [0120]).
 +const int kActionVerbFirst = 2, kActionVerbLast = 10;
 +const int kDialogVerbFirst = 120, kDialogVerbLast = 128;
 +
