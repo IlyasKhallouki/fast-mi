@@ -40,6 +40,25 @@ LINK_LINE_RE = re.compile(r"\(link\s+(\S+)\s+(\S+)\)")
 ALLOWED_REQUIREMENTS = {":strips", ":typing", ":negative-preconditions", ":action-costs", ":equality"}
 # Features astar(lmcut()) rejects or that compile to axioms (docs/research/fast-downward.md section 6).
 FORBIDDEN_KEYWORDS = {"when", "forall", "exists", "or", "imply", ":derived", "either"}
+# Actions that may push the same sentence twice in a row. Room 52 cancels the
+# first walk to the circus tent with doSentence(STOP) once ego is in walkbox 7
+# at x > 200 (data/scripts/room-052-circus-gr/local-202.txt [0000]), so a
+# player clicks the tent twice (docs/part1/model.md section 12).
+DOUBLE_SENTENCE_ALLOWED = {"walk-into-tent-with-pot"}
+# Pairs of different actions that push the same sentence back to back because
+# the first changes the state its object script branches on. Walk to 387:
+# room-030-store/local-204.txt [0031] counts unpaid items; with the shovel
+# unpaid the walk ends in the store menu ([004E]-[042B]), once it is paid the
+# same walk leaves the store ([0044]).
+REPEATED_SENTENCE_PAIRS = {
+    (pay, "walk-out-of-store")
+    for pay in (
+        "pay-for-shovel",
+        "pay-for-shovel-files-topic",
+        "pay-for-shovel-and-mints",
+        "pay-for-shovel-and-mints-files-topic",
+    )
+}
 
 
 # --- tiny PDDL reader ----------------------------------------------------------
@@ -302,12 +321,124 @@ def test_steps_resolve_against_script_index():
             assert step["action"] == key
 
 
+# --- one player sentence = one action ------------------------------------------------
+
+
+def _sentence(step: dict) -> tuple | None:
+    """A compiled step's sentence as (verb, obj, obj2, where), or None for click/dialogue-only steps.
+
+    ``where`` is the step's room, or for forest steps (no ``room``) the pseudo-room
+    they wait on in VAR_ROOM (var 4), so the same path object in two pseudo-rooms
+    is two different sentences.
+    """
+    if "verb" not in step:
+        return None
+    where = step.get("room")
+    if where is None:
+        where = next((c["eq"] for c in step.get("until", []) if c.get("var") == 4 and "eq" in c), None)
+    return (step["verb"], step["obj"], step.get("obj2", 0), where)
+
+
+def _ground_actions() -> dict[str, tuple[set, set]]:
+    """Every ground action key -> (positive precondition atoms, add effect atoms)."""
+    out = {}
+    for name, action in _actions().items():
+        if name == "walk":
+            continue
+        pre = {tuple(a) for pos, a in _atoms(_keyword_value(action, ":precondition")) if pos}
+        add = {tuple(a) for pos, a in _atoms(_keyword_value(action, ":effect")) if pos}
+        out[name] = (pre, add)
+    for a, b in _problem_links():
+        out[f"walk {a} {b}"] = ({("at", a), ("link", a, b)}, {("at", b)})
+    return out
+
+
+def _compiled_templates() -> dict[str, list[dict]]:
+    index = _script_index()
+    steps = _steps()
+    return {key: compile_plan(Plan(actions=[tuple(key.split())], cost=1), steps, index) for key in steps["actions"]}
+
+
+def test_no_consecutive_duplicate_sentences():
+    """No action pushes the same sentence twice in a row, inside a template or across an enabling pair.
+
+    The engine runs a repeated sentence twice, so a duplicate is either a
+    wasted action (a defensive re-Open of an open door) or a second click that
+    must be documented (DOUBLE_SENTENCE_ALLOWED). Across actions, A's last
+    sentence is compared with B's first whenever A adds a fact B requires,
+    e.g. open-store-door -> walk-into-store.
+    """
+    _require_index()
+    compiled = _compiled_templates()
+    bad = []
+    for key, steps in compiled.items():
+        sentences = [_sentence(s) for s in steps]
+        for i in range(1, len(sentences)):
+            if sentences[i] is not None and sentences[i] == sentences[i - 1] and key not in DOUBLE_SENTENCE_ALLOWED:
+                bad.append(f"{key!r} steps {i - 1} and {i} push {sentences[i]}")
+    ground = _ground_actions()
+    for a, (_, add_a) in ground.items():
+        last = _sentence(compiled[a][-1])
+        if last is None:
+            continue
+        for b, (pre_b, _) in ground.items():
+            if not add_a & pre_b:
+                continue
+            # A walk straight back (the bar curtain 323 both ways) is never in an optimal plan.
+            if a.startswith("walk ") and b.split()[1:] == a.split()[:0:-1]:
+                continue
+            if _sentence(compiled[b][0]) == last:
+                bad.append(f"{a!r} ends and {b!r} (which it enables) starts with {last}")
+    assert not bad, "consecutive duplicate sentences:\n" + "\n".join(bad)
+
+
+def test_store_door_open_is_used_at_once():
+    """(store-door-open) cannot outlive the next action, so walk-into-store needs no defensive Open.
+
+    High Street citizens close 437 again (room-034-high-stre/local-200.txt
+    [0053], [00CC]), so every action that can run in the town half of High
+    Street, other than the two door actions themselves, requires the door fact
+    false: open-store-door must be followed directly by walk-into-store.
+    """
+    for name, action in _actions().items():
+        if name in {"open-store-door", "walk-into-store"}:
+            continue
+        pre = _atoms(_keyword_value(action, ":precondition"))
+        rooms = [atom[1] for pos, atom in pre if pos and atom[0] == "at"]
+        if rooms and all(not r.startswith("?") and r != "high-street-town" for r in rooms):
+            continue  # never applicable in high-street-town
+        assert (False, ["store-door-open"]) in pre, (
+            f"action {name} can run between open-store-door and walk-into-store; add (not (store-door-open))"
+        )
+
+
 # --- the real planner ------------------------------------------------------------
 
 
+@pytest.fixture(scope="module")
+def optimal_plan(fd_ready, tmp_path_factory) -> Plan:
+    return run_planner(DOMAIN, PROBLEM, tmp_path_factory.mktemp("part1") / "part1.sas_plan", time_limit_s=300)
+
+
 @pytest.mark.requires_fd
-def test_planner_finds_plan(fd_ready, tmp_path):
-    plan = run_planner(DOMAIN, PROBLEM, tmp_path / "part1.sas_plan", time_limit_s=300)
+def test_optimal_plan_has_no_consecutive_duplicate_sentences(optimal_plan: Plan):
+    _require_index()
+    compiled = compile_plan(optimal_plan, _steps(), _script_index())
+    bad = []
+    for i in range(1, len(compiled)):
+        prev, cur = compiled[i - 1], compiled[i]
+        same = _sentence(cur) is not None and _sentence(cur) == _sentence(prev)
+        allowed = prev["action"] == cur["action"] in DOUBLE_SENTENCE_ALLOWED or (
+            (prev["action"], cur["action"]) in REPEATED_SENTENCE_PAIRS
+        )
+        if same and not allowed:
+            bad.append(f"steps {i - 1} ({prev['action']}) and {i} ({cur['action']}) push {_sentence(cur)}")
+    assert not bad, "consecutive duplicate sentences in the compiled optimal plan:\n" + "\n".join(bad)
+
+
+@pytest.mark.requires_fd
+def test_planner_finds_plan(optimal_plan: Plan):
+    plan = optimal_plan
     assert plan.actions
     assert plan.cost == len(plan.actions)  # every action costs 1
     steps = _steps()

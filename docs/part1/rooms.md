@@ -209,6 +209,7 @@ The curtain 323 (x 304–344) is visible from both halves. It walks you across: 
 |---|---|---|---|---|
 | T25 | 28L → 33 | (11, 315 "door") | `data/scripts/room-028-bar/obj-0315-door.txt [0090]` loadRoomWithEgo(428,33) | state(315)==1 (`[0072]`–`[0077]`) and `Bit[446]` already set. Open: (2, 315), `[0018]`–`[0034]` → script 25 [315,428]. |
 | T26 | 28L → (70, 72) → 33 | same sentence, **first time only** | `data/scripts/room-028-bar/obj-0315-door.txt [0080]`–`[008A]`: `Bit[446]=1`, start global script 120 (the LeChuck "Meanwhile" cutscene in rooms 70/72), which ends with `data/scripts/global/script-120.txt [0538]` loadRoomWithEgo(428,33) | none (phase A). Same endpoint as T25, but with a long cutscene in between. |
+| T25a | 28R → 33 | (11, 315 "door") from the right half | Same door script as T25/T26: state check `data/scripts/room-028-bar/obj-0315-door.txt [0072]`–`[0077]`; first exit `[0080]`–`[008A]` → `data/scripts/global/script-120.txt [0538]`; later exits `[0090]` loadRoomWithEgo(428,33) | state(315)==1. 315 is off screen from 28R, but the sentence walks ego left, and local-201 pans the camera to the left half once ego is left of x 320 (`data/scripts/room-028-bar/local-201.txt [0000]`–`[0016]`), so 315 comes on screen. That is the case the off-screen rule allows (`rules/glitchless.md`, "Camera visibility"). It is one sentence instead of the curtain (T28) plus T25. |
 | T27 | 28R → 41 | (11, 316 "door") | `data/scripts/room-028-bar/obj-0316-door.txt [003F]`–`[004B]` → `data/scripts/room-028-bar/local-218.txt [0017]` loadRoomWithEgo(570,41) | state(316)==1. Open: (2, 316), `data/scripts/room-028-bar/obj-0316-door.txt [0018]`–`[0027]` → script 25 [316,570]. **Phase A guard (the cook):**<ul><li>While the cook is in the kitchen (local-211 running), Open gives "You can't come back here!" and the door stays shut (`[0018]`–`[0021]` → `data/scripts/room-028-bar/local-214.txt`).</li><li>The room's input script also blocks a *click* on 316 while the cook stands at x > 310 (`data/scripts/room-028-bar/local-203.txt [0012]`–`[002B]` → local-215).</li><li>A usable window exists only while the cook is in the bar at x ≤ 310 (`data/scripts/room-028-bar/local-203.txt [002D]`–`[0035]`).</li><li>The cook comes out after 30–50 s (`data/scripts/room-028-bar/local-211.txt [000D]`) and goes back in (`data/scripts/room-028-bar/local-216.txt [0065]`–`[0085]`).</li></ul>Each bar entry other than from 41 resets 316 to closed (`data/scripts/room-028-bar/local-205.txt [0040]`). In phase B none of this applies (`[000A]`; `data/scripts/room-028-bar/local-203.txt [0002]`). |
 | T28 | 28L ↔ 28R | (11, 323 "curtain") or (11, 320) | intra-room walk (`data/scripts/room-028-bar/obj-0323-curtain.txt [000C]`–`[0022]`) | none |
 | T29 | 41 → 28R | (11, 570 "door") | `data/scripts/room-041-kitchen/obj-0570-door.txt [003C]` loadRoomWithEgo(316,28) | state(570)==1 (`[0030]`–`[0035]`). It is open on arrival, because opening 316 also opens 570 (script 25 partner). |
@@ -526,7 +527,7 @@ T00–T02, T05/T06 (their own sentence is the phase-B redirect), T26, T33, T38, 
 29   : 35 (11,367) {open(367)}
 78   : 34T (11,857) | (11,858)
 28L  : 33 (11,315) {open(315)} ; 28R (11,323) | (11,320)
-28R  : 41 (11,316) {open(316)} ; 28L (11,323) | (11,320)
+28R  : 41 (11,316) {open(316)} ; 28L (11,323) | (11,320) ; 33 (11,315) {open(315)} (T25a)
 41   : 28R (11,570) {open(570)}
 36   : 34M (11,466) ; 53 (11,465) {Bit15, open(465)}
 53   : 36 (11,633) {open(633)}
@@ -578,7 +579,7 @@ These replace the plain destination when their condition holds, or have no sente
 38 (11,486) | 85 (11,917) | 35 (11,450)  -> 83 {Var196>=3, !Bit449; Var277=2}            (T05)
 38 (11,486) | 85 (11,917) | 35 (11,450)  -> 83 -> 19 {Var196>=3, Bit88&Bit89&Bit76&Bit51} (T06, T38: end of Part I)
 53 (2,633) {has(635)}                    -> 83 -> 42  (T33)
-28L first exit {!Bit446}                 -> (cutscene 70/72) -> 33  (T26)
+28L/28R first exit {!Bit446}             -> (cutscene 70/72) -> 33  (T26; also from 28R, T25a)
 31/48N/61 first exit {Bit88+Bit89+Bit76>0, !Bit447} -> (cutscene 70/72) -> same destination
 37  -> 48F   (dialogue eviction, T58a)
 59  -> 85    (Stan dialogue, T60a)
@@ -604,9 +605,9 @@ Each makes `open(d)` true and needs no room change: (2,428) or (2,315); (2,316) 
 
 ### 5.6 Counts
 
-- 70 numbered transition rows in §2: T00–T67 without T61, plus T49a, T58a and T60a.
+- 71 numbered transition rows in §2: T00–T67 without T61, plus T25a, T49a, T58a and T60a.
 - 51 location nodes, plus terminal 19.
-- 108 directed player edges in §5.2, counting `|` alternatives once. That is 47 edges from forest nodes (including the exits to 61, 64 and 85) and 61 edges from the other nodes.
+- 109 directed player edges in §5.2, counting `|` alternatives once. That is 47 edges from forest nodes (including the exits to 61, 64 and 85) and 62 edges from the other nodes.
 
 ---
 
@@ -640,7 +641,7 @@ The rules allow only sentences a click could produce (`rules/glitchless.md`, Ban
 | room | camera pinning (cite) | exits off screen on arrival |
 |---|---|---|
 | 34 | town: `RoomScroll(528,1121)`, so c ∈ [528,640]; mansion: `RoomScroll(160,160)` (`data/scripts/room-034-high-stre/entry.txt [0046]`–`[0056]`) | <ul><li>From the town half, 431/439 (x 0–88) are never visible. Hence the 34T/34M split.</li><li>Arriving from 35 (ego to x 750, so c = 640), 434 (456–472) and 436 (368–416) are off screen. 438, 437 and 432 are visible and can serve as walk-left steps.</li></ul> |
-| 28 | c = 160 if ego x < 320, else 480 (`data/scripts/room-028-bar/local-201.txt [0000]`–`[0016]`) | 316 is off screen from 28L, and 315 from 28R. The curtain 323 is visible from both. |
+| 28 | c = 160 if ego x < 320, else 480 (`data/scripts/room-028-bar/local-201.txt [0000]`–`[0016]`) | 316 is off screen from 28L, and 315 from 28R. The curtain 323 is visible from both. A walk toward either door crosses x 320, so the camera switches and the door comes on screen (T25a). |
 | 29 | c = 160 near the door, 336 deeper in (box > 5), back to 160 when box < 5 (`data/scripts/room-029-fortune/local-200.txt [0001]`, `[003D]`, `[005B]`) | 367 (88–120) is off screen while c = 336. Couch/trunk/chickens 369 lie in the overlap and can serve as walk-left steps. |
 | 52 | c = 160 if ego x < 228, else 366 (`data/scripts/room-052-circus-gr/local-201.txt [000D]`, `[001D]`) | **Arrival from the map walks the ego to x 430, so c = 366: the tent 621 (48–168) is off screen.** No other object in 52 has a verb (index.json), so no sentence can bring it into view. See §8 Q1. |
 | 61 | `RoomScroll(160,160)` then `RoomScroll(160,304)` (`data/scripts/room-061-sword-mas/entry.txt [0047]`–`[004E]`) | Path 743 (x 0–24) is visible on arrival. |

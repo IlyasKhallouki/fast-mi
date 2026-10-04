@@ -8,17 +8,23 @@
   (:init
     ; src: data/scripts/room-096-part1/local-200.txt [003B] — loadRoomWithEgo(426,33,346,133): control starts on the dock
     (at dock)
-    ; src: data/scripts/room-041-kitchen/obj-0566-hunk-of-meat.txt [0035] — the meat starts in the kitchen (owner 15)
+    ;; Initial owners: DOBJ in game/classic/MONKEY1.000 gives 566, 567 and 689
+    ;; owner 15 (owned by their room), decoded as in docs/part1/rooms.md
+    ;; section 0.3 and docs/part1/treasure.md (E8); the segment-start dump
+    ;; (state-start.json "owners") agrees. The script lines say where the owner is checked.
+    ; src: data/scripts/room-041-kitchen/obj-0566-hunk-of-meat.txt [0035] — owner checked: Pick up 566 needs owner 15 (DOBJ: owner 15)
     (meat-in-kitchen)
-    ; src: data/scripts/room-041-kitchen/obj-0567-pot.txt [001E] — the pot starts in the kitchen (owner 15)
+    ; src: data/scripts/room-041-kitchen/obj-0567-pot.txt [001E] — owner checked: Pick up 567 needs owner 15 (DOBJ: owner 15)
     (pot-in-kitchen)
-    ; src: data/scripts/room-058-damnfores/obj-0678-plants.txt [0086] — the petal starts owned by its room (owner 15)
+    ; src: data/scripts/room-058-damnfores/obj-0678-plants.txt [0086] — owner checked: the plants give 689 only while it has owner 15 (DOBJ: owner 15)
     (petal-in-forest)
     (= (total-cost) 0)
 
     ;; ---- Static exits (docs/part1/rooms.md section 5.2). Each carries the
     ;; script that performs the room change. The 34T/34M, 28L/28R and
     ;; F207a/F207b splits follow rooms.md sections 2.3, 2.4 and 2.9.
+    ;; No 28L -> kitchen link (Walk to 316 from the left half): the longer walk
+    ;; widens the cook's door race (docs/part1/model.md section 2).
     (link lookout dock) ; src: data/scripts/room-038-lookout/obj-0486-stairs.txt [0059] — stairs: loadRoomWithEgo(426,33) (Bit[395] already set)
     (link lookout melee-map) ; src: data/scripts/room-038-lookout/obj-0487-path.txt [0010] — path: loadRoomWithEgo(913,85)
     (link dock lookout) ; src: data/scripts/room-033-dock/obj-0426-cliffside.txt [000C] — cliffside: loadRoomWithEgo(486,38)
@@ -31,7 +37,8 @@
     (link high-street-mansion mansion) ; src: data/scripts/room-034-high-stre/obj-0431-governor-s-mansion.txt [000C] — Governor's mansion: loadRoomWithEgo(466,36)
     (link high-street-mansion high-street-town) ; src: data/scripts/room-034-high-stre/obj-0435-town.txt [002E] — town: walk back to the town half
     (link jail high-street-town) ; src: data/scripts/room-031-jail/obj-0400-doorway.txt [0037] — doorway 400: loadRoomWithEgo(434,34)
-    (link bar-left dock) ; src: data/scripts/room-028-bar/obj-0315-door.txt [0090] — door 315 (open since the dock door was opened): loadRoomWithEgo(428,33)
+    (link bar-left dock) ; src: data/scripts/room-028-bar/obj-0315-door.txt [0072] — door 315 needs state 1 (open since the dock door was opened); first exit [0080]-[008A] Bit[446] = 1 and global/script-120.txt [0538] loadRoomWithEgo(428,33) after the LeChuck cutscene; later exits [0090] loadRoomWithEgo(428,33)
+    (link bar-right dock) ; src: data/scripts/room-028-bar/obj-0315-door.txt [0072] — the same door 315 from the right half (rooms.md T25a): first exit [0080]-[008A] -> global/script-120.txt [0538], later exits [0090]; local-201.txt [0000] pans the camera to the left half as ego walks left, so 315 comes on screen
     (link bar-left bar-right) ; src: data/scripts/room-028-bar/obj-0323-curtain.txt [0018] — curtain: walk to (330,137), right half
     (link bar-right bar-left) ; src: data/scripts/room-028-bar/obj-0323-curtain.txt [0022] — curtain: walk to (310,137), left half
     (link kitchen bar-right) ; src: data/scripts/room-041-kitchen/obj-0570-door.txt [003C] — door 570 (state 1): loadRoomWithEgo(316,28)

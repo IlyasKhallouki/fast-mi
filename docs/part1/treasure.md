@@ -615,6 +615,11 @@ All paths are relative to the repo root.
     | 322 | 15 | 0 | {5, 13} |
     | 749 | 15 | 0 | {2} (no class 7) |
     | 685–688, 750, 752, 911 | 15 | 0 | none |
+    | 566 hunk of meat | 15 | 0 | {2, 7, 15} |
+    | 567 pot | 15 | 0 | {2, 7, 16} |
+    | 689 yellow petal | 15 | 0 | {2} |
+
+  - The rows for 566, 567 and 689 give the initial facts `(meat-in-kitchen)`, `(pot-in-kitchen)` and `(petal-in-forest)` in `pddl/part1/problem.pddl`. They were re-decoded read-only for this, and the Part I segment-start dump (`state-start.json`, `owners`/`states`/`classes`) shows the same values.
 - **(E9)** Raw bytes confirming descumm's control flow.
   - Offset + 9 in `build/blocks/DISK_0001/LECF/LFLF_0030/ROOM/LSCR_0211`:
     - `[0749]` = `18 03 00` (jump to `[074F]`);

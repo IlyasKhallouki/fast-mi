@@ -18,7 +18,7 @@ from bit variables 85 and 86.
 ```
 $ uv run speedrun run part1
 ...
-TOTAL: 106892 ticks (29:41.53 at 60 Hz)
+TOTAL: 107660 ticks (29:54.33 at 60 Hz)
 ```
 
 ## Quick start

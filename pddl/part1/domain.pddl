@@ -39,7 +39,7 @@
     (stew-drugged)                    ; obj 574 has class 6
     (meat-in-stew)                    ; obj 566 owner 13
     (bar-door-open)                   ; doors 428/315 state 1
-    (store-door-open)                 ; doors 437/387 opened on this visit to High Street
+    (store-door-open)                 ; doors 437/387 just opened: true only between open-store-door and walk-into-store
     (mansion-door-open)               ; doors 465/633 state 1
     (idol-room-door-open)             ; door 632 state 1
     (idol-room-visited)               ; Bit[481]: local-210 played, hole 637 touchable, 632 locked
@@ -62,9 +62,10 @@
   ; src: data/scripts/global/script-002.txt [02DB] — the sentence script walks ego to the exit object's walk point
   ; src: data/scripts/global/script-002.txt [039D] — then runs the object's verb script, whose loadRoomWithEgo changes room
   ; src: data/scripts/global/script-006.txt [0065] — every room entry flushes the sentence queue, so one walk = one step
+  ; src: data/scripts/room-034-high-stre/local-200.txt [0053] — citizens close 437 again, so no walk may come between open-store-door and walk-into-store
   (:action walk
     :parameters (?from ?to - room)
-    :precondition (and (at ?from) (link ?from ?to))
+    :precondition (and (at ?from) (link ?from ?to) (not (store-door-open)))
     :effect (and (not (at ?from)) (at ?to) (increase (total-cost) 1)))
 
   ;; ===================================================================
@@ -87,9 +88,13 @@
     :precondition (and (at bar-right))
     :effect (and (not (at bar-right)) (at kitchen) (increase (total-cost) 1)))
 
+  ;; One sentence (Walk to 437). The Open is open-store-door, and every other
+  ;; action that can run in high-street-town requires (not (store-door-open)),
+  ;; so the Open comes immediately before this walk: a citizen can close 437
+  ;; in between only within a frame or two (docs/part1/model.md section 7).
   ; src: data/scripts/room-034-high-stre/obj-0437-door.txt [004A] — Walk to 437 tests getObjectState(437) == 1
   ; src: data/scripts/room-034-high-stre/obj-0437-door.txt [005B] — then loadRoomWithEgo(387,30): the store
-  ; src: data/scripts/room-034-high-stre/local-200.txt [0053] — street citizens close 437 again, so each entry needs a fresh Open
+  ; src: data/scripts/room-034-high-stre/local-200.txt [0053] — street citizens close 437 again ([0053], [00CC]), so each entry needs a fresh Open right before it
   (:action walk-into-store
     :parameters ()
     :precondition (and (at high-street-town) (store-door-open))
@@ -353,9 +358,10 @@
   ; src: data/scripts/room-041-kitchen/obj-0566-hunk-of-meat.txt [007E] — Use meat with 689: setClass(566,[134]), class 6
   ; src: data/scripts/global/script-182.txt [0017] — the petal is consumed (owner 0)
   ; src: data/scripts/room-085-melee/local-201.txt [0035] — no Use is possible on the map: every map click becomes Walk to
+  ; src: data/scripts/room-034-high-stre/local-200.txt [0053] — not between open-store-door and walk-into-store (citizens close 437)
   (:action drug-meat-with-petal
     :parameters ()
-    :precondition (and (has meat) (has petal) (not (at melee-map)) (not (at tent)))
+    :precondition (and (has meat) (has petal) (not (at melee-map)) (not (at tent)) (not (store-door-open)))
     :effect (and (meat-drugged) (not (has petal)) (increase (total-cost) 1)))
 
   ;; Drugging, route B: through the stew.
@@ -500,7 +506,8 @@
     :effect (and (idol-room-visited) (has repellent) (has manual) (has lips) (has staple-remover)
                  (increase (total-cost) 1)))
 
-  ; src: data/scripts/room-031-jail/obj-0405-prisoner.txt [001A] — first Talk to: Bit[420] = 1, then the halitosis scene (no menu)
+  ; src: data/scripts/room-031-jail/obj-0405-prisoner.txt [001A] — first Talk to: Bit[420] = 1, then local-202
+  ; src: data/scripts/room-031-jail/local-202.txt [0050] — 405 still has class 6 → [18DE]-[19C0] halitosis, ends at [19C4] with no menu
   (:action talk-to-prisoner
     :parameters ()
     :precondition (and (at jail) (not (otis-breath-known)))
@@ -509,7 +516,8 @@
   ; src: data/scripts/room-031-jail/obj-0405-prisoner.txt [006F] — Give to 405 runs local-203 with the item
   ; src: data/scripts/room-031-jail/local-203.txt [00BF] — mints: setClass(405,[6]) clears the bad breath; the mints are kept
   ; src: data/scripts/room-031-jail/local-203.txt [0112] — chainScript(202): the dialogue opens
-  ; src: data/scripts/room-031-jail/local-202.txt [0546] — "stiff upper lip" ends it
+  ; src: data/scripts/room-031-jail/local-202.txt [0546] — choice 127 "Well, keep a stiff upper lip.  I've gotta go."
+  ; src: data/scripts/room-031-jail/local-202.txt [1381] — choice 127: "Thanks a lot.", then [13A9] goto [19C4]: the dialogue ends
   (:action give-mints-to-prisoner
     :parameters ()
     :precondition (and (at jail) (has mints) (not (otis-breath-fresh)))
@@ -525,9 +533,10 @@
 
   ; src: data/scripts/room-031-jail/obj-0420-cake.txt [0056] — Open cake while it has class 6
   ; src: data/scripts/room-031-jail/obj-0420-cake.txt [005F] — setClass(420,[6,131]): class 6 cleared, renamed "file"
+  ; src: data/scripts/room-034-high-stre/local-200.txt [0053] — not between open-store-door and walk-into-store (citizens close 437)
   (:action open-cake
     :parameters ()
-    :precondition (and (has cake) (not (cake-opened)) (not (at melee-map)) (not (at tent)))
+    :precondition (and (has cake) (not (cake-opened)) (not (at melee-map)) (not (at tent)) (not (store-door-open)))
     :effect (and (cake-opened) (increase (total-cost) 1)))
 
   ; src: data/scripts/room-053-foyer/obj-0637-gaping-hole.txt [0018] — Walk to 637 owning 420 with class 6 clear

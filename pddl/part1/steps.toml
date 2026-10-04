@@ -79,7 +79,15 @@ cite = "data/scripts/room-031-jail/obj-0400-doorway.txt [0037] doorway 400: load
 steps = [{verb = "walk_to", obj = {room = 31, name = "doorway"}, room = 31}]
 
 [actions."walk bar-left dock"]
-cite = "data/scripts/room-028-bar/obj-0315-door.txt [0090] door 315 (open since the dock door was opened): loadRoomWithEgo(428,33)"
+cite = "data/scripts/room-028-bar/obj-0315-door.txt [0072] door 315 needs state 1 (open since the dock door was opened); first exit [0080]-[008A] Bit[446], global/script-120.txt [0538] loadRoomWithEgo(428,33) after the LeChuck cutscene; later exits [0090] loadRoomWithEgo(428,33)"
+steps = [{verb = "walk_to", obj = {room = 28, name = "door", id = 315}, room = 28}]
+
+# From the right half 315 is off screen, but the walk left brings it into view:
+# local-201 [0000] pans the camera to x 160 once ego is left of x 320
+# (rules/glitchless.md, "Camera visibility"). The next step (dock) waits for
+# room 33, which covers the script-120 cutscene on the first exit.
+[actions."walk bar-right dock"]
+cite = "data/scripts/room-028-bar/obj-0315-door.txt [0072] door 315 needs state 1; first exit [0080]-[008A] -> global/script-120.txt [0538], later exits [0090] loadRoomWithEgo(428,33); local-201.txt [0000] the camera pans left as ego walks left"
 steps = [{verb = "walk_to", obj = {room = 28, name = "door", id = 315}, room = 28}]
 
 [actions."walk bar-left bar-right"]
@@ -92,11 +100,12 @@ steps = [{verb = "walk_to", obj = {room = 28, name = "curtain"}, room = 28}]
 
 [actions."walk kitchen bar-right"]
 cite = "data/scripts/room-041-kitchen/obj-0570-door.txt [003C] door 570 (state 1): loadRoomWithEgo(316,28)"
-steps = [
-  # Defensive: the cook may have closed 316 and 570 during the walk-in (docs/part1/input-scripts.md 3.1); a no-op when open.
-  {verb = "open", obj = {room = 41, name = "door", id = 570}, room = 41},
-  {verb = "walk_to", obj = {room = 41, name = "door", id = 570}, room = 41},
-]
+# No Open 570 first: 570 is always open here. Only script 25/26 on the pair
+# 316/570 changes 570, so ego got in through an open 316 with 570 open too.
+# The cook (bar local-216) cannot close them during the walk-in: local-218
+# starts with cutscene([2]), which freezes him (global/script-018.txt [0070];
+# local-216 is not freeze-resistant), and the room change kills him.
+steps = [{verb = "walk_to", obj = {room = 41, name = "door", id = 570}, room = 41}]
 
 [actions."walk mansion high-street-mansion"]
 cite = "data/scripts/room-036-mansion-e/obj-0466-trail.txt [000C] trail: loadRoomWithEgo(431,34)"
@@ -328,13 +337,12 @@ steps = [{verb = "walk_to", obj = {room = 28, name = "door", id = 316}, room = 2
 ]}]
 
 [actions."walk-into-store"]
-cite = "data/scripts/room-034-high-stre/obj-0437-door.txt [005B] Walk to 437 with state 1: loadRoomWithEgo(387,30)"
-steps = [
-  # Defensive: a High Street citizen may have closed 437 since open-store-door
-  # (local-200.txt [0053]); Open is a no-op on an open door (script-025.txt [000F]).
-  {verb = "open", obj = {room = 34, name = "door", id = 437}, room = 34},
-  {verb = "walk_to", obj = {room = 34, name = "door", id = 437}, room = 34},
-]
+cite = "data/scripts/room-034-high-stre/obj-0437-door.txt [004A] Walk to 437 tests state 1; [005B] loadRoomWithEgo(387,30)"
+# One sentence: the Open is the separate action open-store-door, which the
+# domain forces to come immediately before this one. A citizen can still close
+# 437 in the frame or two between that Open and this walk (local-200.txt
+# [0053], [00CC]); see docs/part1/model.md section 7.
+steps = [{verb = "walk_to", obj = {room = 34, name = "door", id = 437}, room = 34}]
 
 [actions."walk-out-of-store"]
 cite = "data/scripts/room-030-store/local-204.txt [0044] Walk to 387 with nothing unpaid: loadRoomWithEgo(437,34)"
@@ -546,11 +554,11 @@ cite = "data/scripts/room-053-foyer/obj-0632-door.txt [0024] Walk to 632 (state 
 steps = [{verb = "walk_to", obj = {room = 53, name = "door", id = 632}, room = 53, until = [{room = 53}]}]
 
 [actions."talk-to-prisoner"]
-cite = "data/scripts/room-031-jail/obj-0405-prisoner.txt [001A] Bit[420] = 1; halitosis scene with no menu"
+cite = "data/scripts/room-031-jail/obj-0405-prisoner.txt [001A] Bit[420] = 1; local-202.txt [0050] 405 still has class 6 -> [18DE]-[19C0] halitosis scene, ends at [19C4] with no menu"
 steps = [{verb = "talk_to", obj = {room = 31, name = "prisoner"}, room = 31}]
 
 [actions."give-mints-to-prisoner"]
-cite = "data/scripts/room-031-jail/local-203.txt [00BF] bad breath cleared; [0112] dialogue; local-202.txt [0546] 'stiff upper lip' exits"
+cite = "data/scripts/room-031-jail/local-203.txt [00BF] bad breath cleared; [0112] dialogue; local-202.txt [0546] choice 127 'stiff upper lip'; [1381]-[13A9] goto [19C4]: the dialogue ends"
 steps = [{verb = "give", obj = {room = 30, name = "breath mints"}, obj2 = {room = 31, name = "prisoner"}, room = 31, choose = ["stiff upper lip"]}]
 
 [actions."give-repellent-to-prisoner"]
