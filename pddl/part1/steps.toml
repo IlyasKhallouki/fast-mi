@@ -1,0 +1,569 @@
+# Part I step templates (contract C8): ground PDDL action -> plan-player steps.
+#
+# Keys are ground actions exactly as Fast Downward prints them (lower case):
+# "walk <from> <to>" for every (link from to) in problem.pddl, and the bare
+# name for every other action (they are all 0-ary). Object references are
+# {room, name[, id]} with the names of the engine's object dump (C6); an
+# inventory object is referenced in the room it starts in (pot 41, petal 58,
+# mints 30, repellent 53, ...). `room` is the engine's _currentRoom; it is
+# omitted for forest steps, because inside the forest _currentRoom is the
+# pseudo-room 201-220 (room.cpp startScene), and those steps wait on
+# VAR_ROOM (var 4) instead. Steps with no `room` (inventory-only sentences)
+# run in whatever room ego is in. Design notes: docs/part1/model.md.
+
+[verbs]
+walk_to = "Walk to"
+open = "Open"
+close = "Close"
+pick_up = "Pick up"
+use = "Use"
+give = "Give"
+talk_to = "Talk to"
+look_at = "Look at"
+push = "Push"
+pull = "Pull"
+
+# =====================================================================
+# Generic walks over static links. Rooms 33, 52 and 83 can be entered by
+# a script that finishes after the previous step's last idle frame (bar
+# exit cutscene, tent walk-out, Elaine scene), so their first step also
+# waits for the room.
+# =====================================================================
+
+[actions."walk lookout dock"]
+cite = "data/scripts/room-038-lookout/obj-0486-stairs.txt [0059] stairs: loadRoomWithEgo(426,33) (Bit[395] already set)"
+steps = [{verb = "walk_to", obj = {room = 38, name = "stairs"}, room = 38}]
+
+[actions."walk lookout melee-map"]
+cite = "data/scripts/room-038-lookout/obj-0487-path.txt [0010] path: loadRoomWithEgo(913,85)"
+steps = [{verb = "walk_to", obj = {room = 38, name = "path"}, room = 38}]
+
+[actions."walk dock lookout"]
+cite = "data/scripts/room-033-dock/obj-0426-cliffside.txt [000C] cliffside: loadRoomWithEgo(486,38)"
+steps = [{verb = "walk_to", obj = {room = 33, name = "cliffside"}, room = 33, until = [{room = 33}]}]
+
+[actions."walk dock low-street"]
+cite = "data/scripts/room-033-dock/obj-0427-archway.txt [000C] archway: loadRoomWithEgo(450,35)"
+steps = [{verb = "walk_to", obj = {room = 33, name = "archway"}, room = 33, until = [{room = 33}]}]
+
+[actions."walk low-street dock"]
+cite = "data/scripts/room-035-low-stree/obj-0450-archway.txt [0091] archway 450: loadRoomWithEgo(427,33) (phase A)"
+steps = [{verb = "walk_to", obj = {room = 35, name = "archway", id = 450}, room = 35}]
+
+[actions."walk low-street high-street-town"]
+cite = "data/scripts/room-035-low-stree/obj-0451-archway.txt [001F] archway 451: loadRoomWithEgo(433,34)"
+steps = [{verb = "walk_to", obj = {room = 35, name = "archway", id = 451}, room = 35}]
+
+[actions."walk high-street-town low-street"]
+cite = "data/scripts/room-034-high-stre/obj-0433-archway.txt [0011] archway 433: loadRoomWithEgo(451,35)"
+steps = [{verb = "walk_to", obj = {room = 34, name = "archway", id = 433}, room = 34}]
+
+[actions."walk high-street-town jail"]
+cite = "data/scripts/room-034-high-stre/obj-0434-doorway.txt [0011] doorway 434: loadRoomWithEgo(400,31)"
+steps = [{verb = "walk_to", obj = {room = 34, name = "doorway"}, room = 34}]
+
+[actions."walk high-street-town high-street-mansion"]
+cite = "data/scripts/room-034-high-stre/obj-0436-archway.txt [002B] archway 436: walk to the mansion half (phase A only, [0011])"
+steps = [{verb = "walk_to", obj = {room = 34, name = "archway", id = 436}, room = 34}]
+
+[actions."walk high-street-mansion mansion"]
+cite = "data/scripts/room-034-high-stre/obj-0431-governor-s-mansion.txt [000C] Governor's mansion: loadRoomWithEgo(466,36)"
+steps = [{verb = "walk_to", obj = {room = 34, name = "Governor's mansion"}, room = 34}]
+
+[actions."walk high-street-mansion high-street-town"]
+cite = "data/scripts/room-034-high-stre/obj-0435-town.txt [002E] town: walk back to the town half"
+steps = [{verb = "walk_to", obj = {room = 34, name = "town"}, room = 34}]
+
+[actions."walk jail high-street-town"]
+cite = "data/scripts/room-031-jail/obj-0400-doorway.txt [0037] doorway 400: loadRoomWithEgo(434,34)"
+steps = [{verb = "walk_to", obj = {room = 31, name = "doorway"}, room = 31}]
+
+[actions."walk bar-left dock"]
+cite = "data/scripts/room-028-bar/obj-0315-door.txt [0090] door 315 (open since the dock door was opened): loadRoomWithEgo(428,33)"
+steps = [{verb = "walk_to", obj = {room = 28, name = "door", id = 315}, room = 28}]
+
+[actions."walk bar-left bar-right"]
+cite = "data/scripts/room-028-bar/obj-0323-curtain.txt [0018] curtain: walk to (330,137), right half"
+steps = [{verb = "walk_to", obj = {room = 28, name = "curtain"}, room = 28}]
+
+[actions."walk bar-right bar-left"]
+cite = "data/scripts/room-028-bar/obj-0323-curtain.txt [0022] curtain: walk to (310,137), left half"
+steps = [{verb = "walk_to", obj = {room = 28, name = "curtain"}, room = 28}]
+
+[actions."walk kitchen bar-right"]
+cite = "data/scripts/room-041-kitchen/obj-0570-door.txt [003C] door 570 (state 1): loadRoomWithEgo(316,28)"
+steps = [
+  # Defensive: the cook may have closed 316 and 570 during the walk-in (docs/part1/input-scripts.md 3.1); a no-op when open.
+  {verb = "open", obj = {room = 41, name = "door", id = 570}, room = 41},
+  {verb = "walk_to", obj = {room = 41, name = "door", id = 570}, room = 41},
+]
+
+[actions."walk mansion high-street-mansion"]
+cite = "data/scripts/room-036-mansion-e/obj-0466-trail.txt [000C] trail: loadRoomWithEgo(431,34)"
+steps = [{verb = "walk_to", obj = {room = 36, name = "trail"}, room = 36}]
+
+[actions."walk melee-map f218"]
+cite = "data/scripts/room-085-melee/obj-0911-fork.txt [000C] fork: loadRoomWithEgo(687,218), the forest entrance"
+steps = [{verb = "walk_to", obj = {room = 85, name = "fork"}, room = 85}]
+
+[actions."walk melee-map clearing"]
+cite = "data/scripts/room-085-melee/obj-0912-clearing.txt [000C] clearing: loadRoomWithEgo(622,52)"
+steps = [{verb = "walk_to", obj = {room = 85, name = "clearing"}, room = 85}]
+
+[actions."walk melee-map lookout"]
+cite = "data/scripts/room-085-melee/obj-0913-lookout-point.txt [000C] lookout point: loadRoomWithEgo(487,38)"
+steps = [{verb = "walk_to", obj = {room = 85, name = "lookout point"}, room = 85}]
+
+[actions."walk melee-map dock"]
+cite = "data/scripts/room-085-melee/obj-0917-village.txt [0046] village: loadRoomWithEgo(426,33) (phase A)"
+steps = [{verb = "walk_to", obj = {room = 85, name = "village"}, room = 85}]
+
+[actions."walk clearing melee-map"]
+cite = "data/scripts/room-052-circus-gr/obj-0622-path.txt [000C] path: loadRoomWithEgo(912,85)"
+steps = [{verb = "walk_to", obj = {room = 52, name = "path"}, room = 52, until = [{room = 52}]}]
+
+[actions."walk treasure-site melee-map"]
+cite = "data/scripts/room-064-treasure/obj-0750-forest-path.txt [000C] forest path: loadRoomWithEgo(911,85)"
+steps = [{verb = "walk_to", obj = {room = 64, name = "forest path"}, room = 64}]
+
+[actions."walk cu-dock dock"]
+cite = "data/scripts/room-083-cu-dock/obj-0904-dock.txt [0015] dock 904: putActorInRoom(ego,33)"
+steps = [{verb = "walk_to", obj = {room = 83, name = "dock", id = 904}, room = 83, until = [{room = 83}]}]
+
+# ---- forest
+
+[actions."walk f201 treasure-site"]
+cite = "data/scripts/room-058-damnfores/obj-0685-path.txt [0019] at 201, path 685 (Back) loads 64"
+steps = [{verb = "walk_to", obj = {room = 58, name = "path", id = 685}, until = [{var = 4, eq = 201}]}]
+
+[actions."walk f201 f216"]
+cite = "data/scripts/room-058-damnfores/obj-0687-path.txt [0019] at 201, path 687 (Right) loads 216"
+steps = [{verb = "walk_to", obj = {room = 58, name = "path", id = 687}, until = [{var = 4, eq = 201}]}]
+
+[actions."walk f201 f206"]
+cite = "data/scripts/room-058-damnfores/obj-0688-path.txt [0019] at 201, path 688 (Left) loads 206"
+steps = [{verb = "walk_to", obj = {room = 58, name = "path", id = 688}, until = [{var = 4, eq = 201}]}]
+
+[actions."walk f202 f205"]
+cite = "data/scripts/room-058-damnfores/obj-0687-path.txt [002B] at 202, path 687 (Right) loads 205"
+steps = [{verb = "walk_to", obj = {room = 58, name = "path", id = 687}, until = [{var = 4, eq = 202}]}]
+
+[actions."walk f202 f203"]
+cite = "data/scripts/room-058-damnfores/obj-0688-path.txt [002B] at 202, path 688 (Left) loads 203"
+steps = [{verb = "walk_to", obj = {room = 58, name = "path", id = 688}, until = [{var = 4, eq = 202}]}]
+
+[actions."walk f203 f215"]
+cite = "data/scripts/room-058-damnfores/obj-0685-path.txt [002B] at 203, path 685 (Back) loads 215"
+steps = [{verb = "walk_to", obj = {room = 58, name = "path", id = 685}, until = [{var = 4, eq = 203}]}]
+
+[actions."walk f203 f202"]
+cite = "data/scripts/room-058-damnfores/obj-0687-path.txt [003D] at 203, path 687 (Right) loads 202"
+steps = [{verb = "walk_to", obj = {room = 58, name = "path", id = 687}, until = [{var = 4, eq = 203}]}]
+
+[actions."walk f204 f211"]
+cite = "data/scripts/room-058-damnfores/obj-0685-path.txt [003D] at 204, path 685 (Back) loads 211"
+steps = [{verb = "walk_to", obj = {room = 58, name = "path", id = 685}, until = [{var = 4, eq = 204}]}]
+
+[actions."walk f204 f212"]
+cite = "data/scripts/room-058-damnfores/obj-0688-path.txt [003D] at 204, path 688 (Left) loads 212"
+steps = [{verb = "walk_to", obj = {room = 58, name = "path", id = 688}, until = [{var = 4, eq = 204}]}]
+
+[actions."walk f205 f202"]
+cite = "data/scripts/room-058-damnfores/obj-0685-path.txt [0132] at 205, path 685 (Back) loads 202"
+steps = [{verb = "walk_to", obj = {room = 58, name = "path", id = 685}, until = [{var = 4, eq = 205}]}]
+
+[actions."walk f205 f213"]
+cite = "data/scripts/room-058-damnfores/obj-0687-path.txt [0103] at 205, path 687 (Right) loads 213"
+steps = [{verb = "walk_to", obj = {room = 58, name = "path", id = 687}, until = [{var = 4, eq = 205}]}]
+
+[actions."walk f205 f217"]
+cite = "data/scripts/room-058-damnfores/obj-0688-path.txt [00FB] at 205, path 688 (Left) loads 217"
+steps = [{verb = "walk_to", obj = {room = 58, name = "path", id = 688}, until = [{var = 4, eq = 205}]}]
+
+[actions."walk f206 f201"]
+cite = "data/scripts/room-058-damnfores/obj-0687-path.txt [0061] at 206, path 687 (Right) loads 201"
+steps = [{verb = "walk_to", obj = {room = 58, name = "path", id = 687}, until = [{var = 4, eq = 206}]}]
+
+[actions."walk f207b f211"]
+cite = "data/scripts/room-058-damnfores/obj-0685-path.txt [00D8] at 207, path 685 (Back) loads 211"
+steps = [{verb = "walk_to", obj = {room = 58, name = "path", id = 685}, until = [{var = 4, eq = 207}]}]
+
+[actions."walk f207a f212"]
+cite = "data/scripts/room-058-damnfores/obj-0687-path.txt [0073] at 207, path 687 (Right) loads 212"
+steps = [{verb = "walk_to", obj = {room = 58, name = "path", id = 687}, until = [{var = 4, eq = 207}]}]
+
+[actions."walk f207b f219"]
+cite = "data/scripts/room-058-damnfores/obj-0688-path.txt [007D] at 207, path 688 (Left) loads 219"
+steps = [{verb = "walk_to", obj = {room = 58, name = "path", id = 688}, until = [{var = 4, eq = 207}]}]
+
+[actions."walk f208 f214"]
+cite = "data/scripts/room-058-damnfores/obj-0687-path.txt [0085] at 208, path 687 (Right) loads 214"
+steps = [{verb = "walk_to", obj = {room = 58, name = "path", id = 687}, until = [{var = 4, eq = 208}]}]
+
+[actions."walk f208 f219"]
+cite = "data/scripts/room-058-damnfores/obj-0688-path.txt [008F] at 208, path 688 (Left) loads 219"
+steps = [{verb = "walk_to", obj = {room = 58, name = "path", id = 688}, until = [{var = 4, eq = 208}]}]
+
+[actions."walk f209 f217"]
+cite = "data/scripts/room-058-damnfores/obj-0688-path.txt [00A1] at 209, path 688 (Left) loads 217"
+steps = [{verb = "walk_to", obj = {room = 58, name = "path", id = 688}, until = [{var = 4, eq = 209}]}]
+
+[actions."walk f210 f220"]
+cite = "data/scripts/room-058-damnfores/obj-0687-path.txt [00A9] at 210, path 687 (Right) loads 220"
+steps = [{verb = "walk_to", obj = {room = 58, name = "path", id = 687}, until = [{var = 4, eq = 210}]}]
+
+[actions."walk f210 f214"]
+cite = "data/scripts/room-058-damnfores/obj-0688-path.txt [00B3] at 210, path 688 (Left) loads 214"
+steps = [{verb = "walk_to", obj = {room = 58, name = "path", id = 688}, until = [{var = 4, eq = 210}]}]
+
+[actions."walk f211 f207b"]
+cite = "data/scripts/room-058-damnfores/obj-0685-path.txt [00EA] at 211, path 685 (Back) loads 207"
+steps = [{verb = "walk_to", obj = {room = 58, name = "path", id = 685}, until = [{var = 4, eq = 211}]}]
+
+[actions."walk f211 f216"]
+cite = "data/scripts/room-058-damnfores/obj-0687-path.txt [00BB] at 211, path 687 (Right) loads 216"
+steps = [{verb = "walk_to", obj = {room = 58, name = "path", id = 687}, until = [{var = 4, eq = 211}]}]
+
+[actions."walk f211 f204"]
+cite = "data/scripts/room-058-damnfores/obj-0688-path.txt [00C5] at 211, path 688 (Left) loads 204"
+steps = [{verb = "walk_to", obj = {room = 58, name = "path", id = 688}, until = [{var = 4, eq = 211}]}]
+
+[actions."walk f212 f207a"]
+cite = "data/scripts/room-058-damnfores/obj-0685-path.txt [00FC] at 212, path 685 (Back) loads 207"
+steps = [{verb = "walk_to", obj = {room = 58, name = "path", id = 685}, until = [{var = 4, eq = 212}]}]
+
+[actions."walk f212 f204"]
+cite = "data/scripts/room-058-damnfores/obj-0687-path.txt [00CD] at 212, path 687 (Right) loads 204"
+steps = [{verb = "walk_to", obj = {room = 58, name = "path", id = 687}, until = [{var = 4, eq = 212}]}]
+
+[actions."walk f212 f213"]
+cite = "data/scripts/room-058-damnfores/obj-0688-path.txt [00D7] at 212, path 688 (Left) loads 213"
+steps = [{verb = "walk_to", obj = {room = 58, name = "path", id = 688}, until = [{var = 4, eq = 212}]}]
+
+[actions."walk f213 f205"]
+cite = "data/scripts/room-058-damnfores/obj-0685-path.txt [010E] at 213, path 685 (Back) loads 205"
+steps = [{verb = "walk_to", obj = {room = 58, name = "path", id = 685}, until = [{var = 4, eq = 213}]}]
+
+[actions."walk f213 f220"]
+cite = "data/scripts/room-058-damnfores/obj-0687-path.txt [00DF] at 213, path 687 (Right) loads 220"
+steps = [{verb = "walk_to", obj = {room = 58, name = "path", id = 687}, until = [{var = 4, eq = 213}]}]
+
+[actions."walk f213 f212"]
+cite = "data/scripts/room-058-damnfores/obj-0688-path.txt [00E9] at 213, path 688 (Left) loads 212"
+steps = [{verb = "walk_to", obj = {room = 58, name = "path", id = 688}, until = [{var = 4, eq = 213}]}]
+
+[actions."walk f214 f208"]
+cite = "data/scripts/room-058-damnfores/obj-0685-path.txt [0120] at 214, path 685 (Back) loads 208"
+steps = [{verb = "walk_to", obj = {room = 58, name = "path", id = 685}, until = [{var = 4, eq = 214}]}]
+
+[actions."walk f214 f210"]
+cite = "data/scripts/room-058-damnfores/obj-0687-path.txt [00F1] at 214, path 687 (Right) loads 210"
+steps = [{verb = "walk_to", obj = {room = 58, name = "path", id = 687}, until = [{var = 4, eq = 214}]}]
+
+[actions."walk f215 f218"]
+cite = "data/scripts/room-058-damnfores/obj-0687-path.txt [004F] at 215, path 687 (Right) loads 218"
+steps = [{verb = "walk_to", obj = {room = 58, name = "path", id = 687}, until = [{var = 4, eq = 215}]}]
+
+[actions."walk f216 f211"]
+cite = "data/scripts/room-058-damnfores/obj-0685-path.txt [0144] at 216, path 685 (Back) loads 211"
+steps = [{verb = "walk_to", obj = {room = 58, name = "path", id = 685}, until = [{var = 4, eq = 216}]}]
+
+[actions."walk f216 f201"]
+cite = "data/scripts/room-058-damnfores/obj-0688-path.txt [010D] at 216, path 688 (Left) loads 201"
+steps = [{verb = "walk_to", obj = {room = 58, name = "path", id = 688}, until = [{var = 4, eq = 216}]}]
+
+[actions."walk f217 f209"]
+cite = "data/scripts/room-058-damnfores/obj-0685-path.txt [0156] at 217, path 685 (Back) loads 209"
+steps = [{verb = "walk_to", obj = {room = 58, name = "path", id = 685}, until = [{var = 4, eq = 217}]}]
+
+[actions."walk f217 f205"]
+cite = "data/scripts/room-058-damnfores/obj-0688-path.txt [011F] at 217, path 688 (Left) loads 205"
+steps = [{verb = "walk_to", obj = {room = 58, name = "path", id = 688}, until = [{var = 4, eq = 217}]}]
+
+[actions."walk f218 f215"]
+cite = "data/scripts/room-058-damnfores/obj-0685-path.txt [0168] at 218, path 685 (Back) loads 215"
+steps = [{verb = "walk_to", obj = {room = 58, name = "path", id = 685}, until = [{var = 4, eq = 218}]}]
+
+[actions."walk f218 melee-map"]
+cite = "data/scripts/room-058-damnfores/obj-0687-path.txt [0115] at 218, path 687 (Right) loads 85"
+steps = [{verb = "walk_to", obj = {room = 58, name = "path", id = 687}, until = [{var = 4, eq = 218}]}]
+
+[actions."walk f219 f207b"]
+cite = "data/scripts/room-058-damnfores/obj-0685-path.txt [017A] at 219, path 685 (Back) loads 207"
+steps = [{verb = "walk_to", obj = {room = 58, name = "path", id = 685}, until = [{var = 4, eq = 219}]}]
+
+[actions."walk f219 f208"]
+cite = "data/scripts/room-058-damnfores/obj-0687-path.txt [0127] at 219, path 687 (Right) loads 208"
+steps = [{verb = "walk_to", obj = {room = 58, name = "path", id = 687}, until = [{var = 4, eq = 219}]}]
+
+[actions."walk f220 f210"]
+cite = "data/scripts/room-058-damnfores/obj-0685-path.txt [018C] at 220, path 685 (Back) loads 210"
+steps = [{verb = "walk_to", obj = {room = 58, name = "path", id = 685}, until = [{var = 4, eq = 220}]}]
+
+[actions."walk f220 f213"]
+cite = "data/scripts/room-058-damnfores/obj-0687-path.txt [0139] at 220, path 687 (Right) loads 213"
+steps = [{verb = "walk_to", obj = {room = 58, name = "path", id = 687}, until = [{var = 4, eq = 220}]}]
+
+[actions."walk f220 f215"]
+cite = "data/scripts/room-058-damnfores/obj-0688-path.txt [0131] at 220, path 688 (Left) loads 215"
+steps = [{verb = "walk_to", obj = {room = 58, name = "path", id = 688}, until = [{var = 4, eq = 220}]}]
+
+# =====================================================================
+# Guarded transitions (walk-*).
+# =====================================================================
+
+[actions."walk-into-bar"]
+cite = "data/scripts/room-033-dock/obj-0428-door.txt [0035] Walk to 428 with state 1: loadRoomWithEgo(315,28)"
+steps = [{verb = "walk_to", obj = {room = 33, name = "door"}, room = 33, until = [{room = 33}]}]
+
+[actions."walk-into-kitchen"]
+cite = "data/scripts/room-028-bar/local-203.txt [001E] a click on 316 is accepted only while the cook (actor 6) is not in 28 at x > 310; obj-0316-door.txt [003F] needs state 1"
+# The only window in which a click on 316 is accepted AND the door is open:
+# the cook is out in the bar at x <= 310 (every cook target has x <= 285,
+# docs/part1/money.md B2) and has opened 316 (local-216 [001B]).
+steps = [{verb = "walk_to", obj = {room = 28, name = "door", id = 316}, room = 28, until = [
+  {actor_room = 6, eq = 28},
+  {actor_x = 6, le = 310},
+  {state = 316, eq = 1},
+]}]
+
+[actions."walk-into-store"]
+cite = "data/scripts/room-034-high-stre/obj-0437-door.txt [005B] Walk to 437 with state 1: loadRoomWithEgo(387,30)"
+steps = [
+  # Defensive: a High Street citizen may have closed 437 since open-store-door
+  # (local-200.txt [0053]); Open is a no-op on an open door (script-025.txt [000F]).
+  {verb = "open", obj = {room = 34, name = "door", id = 437}, room = 34},
+  {verb = "walk_to", obj = {room = 34, name = "door", id = 437}, room = 34},
+]
+
+[actions."walk-out-of-store"]
+cite = "data/scripts/room-030-store/local-204.txt [0044] Walk to 387 with nothing unpaid: loadRoomWithEgo(437,34)"
+steps = [{verb = "walk_to", obj = {room = 30, name = "door"}, room = 30}]
+
+[actions."walk-into-foyer"]
+cite = "data/scripts/room-036-mansion-e/obj-0465-door.txt [003C] Walk to 465 with state 1: loadRoomWithEgo(633,53)"
+steps = [{verb = "walk_to", obj = {room = 36, name = "door"}, room = 36}]
+
+[actions."walk-foyer-to-mansion"]
+cite = "data/scripts/room-053-foyer/obj-0633-door.txt [0068] Walk to 633 with state 1: loadRoomWithEgo(465,36)"
+steps = [{verb = "walk_to", obj = {room = 53, name = "door", id = 633}, room = 53, until = [{room = 53}]}]
+
+[actions."walk-forest-gate-215-203"]
+cite = "data/scripts/room-058-damnfores/obj-0685-path.txt [00C6] at 215, path 685 (Back) loads 203 when ego owns the map"
+steps = [{verb = "walk_to", obj = {room = 58, name = "path", id = 685}, until = [{var = 4, eq = 215}]}]
+
+[actions."walk-forest-gate-215-220"]
+cite = "data/scripts/room-058-damnfores/obj-0688-path.txt [006B] at 215, path 688 (Left) loads 220 when ego owns the map"
+steps = [{verb = "walk_to", obj = {room = 58, name = "path", id = 688}, until = [{var = 4, eq = 215}]}]
+
+[actions."walk-into-tent-with-pot"]
+cite = "data/scripts/room-052-circus-gr/obj-0621-circus-tent.txt [0014] loadRoom(51); local-207.txt [0213] [08AB] [0B49] the three menus"
+# Menu 1: any line works; menu 2: "OK, I'll do it."; menu 3: "Of course I
+# have a helmet..." ("have a helmet" alone would match both lines of menu 3).
+steps = [{verb = "walk_to", obj = {room = 52, name = "circus tent"}, room = 52, until = [{room = 52}], choose = ["ahem", "I'll do it", "Of course"]}]
+
+# The helmet. local-200 is the tent's input script only while var 32 (VAR_VERB_SCRIPT)
+# is 200 (local-207 [0D4C]). Click Use, then the inventory slot just BEFORE the
+# pot (local-200 [0107] reads Var[134+k], the display fills Var[133+k]). The
+# reversed "Bobbin" menu opens while this step is still running.
+[actions."walk-out-of-tent-after-helmet-meat"]
+cite = "data/scripts/room-051-circus-te/local-200.txt [0107] Use + slot before the pot sets Bit[103] ([008B]); local-207.txt [110E] +478; [114D] walk-out"
+steps = [{room = 51, until = [{var = 32, eq = 200}], click = [{verb = "use"}, {inventory = {room = 41, name = "pot"}, offset = -1}], choose = ["nibboB"]}]
+
+[actions."walk-out-of-tent-after-helmet-petal"]
+cite = "data/scripts/room-051-circus-te/local-200.txt [0107] Use + slot before the pot sets Bit[103] ([008B]); local-207.txt [110E] +478; [114D] walk-out"
+steps = [{room = 51, until = [{var = 32, eq = 200}], click = [{verb = "use"}, {inventory = {room = 41, name = "pot"}, offset = -1}], choose = ["nibboB"]}]
+
+[actions."walk-out-of-tent-after-helmet-repellent"]
+cite = "data/scripts/room-051-circus-te/local-200.txt [0107] Use + slot before the pot sets Bit[103] ([008B]); local-207.txt [110E] +478; [114D] walk-out"
+steps = [{room = 51, until = [{var = 32, eq = 200}], click = [{verb = "use"}, {inventory = {room = 41, name = "pot"}, offset = -1}], choose = ["nibboB"]}]
+
+[actions."walk-out-of-tent-after-helmet-manual"]
+cite = "data/scripts/room-051-circus-te/local-200.txt [0107] Use + slot before the pot sets Bit[103] ([008B]); local-207.txt [110E] +478; [114D] walk-out"
+steps = [{room = 51, until = [{var = 32, eq = 200}], click = [{verb = "use"}, {inventory = {room = 41, name = "pot"}, offset = -1}], choose = ["nibboB"]}]
+
+[actions."walk-out-of-tent-after-helmet-lips"]
+cite = "data/scripts/room-051-circus-te/local-200.txt [0107] Use + slot before the pot sets Bit[103] ([008B]); local-207.txt [110E] +478; [114D] walk-out"
+steps = [{room = 51, until = [{var = 32, eq = 200}], click = [{verb = "use"}, {inventory = {room = 41, name = "pot"}, offset = -1}], choose = ["nibboB"]}]
+
+[actions."walk-out-of-tent-after-helmet-staple-remover"]
+cite = "data/scripts/room-051-circus-te/local-200.txt [0107] Use + slot before the pot sets Bit[103] ([008B]); local-207.txt [110E] +478; [114D] walk-out"
+steps = [{room = 51, until = [{var = 32, eq = 200}], click = [{verb = "use"}, {inventory = {room = 41, name = "pot"}, offset = -1}], choose = ["nibboB"]}]
+
+[actions."walk-past-fester-to-underwater"]
+cite = "data/scripts/room-053-foyer/obj-0633-door.txt [0018] Open 633 owning idol 635 runs local-217 (menu [01C1]); [0391] room 83; global/script-065.txt [023A] room 42"
+# Waits for room 53: the theft before it ends with a room-23 close-up (global 119).
+steps = [{verb = "open", obj = {room = 53, name = "door", id = 633}, room = 53, until = [{room = 53}], choose = ["Buzz off"]}]
+
+[actions."walk-up-ladder-taking-idol"]
+cite = "data/scripts/room-042-underwate/obj-0578-fabulous-idol.txt [001B] Pick up 578 -> local-203 [0024] -> local-200 [0041] startScript(71,[2]) (Bit[85])"
+# Waits for room 42: it is reached through room 83 and global 65 (cutscene chain).
+steps = [{verb = "pick_up", obj = {room = 42, name = "fabulous idol"}, room = 42, until = [{room = 42}]}]
+
+# =====================================================================
+# Doors.
+# =====================================================================
+
+[actions."open-bar-door"]
+cite = "data/scripts/room-033-dock/obj-0428-door.txt [0015] Open 428: startScript(25,[428,315])"
+steps = [{verb = "open", obj = {room = 33, name = "door"}, room = 33, until = [{room = 33}]}]
+
+[actions."open-store-door"]
+cite = "data/scripts/room-034-high-stre/obj-0437-door.txt [0018] Open 437: startScript(25,[437,387])"
+steps = [{verb = "open", obj = {room = 34, name = "door", id = 437}, room = 34}]
+
+[actions."open-mansion-door"]
+cite = "data/scripts/room-036-mansion-e/obj-0465-door.txt [0018] Open 465: startScript(25,[465,633])"
+steps = [{verb = "open", obj = {room = 36, name = "door"}, room = 36}]
+
+[actions."open-idol-room-door"]
+cite = "data/scripts/room-053-foyer/obj-0632-door.txt [0028] Open 632: startScript(25)"
+steps = [{verb = "open", obj = {room = 53, name = "door", id = 632}, room = 53, until = [{room = 53}]}]
+
+# =====================================================================
+# Kitchen.
+# =====================================================================
+
+[actions."pick-up-meat"]
+cite = "data/scripts/room-041-kitchen/obj-0566-hunk-of-meat.txt [0041] pickupObject(566)"
+steps = [{verb = "pick_up", obj = {room = 41, name = "hunk of meat"}, room = 41}]
+
+[actions."pick-up-pot-first"]
+cite = "data/scripts/room-041-kitchen/obj-0567-pot.txt [002A] pickupObject(567) with no visible item held: the helmet becomes impossible"
+steps = [{verb = "pick_up", obj = {room = 41, name = "pot"}, room = 41}]
+
+[actions."pick-up-pot-not-first-meat"]
+cite = "data/scripts/room-041-kitchen/obj-0567-pot.txt [002A] pickupObject(567) behind the meat"
+steps = [{verb = "pick_up", obj = {room = 41, name = "pot"}, room = 41}]
+
+[actions."pick-up-pot-not-first-petal"]
+cite = "data/scripts/room-041-kitchen/obj-0567-pot.txt [002A] pickupObject(567) behind the petal"
+steps = [{verb = "pick_up", obj = {room = 41, name = "pot"}, room = 41}]
+
+[actions."pick-up-pot-not-first-repellent"]
+cite = "data/scripts/room-041-kitchen/obj-0567-pot.txt [002A] pickupObject(567) behind the gopher repellent"
+steps = [{verb = "pick_up", obj = {room = 41, name = "pot"}, room = 41}]
+
+[actions."pick-up-pot-not-first-manual"]
+cite = "data/scripts/room-041-kitchen/obj-0567-pot.txt [002A] pickupObject(567) behind the Manual of Style"
+steps = [{verb = "pick_up", obj = {room = 41, name = "pot"}, room = 41}]
+
+[actions."pick-up-pot-not-first-lips"]
+cite = "data/scripts/room-041-kitchen/obj-0567-pot.txt [002A] pickupObject(567) behind the wax lips"
+steps = [{verb = "pick_up", obj = {room = 41, name = "pot"}, room = 41}]
+
+[actions."pick-up-pot-not-first-staple-remover"]
+cite = "data/scripts/room-041-kitchen/obj-0567-pot.txt [002A] pickupObject(567) behind the staple remover"
+steps = [{verb = "pick_up", obj = {room = 41, name = "pot"}, room = 41}]
+
+[actions."use-meat-with-pot"]
+cite = "data/scripts/global/script-002.txt [0229] class-7 auto pick-up: (9,meat) then (9,pot) ([0251]), then meat Use falls back to script 3"
+steps = [{verb = "use", obj = {room = 41, name = "hunk of meat"}, obj2 = {room = 41, name = "pot"}, room = 41}]
+
+[actions."use-meat-on-table-with-petal"]
+cite = "data/scripts/global/script-002.txt [0229] meat picked up first; obj-0566-hunk-of-meat.txt [007E] class 6; global/script-182.txt [0017] petal consumed"
+steps = [{verb = "use", obj = {room = 41, name = "hunk of meat"}, obj2 = {room = 58, name = "yellow petal"}, room = 41}]
+
+[actions."drug-meat-with-petal"]
+cite = "data/scripts/room-041-kitchen/obj-0566-hunk-of-meat.txt [007E] Use meat with petal: class 6; both objects are inventory items, so any room but the map and the tent"
+steps = [{verb = "use", obj = {room = 41, name = "hunk of meat"}, obj2 = {room = 58, name = "yellow petal"}}]
+
+[actions."put-petal-in-stew"]
+cite = "data/scripts/room-041-kitchen/local-213.txt [004A] the stew gets class 6; [0042]/[0046] the petal returns to the forest"
+steps = [{verb = "use", obj = {room = 58, name = "yellow petal"}, obj2 = {room = 41, name = "pot o' stew"}, room = 41}]
+
+[actions."put-meat-in-stew"]
+cite = "data/scripts/room-041-kitchen/local-213.txt [00B8] setOwnerOf(566,13)"
+steps = [{verb = "use", obj = {room = 41, name = "hunk of meat"}, obj2 = {room = 41, name = "pot o' stew"}, room = 41}]
+
+[actions."pick-up-stewed-meat-drugged"]
+cite = "data/scripts/room-041-kitchen/local-214.txt [005A] the meat gets class 6 from a drugged stew"
+steps = [{verb = "pick_up", obj = {room = 41, name = "pot o' stew"}, room = 41}]
+
+[actions."pick-up-stewed-meat-plain"]
+cite = "data/scripts/room-041-kitchen/local-214.txt [0007] setOwnerOf(566,ego), no class 6 from an undrugged stew"
+steps = [{verb = "pick_up", obj = {room = 41, name = "pot o' stew"}, room = 41}]
+
+# =====================================================================
+# Forest.
+# =====================================================================
+
+[actions."pick-up-petal"]
+cite = "data/scripts/room-058-damnfores/obj-0678-plants.txt [0092] pickupObject(689) at VAR_ROOM 215"
+steps = [{verb = "pick_up", obj = {room = 58, name = "plants"}, until = [{var = 4, eq = 215}]}]
+
+# =====================================================================
+# Purchases. Choice substrings are minimal and unique among the lines
+# visible at that moment (docs/part1/model.md, "Dialogue choices").
+# =====================================================================
+
+[actions."buy-map"]
+cite = "data/scripts/room-035-low-stree/local-218.txt [04AA] first-talk menu; [080C] purchase line; [0936] map; [0945] -100"
+steps = [{verb = "talk_to", obj = {room = 35, name = "Citizen of M\u0088l\u0082e"}, room = 35, choose = ["barber", "swell gift"]}]
+
+# Walking to the door 387 with the unpaid shovel always ends in the store menu,
+# whether or not the storekeeper is in (local-204 [0053]-[042B]); his presence
+# is random on every store entry (entry.txt [002B]). Each choose list empties
+# the menu exactly: after a purchase the menu comes back and ends by itself
+# only when no topic but "browse" is left (local-211 [03EB]).
+[actions."pick-up-shovel"]
+cite = "data/scripts/room-030-store/obj-0396-shovel.txt [0079] pickupObject(396), no money check"
+steps = [{verb = "pick_up", obj = {room = 30, name = "shovel"}, room = 30}]
+
+[actions."pay-for-shovel"]
+cite = "data/scripts/room-030-store/local-204.txt [042B] store menu; local-211.txt [00A0] shovel topic; local-206.txt [0030] I want it; local-211.txt [09CE] paid"
+steps = [{verb = "walk_to", obj = {room = 30, name = "door"}, room = 30, choose = ["shovel", "I want it"]}]
+
+[actions."pay-for-shovel-files-topic"]
+cite = "data/scripts/room-030-store/local-211.txt [032D] 'files' topic visible while ego owns 640, so 'browse' ends the menu"
+steps = [{verb = "walk_to", obj = {room = 30, name = "door"}, room = 30, choose = ["shovel", "I want it", "browse"]}]
+
+[actions."pay-for-shovel-and-mints"]
+cite = "data/scripts/room-030-store/local-211.txt [0251] mint topic (Bit[420]); [1BC0] mints; [1BC8] -1"
+steps = [{verb = "walk_to", obj = {room = 30, name = "door"}, room = 30, choose = ["shovel", "I want it", "breath mint"]}]
+
+[actions."pay-for-shovel-and-mints-files-topic"]
+cite = "data/scripts/room-030-store/local-211.txt [0251] mint topic; [032D] 'files' topic visible while ego owns 640, so 'browse' ends the menu"
+steps = [{verb = "walk_to", obj = {room = 30, name = "door"}, room = 30, choose = ["shovel", "I want it", "breath mint", "browse"]}]
+
+# =====================================================================
+# Idol chain.
+# =====================================================================
+
+[actions."give-meat-to-poodles"]
+cite = "data/scripts/room-036-mansion-e/local-201.txt [0079] drugged meat (class 6) -> [0087] Bit[15]"
+steps = [{verb = "give", obj = {room = 41, name = "hunk of meat"}, obj2 = {room = 36, name = "deadly piranha poodles"}, room = 36}]
+
+[actions."enter-idol-room"]
+cite = "data/scripts/room-053-foyer/obj-0632-door.txt [0024] Walk to 632 (state 1) starts local-210: repellent, Manual of Style, wax lips, staple remover"
+steps = [{verb = "walk_to", obj = {room = 53, name = "door", id = 632}, room = 53, until = [{room = 53}]}]
+
+[actions."talk-to-prisoner"]
+cite = "data/scripts/room-031-jail/obj-0405-prisoner.txt [001A] Bit[420] = 1; halitosis scene with no menu"
+steps = [{verb = "talk_to", obj = {room = 31, name = "prisoner"}, room = 31}]
+
+[actions."give-mints-to-prisoner"]
+cite = "data/scripts/room-031-jail/local-203.txt [00BF] bad breath cleared; [0112] dialogue; local-202.txt [0546] 'stiff upper lip' exits"
+steps = [{verb = "give", obj = {room = 30, name = "breath mints"}, obj2 = {room = 31, name = "prisoner"}, room = 31, choose = ["stiff upper lip"]}]
+
+[actions."give-repellent-to-prisoner"]
+cite = "data/scripts/room-031-jail/local-203.txt [01E0] pickupObject(420): the cake"
+steps = [{verb = "give", obj = {room = 53, name = "gopher repellent"}, obj2 = {room = 31, name = "prisoner"}, room = 31}]
+
+[actions."open-cake"]
+cite = "data/scripts/room-031-jail/obj-0420-cake.txt [005F] class 6 cleared, renamed 'file'; inventory-only, any room but the map and the tent"
+steps = [{verb = "open", obj = {room = 31, name = "cake"}}]
+
+[actions."steal-idol"]
+cite = "data/scripts/room-053-foyer/obj-0637-gaping-hole.txt [0021] local-211 theft; local-212.txt [02BE] Fester menu; global/script-119.txt [01BB] Elaine menus"
+# Menu 1 (Fester): all lines are equivalent (they only set Var[273]); menus 2-4
+# (Elaine) have empty branches. "Um", not "Er" ("Er" also matches "Jeepers").
+steps = [{verb = "walk_to", obj = {room = 53, name = "gaping hole"}, room = 53, until = [{room = 53}], choose = ["could have it", "Uh", "Um", "Blfft"]}]
+
+# =====================================================================
+# Treasure.
+# =====================================================================
+
+[actions."dig-treasure"]
+cite = "data/scripts/room-064-treasure/obj-0749-x.txt [006B] Use shovel with X -> [00A6] dig; local-200.txt [0214] startScript(71,[3]) (Bit[86])"
+steps = [{verb = "use", obj = {room = 30, name = "shovel"}, obj2 = {room = 64, name = "X"}, room = 64}]

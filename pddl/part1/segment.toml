@@ -1,0 +1,41 @@
+# Part I segment (contract C9): from free control on the dock after the
+# "Part One" card until the idol and treasure trials are both complete.
+name = "part1"
+domain = "domain.pddl"
+problem = "problem.pddl"
+steps = "steps.toml"
+
+# docs/part1/start.md section 3. On a natural boot {room = 33} alone already
+# selects the right frame; the rest rejects boot-param and debug-mode starts.
+#   room 33       room-096-part1/local-200.txt [003B] loadRoomWithEgo(426,33,346,133)
+#   var 101 = 96  global/script-007.txt [0000] (previous room = the Part One card)
+#   bit 395 = 1   room-038-lookout/obj-0486-stairs.txt [004F]
+#   var 196 = 0   global/script-001.txt [0814] (no trial complete yet)
+#   var 39 = 0    VAR_DEBUGMODE off (no boot param, no -d)
+start = [
+  {room = 33},
+  {var = 101, eq = 96},
+  {bit = 395, eq = 1},
+  {var = 196, eq = 0},
+  {var = 39, eq = 0},
+]
+
+# docs/part1/goal-flags.md section 4: global script 71 sets Bit[83 + trial].
+goal = [{bit = 85, eq = 1}, {bit = 86, eq = 1}]
+goal_cite = [
+  "data/scripts/room-042-underwate/local-200.txt [0041] startScript(71,[2]) -> data/scripts/global/script-071.txt [008D] Bit[83 + 2] = 1 (idol)",
+  "data/scripts/room-064-treasure/local-200.txt [0214] startScript(71,[3]) -> data/scripts/global/script-071.txt [008D] Bit[83 + 3] = 1 (treasure)",
+]
+
+# No gameplay-relevant value is randomised before the segment starts
+# (docs/part1/start.md section 5.2: only the scratch Var[100] and the credit
+# order). Part I's random draws (storekeeper presence, cook timer and path,
+# map pirates) happen on demand later; the model is written to be robust to
+# them (docs/part1/model.md).
+randomized_vars = []
+
+# Inventory slot verbs 200..207 show the object in Var[133..140]: global/script-177.txt
+# creates the 8 slot verbs; global/script-009.txt [0092] stores Var[133 + k]
+# (docs/part1/input-scripts.md section 6; the earlier count = 6 was the range
+# the circus input script accepts, not the display size).
+inventory = {verb_first = 200, count = 8, var_first = 133, cite = "data/scripts/global/script-009.txt [0092]"}
