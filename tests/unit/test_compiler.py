@@ -68,7 +68,7 @@ def _assert_c4(step: dict) -> None:
         assert "verb" not in step
         assert isinstance(step["click"], list) and step["click"]
         for entry in step["click"]:
-            assert len(entry) == 1 and set(entry) <= {"verb", "inventory"}, entry
+            assert set(entry) in ({"verb"}, {"inventory"}, {"inventory", "offset"}), entry
             assert all(type(v) is int for v in entry.values()), entry
     for k in C4_INT_KEYS & set(step):
         assert type(step[k]) is int, (k, step[k])
@@ -421,6 +421,22 @@ def test_click_with_choose(index):
 def test_click_inventory_id_disambiguates(index):
     out = _compile_one(index, {"click": [{"inventory": {"room": 101, "name": "crate", "id": 503}}]})
     assert out[0]["click"] == [{"inventory": 503}]
+
+
+def test_click_inventory_offset_passes_through(index):
+    out = _compile_one(index, {"click": [{"verb": "open"}, {"inventory": {"room": 101, "name": "widget"}, "offset": -1}]})
+    assert out[0]["click"] == [{"verb": OPEN}, {"inventory": 500, "offset": -1}]
+
+
+@pytest.mark.parametrize("offset", [0, True, "1", 1.5, None])
+def test_click_inventory_bad_offset(index, offset):
+    with pytest.raises(TemplateError, match="click"):
+        _compile_one(index, {"click": [{"inventory": {"room": 101, "name": "widget"}, "offset": offset}]})
+
+
+def test_click_offset_only_with_inventory(index):
+    with pytest.raises(TemplateError, match="click"):
+        _compile_one(index, {"click": [{"verb": "open", "offset": -1}]})
 
 
 def test_click_inventory_ambiguous(index):

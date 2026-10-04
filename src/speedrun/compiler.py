@@ -8,7 +8,8 @@ are resolved to ids only through the engine's ``objects.json`` dump (C6).
 A step template is a sentence (``verb`` + ``obj`` [+ ``obj2``]), a ``click``
 list, or neither (a dialogue-only step, which needs ``choose``). Click entries
 are ``{verb = "<keyword>"}`` (resolved like sentence verbs) or
-``{inventory = {room, name[, id]}}`` (resolved like ``obj``).
+``{inventory = {room, name[, id]}[, offset = <int>]}`` (resolved like ``obj``;
+``offset`` shifts the clicked slot, see docs/plan.md C4).
 """
 
 import json
@@ -196,15 +197,26 @@ def _action_templates(entry: object) -> list:
 
 
 def _compile_click_entry(entry: object, verbs: Mapping, objects: ObjectIndex) -> dict:
-    if not isinstance(entry, Mapping) or len(entry) != 1 or next(iter(entry)) not in CLICK_KEYS:
-        raise TemplateError(f"entry must be exactly {{verb = <keyword>}} or {{inventory = {{room, name[, id]}}}}, "
-                            f"got {entry!r}")
+    shape_ok = isinstance(entry, Mapping) and (
+        set(entry) == {"verb"} or set(entry) == {"inventory"} or set(entry) == {"inventory", "offset"}
+    )
+    if not shape_ok:
+        raise TemplateError(f"entry must be exactly {{verb = <keyword>}} or "
+                            f"{{inventory = {{room, name[, id]}}[, offset = <int>]}}, got {entry!r}")
     if "verb" in entry:
         return {"verb": resolve_verb(entry["verb"], verbs, objects)}
     ref = entry["inventory"]
     if not isinstance(ref, Mapping) or "actor" in ref:
         raise TemplateError(f"inventory must be an object reference {{room, name[, id]}}, got {ref!r}")
-    return {"inventory": objects.resolve_object(ref)}
+    out = {"inventory": objects.resolve_object(ref)}
+    if "offset" in entry:
+        offset = entry["offset"]
+        # Non-zero slot shift, e.g. -1 for the circus tent's off-by-one
+        # (docs/part1/input-scripts.md); bool is an int subclass, so reject it explicitly.
+        if type(offset) is not int or offset == 0:
+            raise TemplateError(f"offset must be a non-zero int, got {offset!r}")
+        out["offset"] = offset
+    return out
 
 
 def _compile_click(click: object, verbs: Mapping, objects: ObjectIndex) -> list[dict]:
