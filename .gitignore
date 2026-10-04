@@ -1,0 +1,35 @@
+# --- Copyrighted game material: never commit ---
+/game/
+*.LFL
+*.lfl
+MONKEY1.*
+monkey1.*
+*.pak
+*.img
+*.rsrc
+
+# Decompiled scripts and extracted script blocks (game code/text)
+/data/
+
+# Generated artifacts: object/state dumps, compiled plan JSONL (dialogue
+# choice text), run traces, ScummVM config/saves for isolated runs
+/out/
+
+# Build output (ScummVM, scummvm-tools, Fast Downward, extractors)
+/build/
+
+# Python / uv
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+
+# Fast Downward default output names if run from the repo root
+sas_plan*
+output.sas
+
+# Editor / OS
+.DS_Store
+*.swp
