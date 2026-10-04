@@ -78,18 +78,6 @@ steps = [{verb = "walk_to", obj = {room = 34, name = "town"}, room = 34}]
 cite = "data/scripts/room-031-jail/obj-0400-doorway.txt [0037] doorway 400: loadRoomWithEgo(434,34)"
 steps = [{verb = "walk_to", obj = {room = 31, name = "doorway"}, room = 31}]
 
-[actions."walk bar-left dock"]
-cite = "data/scripts/room-028-bar/obj-0315-door.txt [0072] door 315 needs state 1 (open since the dock door was opened); first exit [0080]-[008A] Bit[446], global/script-120.txt [0538] loadRoomWithEgo(428,33) after the LeChuck cutscene; later exits [0090] loadRoomWithEgo(428,33)"
-steps = [{verb = "walk_to", obj = {room = 28, name = "door", id = 315}, room = 28}]
-
-# From the right half 315 is off screen, but the walk left brings it into view:
-# local-201 [0000] pans the camera to x 160 once ego is left of x 320
-# (rules/glitchless.md, "Camera visibility"). The next step (dock) waits for
-# room 33, which covers the script-120 cutscene on the first exit.
-[actions."walk bar-right dock"]
-cite = "data/scripts/room-028-bar/obj-0315-door.txt [0072] door 315 needs state 1; first exit [0080]-[008A] -> global/script-120.txt [0538], later exits [0090] loadRoomWithEgo(428,33); local-201.txt [0000] the camera pans left as ego walks left"
-steps = [{verb = "walk_to", obj = {room = 28, name = "door", id = 315}, room = 28}]
-
 [actions."walk bar-left bar-right"]
 cite = "data/scripts/room-028-bar/obj-0323-curtain.txt [0018] curtain: walk to (330,137), right half"
 steps = [{verb = "walk_to", obj = {room = 28, name = "curtain"}, room = 28}]
@@ -336,6 +324,38 @@ steps = [{verb = "walk_to", obj = {room = 28, name = "door", id = 316}, room = 2
   {state = 316, eq = 1},
 ]}]
 
+# The same sentence and window as walk-into-kitchen. Only the wait differs: after
+# a provoke the cook comes out on local-212's 600-jiffy timer (docs/part1/model.md
+# section 14), so this half of the split gets its own measured cost.
+[actions."walk-into-kitchen-after-provoking-cook"]
+cite = "data/scripts/room-028-bar/local-212.txt [0020] the provoked cook comes out after 600 jiffies; local-203.txt [001E] click guard; obj-0316-door.txt [003F] needs state 1"
+steps = [{verb = "walk_to", obj = {room = 28, name = "door", id = 316}, room = 28, until = [
+  {actor_room = 6, eq = 28},
+  {actor_x = 6, le = 310},
+  {state = 316, eq = 1},
+]}]
+
+# Door 315, split on Bit[446]. The first exit plays global 120 (the LeChuck
+# "Meanwhile" cutscene) before the dock; the next step (dock) waits for room 33,
+# which covers it. From the right half 315 is off screen, but the walk left
+# brings it into view: local-201 [0000] pans the camera to x 160 once ego is
+# left of x 320 (rules/glitchless.md, "Camera visibility").
+[actions."walk-out-of-bar-from-left-meanwhile"]
+cite = "data/scripts/room-028-bar/obj-0315-door.txt [0072] door 315 needs state 1; first exit [0085] Bit[446] = 1, [008A] startScript(120); global/script-120.txt [0538] loadRoomWithEgo(428,33)"
+steps = [{verb = "walk_to", obj = {room = 28, name = "door", id = 315}, room = 28}]
+
+[actions."walk-out-of-bar-from-right-meanwhile"]
+cite = "data/scripts/room-028-bar/obj-0315-door.txt [0072] door 315 needs state 1; first exit [0085] Bit[446] = 1, [008A] startScript(120); global/script-120.txt [0538] loadRoomWithEgo(428,33); local-201.txt [0000] the camera pans left as ego walks left"
+steps = [{verb = "walk_to", obj = {room = 28, name = "door", id = 315}, room = 28}]
+
+[actions."walk-out-of-bar-from-left"]
+cite = "data/scripts/room-028-bar/obj-0315-door.txt [0072] door 315 needs state 1; [0090] with Bit[446] set: loadRoomWithEgo(428,33)"
+steps = [{verb = "walk_to", obj = {room = 28, name = "door", id = 315}, room = 28}]
+
+[actions."walk-out-of-bar-from-right"]
+cite = "data/scripts/room-028-bar/obj-0315-door.txt [0072] door 315 needs state 1; [0090] with Bit[446] set: loadRoomWithEgo(428,33); local-201.txt [0000] the camera pans left as ego walks left"
+steps = [{verb = "walk_to", obj = {room = 28, name = "door", id = 315}, room = 28}]
+
 [actions."walk-into-store"]
 cite = "data/scripts/room-034-high-stre/obj-0437-door.txt [004A] Walk to 437 tests state 1; [005B] loadRoomWithEgo(387,30)"
 # One sentence: the Open is the separate action open-store-door, which the
@@ -362,6 +382,15 @@ steps = [{verb = "walk_to", obj = {room = 58, name = "path", id = 685}, until = 
 
 [actions."walk-forest-gate-215-220"]
 cite = "data/scripts/room-058-damnfores/obj-0688-path.txt [006B] at 215, path 688 (Left) loads 220 when ego owns the map"
+steps = [{verb = "walk_to", obj = {room = 58, name = "path", id = 688}, until = [{var = 4, eq = 215}]}]
+
+# The same gates once Bit[401] is set (by any earlier pass, e.g. with the guide).
+[actions."walk-forest-gate-215-203-open"]
+cite = "data/scripts/room-058-damnfores/obj-0685-path.txt [0064] at 215, 685 passes once Bit[401] is set; [00C6] loadRoomWithEgo(685,203)"
+steps = [{verb = "walk_to", obj = {room = 58, name = "path", id = 685}, until = [{var = 4, eq = 215}]}]
+
+[actions."walk-forest-gate-215-220-open"]
+cite = "data/scripts/room-058-damnfores/obj-0688-path.txt [005B] at 215, 688 passes once Bit[401] is set; [006B] loadRoomWithEgo(688,220)"
 steps = [{verb = "walk_to", obj = {room = 58, name = "path", id = 688}, until = [{var = 4, eq = 215}]}]
 
 [actions."walk-into-tent-with-pot"]
@@ -411,8 +440,14 @@ cite = "data/scripts/room-053-foyer/obj-0633-door.txt [0018] Open 633 owning ido
 steps = [{verb = "open", obj = {room = 53, name = "door", id = 633}, room = 53, until = [{room = 53}], choose = ["Buzz off"]}]
 
 [actions."walk-up-ladder-taking-idol"]
-cite = "data/scripts/room-042-underwate/obj-0578-fabulous-idol.txt [001B] Pick up 578 -> local-203 [0024] -> local-200 [0041] startScript(71,[2]) (Bit[85])"
+cite = "data/scripts/room-042-underwate/obj-0578-fabulous-idol.txt [001B] Pick up 578 -> local-203 [0024] -> local-200 [0041] startScript(71,[2]) (Bit[85]); then room 83 and the Elaine scene (room-083-cu-dock/entry.txt [008E])"
 # Waits for room 42: it is reached through room 83 and global 65 (cutscene chain).
+steps = [{verb = "pick_up", obj = {room = 42, name = "fabulous idol"}, room = 42, until = [{room = 42}]}]
+
+# The same sentence when the treasure is already dug up: the goal holds at
+# local-200 [0041] and the run ends before room 83's Elaine scene.
+[actions."walk-up-ladder-taking-idol-last"]
+cite = "data/scripts/room-042-underwate/obj-0578-fabulous-idol.txt [001B] Pick up 578 -> local-203 [0024] -> local-200 [0041] startScript(71,[2]) (Bit[85]); Bit[86] already set, so the goal holds here"
 steps = [{verb = "pick_up", obj = {room = 42, name = "fabulous idol"}, room = 42, until = [{room = 42}]}]
 
 # =====================================================================
@@ -434,6 +469,24 @@ steps = [{verb = "open", obj = {room = 36, name = "door"}, room = 36}]
 [actions."open-idol-room-door"]
 cite = "data/scripts/room-053-foyer/obj-0632-door.txt [0028] Open 632: startScript(25)"
 steps = [{verb = "open", obj = {room = 53, name = "door", id = 632}, room = 53, until = [{room = 53}]}]
+
+# Provoking the cook: Open 316 while he is in the kitchen (local-211 runs) plays
+# local-214 and starts local-212, which brings him out 600 jiffies later. The
+# `until` is the click-equivalence guard: with the cook out of room 28 a click on
+# 316 runs the door's verb directly (local-203 [003A]-[004A]), as the pushed
+# sentence does. It holds at once in practice: the cook cannot come out before
+# local-211's 1800 jiffies, and this step follows the bar entry within a few
+# hundred ticks.
+[actions."provoke-cook"]
+cite = "data/scripts/room-028-bar/obj-0316-door.txt [0018] Open 316 while local-211 runs -> [0021] local-214; local-214.txt [004B] startScript(212); local-212.txt [0020] startScript(216) after 600 jiffies"
+steps = [{verb = "open", obj = {room = 28, name = "door", id = 316}, room = 28, until = [{not = {actor_room = 6, eq = 28}}]}]
+
+# The same sentence from the left half: the walk to 316 crosses x 320, where
+# local-201 pans the camera to the right half (rules/glitchless.md, "Camera
+# visibility"). Ego ends at 316's walk point, in the right half.
+[actions."walk-to-kitchen-door-provoking-cook"]
+cite = "data/scripts/room-028-bar/obj-0316-door.txt [0018] Open 316 while local-211 runs -> [0021] local-214; local-212.txt [0020] the cook comes out 600 jiffies later; local-201.txt [0012] camera pans right"
+steps = [{verb = "open", obj = {room = 28, name = "door", id = 316}, room = 28, until = [{not = {actor_room = 6, eq = 28}}]}]
 
 # =====================================================================
 # Kitchen.
@@ -542,6 +595,62 @@ cite = "data/scripts/room-030-store/local-211.txt [0251] mint topic; [032D] 'fil
 steps = [{verb = "walk_to", obj = {room = 30, name = "door"}, room = 30, choose = ["shovel", "I want it", "breath mint", "browse"]}]
 
 # =====================================================================
+# The storekeeper as guide (docs/part1/model.md section 14).
+# =====================================================================
+
+# First meeting with the pirate leaders (room 28, walk point (473,128), right
+# half). Menu 1: "I want to be a pirate." (the others end the talk); the main
+# menu: "Tell me more about mastering the sword." ("mastering the art of
+# thievery" is the other "mastering" line, so "mastering the sword" is unique);
+# then the same menu again: "I'll just be running along now."
+[actions."talk-to-pirate-leaders"]
+cite = "data/scripts/room-028-bar/local-220.txt [02B2] first meeting, [033D] 'I want to be a pirate.'; [0970] 'mastering the sword' -> [1036] Var[199] = 1; [0DCD] 'running along' -> [19EB]"
+steps = [{verb = "talk_to", obj = {room = 28, name = "important-looking pirates"}, room = 28, choose = ["be a pirate", "mastering the sword", "running along"]}]
+
+# Topic 122 ends the dialogue (local-211 [1138]), so it is the last choice and
+# no "browse" is needed whatever else the menu still shows.
+[actions."pay-for-shovel-ask-guide"]
+cite = "data/scripts/room-030-store/local-211.txt [00FA] topic 122 while Var[199]; [0ED2]-[1131] he leaves, closes 387, startScript(67,[34]); [1138] the dialogue ends"
+steps = [{verb = "walk_to", obj = {room = 30, name = "door"}, room = 30, choose = ["shovel", "I want it", "Sword Master"]}]
+
+[actions."pay-for-shovel-and-mints-ask-guide"]
+cite = "data/scripts/room-030-store/local-211.txt [1BC0] mints; [00FA] topic 122 while Var[199]; [0ED2]-[1131] he leaves, closes 387, startScript(67,[34]); [1138] the dialogue ends"
+steps = [{verb = "walk_to", obj = {room = 30, name = "door"}, room = 30, choose = ["shovel", "I want it", "breath mint", "Sword Master"]}]
+
+[actions."open-store-door-from-inside"]
+cite = "data/scripts/room-030-store/obj-0387-door.txt [004E] Open 387: startScript(25,[387,437]); local-211.txt [1122] he closed 387 behind him"
+steps = [{verb = "open", obj = {room = 30, name = "door"}, room = 30}]
+
+# The follow chain: the same sentences as the plain links, on global 67's path.
+[actions."walk-follow-guide-to-low-street"]
+cite = "data/scripts/global/script-067.txt [000D] room 34: exit 433; room-034-high-stre/obj-0433-archway.txt [0011] loadRoomWithEgo(451,35)"
+steps = [{verb = "walk_to", obj = {room = 34, name = "archway", id = 433}, room = 34}]
+
+[actions."walk-follow-guide-to-dock"]
+cite = "data/scripts/global/script-067.txt [003D] room 35: exit 450; room-035-low-stree/obj-0450-archway.txt [0091] loadRoomWithEgo(427,33)"
+steps = [{verb = "walk_to", obj = {room = 35, name = "archway", id = 450}, room = 35}]
+
+[actions."walk-follow-guide-to-lookout"]
+cite = "data/scripts/global/script-067.txt [0070] room 33: exit 426, next 85 (3600 jiffies); room-033-dock/obj-0426-cliffside.txt [000C] loadRoomWithEgo(486,38)"
+steps = [{verb = "walk_to", obj = {room = 33, name = "cliffside"}, room = 33, until = [{room = 33}]}]
+
+[actions."walk-follow-guide-to-map"]
+cite = "data/scripts/global/script-067.txt [007F] room 85 waits 3600 jiffies; room-038-lookout/obj-0487-path.txt [0010] loadRoomWithEgo(913,85)"
+steps = [{verb = "walk_to", obj = {room = 38, name = "path"}, room = 38}]
+
+[actions."walk-follow-guide-to-f218"]
+cite = "data/scripts/global/script-067.txt [00A3] room 85: exit 911; room-085-melee/obj-0911-fork.txt [000C] loadRoomWithEgo(687,218)"
+steps = [{verb = "walk_to", obj = {room = 85, name = "fork"}, room = 85}]
+
+[actions."walk-follow-guide-to-f215"]
+cite = "data/scripts/global/script-067.txt [00D6] room 218: next 215; room-058-damnfores/obj-0685-path.txt [0168] at 218, path 685 loads 215"
+steps = [{verb = "walk_to", obj = {room = 58, name = "path", id = 685}, until = [{var = 4, eq = 218}]}]
+
+[actions."walk-forest-gate-215-203-with-guide"]
+cite = "data/scripts/room-058-damnfores/obj-0685-path.txt [005B] at 215, 685 passes while script 67 runs; [00C1] Bit[401] = 1; [00C6] loadRoomWithEgo(685,203)"
+steps = [{verb = "walk_to", obj = {room = 58, name = "path", id = 685}, until = [{var = 4, eq = 215}]}]
+
+# =====================================================================
 # Idol chain.
 # =====================================================================
 
@@ -556,6 +665,16 @@ steps = [{verb = "walk_to", obj = {room = 53, name = "door", id = 632}, room = 5
 [actions."talk-to-prisoner"]
 cite = "data/scripts/room-031-jail/obj-0405-prisoner.txt [001A] Bit[420] = 1; local-202.txt [0050] 405 still has class 6 -> [18DE]-[19C0] halitosis scene, ends at [19C4] with no menu"
 steps = [{verb = "talk_to", obj = {room = 31, name = "prisoner"}, room = 31}]
+
+# Bit[420] from a refused give: local-203 has no handler for the meat, so it takes
+# the refusal [029D] and then sets Bit[420] at [0351]. Nothing changes owner.
+[actions."give-meat-to-prisoner"]
+cite = "data/scripts/room-031-jail/local-203.txt [029D] refusal for an item with no handler; [0351] Bit[420] = 1"
+steps = [{verb = "give", obj = {room = 41, name = "hunk of meat"}, obj2 = {room = 31, name = "prisoner"}, room = 31}]
+
+[actions."give-repellent-to-prisoner-before-mints"]
+cite = "data/scripts/room-031-jail/local-203.txt [011F] repellent refused while 405 has class 6, [01EB] goto [029D]; [0351] Bit[420] = 1"
+steps = [{verb = "give", obj = {room = 53, name = "gopher repellent"}, obj2 = {room = 31, name = "prisoner"}, room = 31}]
 
 [actions."give-mints-to-prisoner"]
 cite = "data/scripts/room-031-jail/local-203.txt [00BF] bad breath cleared; [0112] dialogue; local-202.txt [0546] choice 127 'stiff upper lip'; [1381]-[13A9] goto [19C4]: the dialogue ends"

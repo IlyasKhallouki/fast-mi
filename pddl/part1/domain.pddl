@@ -50,7 +50,15 @@
     (circus-money)                    ; Var[195] got +478 (Bit[103]); covers 100 + 75 + 1
     (shovel-unpaid)                   ; ego holds shovel 396 without Bit[99]
     (idol-trial-done)                 ; Bit[85]
-    (treasure-trial-done))            ; Bit[86]
+    (treasure-trial-done)             ; Bit[86]
+    ;; Facts added for the time objective (docs/part1/model.md section 14).
+    (lechuck-cutscene-seen)           ; Bit[446]: the first exit through 315 played the "Meanwhile" cutscene
+    (cook-timer-fresh)                ; this bar visit began from the dock: local-211 runs (cook in the kitchen) until the first kitchen entry
+    (cook-provoked)                   ; Open 316 ran local-214, so local-212 brings the cook out; true only until the kitchen walk
+    (sword-master-asked)              ; Var[199] = 1 (pirate leaders): the store menu offers topic 122, the guide
+    (following-storekeeper)           ; global 67 runs: he walks ahead from the store to the forest; true until the gate at 215
+    (store-door-387-closed)           ; the storekeeper closed 387 behind him (local-211 [1122])
+    (forest-gate-open))               ; Bit[401]: the gates at 215 no longer ask for the map
 
   (:functions (total-cost) - number)
 
@@ -63,9 +71,12 @@
   ; src: data/scripts/global/script-002.txt [039D] — then runs the object's verb script, whose loadRoomWithEgo changes room
   ; src: data/scripts/global/script-006.txt [0065] — every room entry flushes the sentence queue, so one walk = one step
   ; src: data/scripts/room-034-high-stre/local-200.txt [0053] — citizens close 437 again, so no walk may come between open-store-door and walk-into-store
+  ; src: data/scripts/room-028-bar/local-212.txt [0020] — a provoked cook comes out on local-212's timer, so only the kitchen walk may follow a provoke
+  ; src: data/scripts/global/script-067.txt [035A] — the guiding storekeeper gives up when ego is late, so following uses only the walk-follow-guide-* chain
   (:action walk
     :parameters (?from ?to - room)
-    :precondition (and (at ?from) (link ?from ?to) (not (store-door-open)))
+    :precondition (and (at ?from) (link ?from ?to) (not (store-door-open)) (not (cook-provoked))
+                       (not (following-storekeeper)))
     :effect (and (not (at ?from)) (at ?to) (increase (total-cost) 1)))
 
   ;; ===================================================================
@@ -74,19 +85,78 @@
 
   ; src: data/scripts/room-033-dock/obj-0428-door.txt [0029] — Walk to 428 tests getObjectState(428) == 1
   ; src: data/scripts/room-033-dock/obj-0428-door.txt [0035] — then loadRoomWithEgo(315,28): the bar, left half
+  ; src: data/scripts/room-028-bar/local-205.txt [0040] — entering from anywhere but the kitchen closes 316 and [0044] starts local-211: the cook is in the kitchen
   (:action walk-into-bar
     :parameters ()
-    :precondition (and (at dock) (bar-door-open))
-    :effect (and (not (at dock)) (at bar-left) (increase (total-cost) 1)))
+    :precondition (and (at dock) (bar-door-open) (not (following-storekeeper)))
+    :effect (and (not (at dock)) (at bar-left) (cook-timer-fresh) (increase (total-cost) 1)))
+
+  ;; The kitchen walk is split on (cook-provoked): the sentence and its `until`
+  ;; are the same, but after a provoke the cook comes out on local-212's
+  ;; 600-jiffy timer instead of local-211's 1800-3000. Every kitchen entry
+  ;; consumes (cook-timer-fresh): coming back from the kitchen brings the cook
+  ;; out at once (local-205 [003A]), so a provoke is only valid before it.
 
   ; src: data/scripts/room-028-bar/obj-0316-door.txt [003F] — Walk to 316 needs state 1, then starts local-218
   ; src: data/scripts/room-028-bar/local-218.txt [0017] — loadRoomWithEgo(570,41): the kitchen
   ; src: data/scripts/room-028-bar/local-216.txt [001B] — the cook opens 316 himself when he comes out of the kitchen
   ; src: data/scripts/room-028-bar/local-203.txt [001E] — input-script guard: a click on 316 is refused while the cook is in 28 at x > 310
+  ; src: data/scripts/room-028-bar/local-211.txt [000D] — unprovoked, the cook stays in the kitchen 1800-3000 jiffies after bar entry
   (:action walk-into-kitchen
     :parameters ()
-    :precondition (and (at bar-right))
-    :effect (and (not (at bar-right)) (at kitchen) (increase (total-cost) 1)))
+    :precondition (and (at bar-right) (cook-timer-fresh) (not (cook-provoked)))
+    :effect (and (not (at bar-right)) (at kitchen) (not (cook-timer-fresh)) (increase (total-cost) 1)))
+
+  ; src: data/scripts/room-028-bar/obj-0316-door.txt [003F] — Walk to 316 needs state 1, then starts local-218
+  ; src: data/scripts/room-028-bar/local-218.txt [0017] — loadRoomWithEgo(570,41): the kitchen
+  ; src: data/scripts/room-028-bar/local-212.txt [0020] — after the provoke, startScript(216) 600 jiffies later: the cook comes out
+  ; src: data/scripts/room-028-bar/local-216.txt [001B] — and opens 316 and 570 (script 25 on the pair)
+  ; src: data/scripts/room-028-bar/local-203.txt [001E] — input-script guard: a click on 316 is refused while the cook is in 28 at x > 310
+  (:action walk-into-kitchen-after-provoking-cook
+    :parameters ()
+    :precondition (and (at bar-right) (cook-timer-fresh) (cook-provoked))
+    :effect (and (not (at bar-right)) (at kitchen) (not (cook-timer-fresh)) (not (cook-provoked))
+                 (increase (total-cost) 1)))
+
+  ;; Leaving the bar through 315. The first exit plays the LeChuck "Meanwhile"
+  ;; cutscene (global 120) and sets Bit[446]; later exits load the dock at once.
+  ;; From the right half 315 is off screen, but the walk left brings it on
+  ;; screen: local-201 pans the camera once ego is left of x 320
+  ;; (rules/glitchless.md, "Camera visibility"; rooms.md T25a).
+
+  ; src: data/scripts/room-028-bar/obj-0315-door.txt [0072] — Walk to 315 needs state 1 (opened with 428)
+  ; src: data/scripts/room-028-bar/obj-0315-door.txt [0085] — first exit: Bit[446] = 1
+  ; src: data/scripts/room-028-bar/obj-0315-door.txt [008A] — startScript(120): the LeChuck "Meanwhile" cutscene
+  ; src: data/scripts/global/script-120.txt [0538] — which ends with loadRoomWithEgo(428,33): the dock
+  (:action walk-out-of-bar-from-left-meanwhile
+    :parameters ()
+    :precondition (and (at bar-left) (not (lechuck-cutscene-seen)) (not (cook-provoked)))
+    :effect (and (not (at bar-left)) (at dock) (lechuck-cutscene-seen) (increase (total-cost) 1)))
+
+  ; src: data/scripts/room-028-bar/obj-0315-door.txt [0072] — Walk to 315 needs state 1 (opened with 428)
+  ; src: data/scripts/room-028-bar/obj-0315-door.txt [0085] — first exit: Bit[446] = 1
+  ; src: data/scripts/room-028-bar/obj-0315-door.txt [008A] — startScript(120): the LeChuck "Meanwhile" cutscene
+  ; src: data/scripts/global/script-120.txt [0538] — which ends with loadRoomWithEgo(428,33): the dock
+  ; src: data/scripts/room-028-bar/local-201.txt [0000] — the camera pans left once ego is left of x 320, so 315 comes on screen
+  (:action walk-out-of-bar-from-right-meanwhile
+    :parameters ()
+    :precondition (and (at bar-right) (not (lechuck-cutscene-seen)) (not (cook-provoked)))
+    :effect (and (not (at bar-right)) (at dock) (lechuck-cutscene-seen) (increase (total-cost) 1)))
+
+  ; src: data/scripts/room-028-bar/obj-0315-door.txt [0072] — Walk to 315 needs state 1 (opened with 428)
+  ; src: data/scripts/room-028-bar/obj-0315-door.txt [0090] — Bit[446] set: loadRoomWithEgo(428,33) at once
+  (:action walk-out-of-bar-from-left
+    :parameters ()
+    :precondition (and (at bar-left) (lechuck-cutscene-seen) (not (cook-provoked)))
+    :effect (and (not (at bar-left)) (at dock) (increase (total-cost) 1)))
+
+  ; src: data/scripts/room-028-bar/obj-0315-door.txt [0072] — Walk to 315 needs state 1 (opened with 428)
+  ; src: data/scripts/room-028-bar/obj-0315-door.txt [0090] — Bit[446] set: loadRoomWithEgo(428,33) at once
+  ; src: data/scripts/room-028-bar/local-201.txt [0000] — the camera pans left once ego is left of x 320, so 315 comes on screen
+  (:action walk-out-of-bar-from-right
+    :parameters ()
+    :precondition (and (at bar-right) (lechuck-cutscene-seen) (not (cook-provoked)))
+    :effect (and (not (at bar-right)) (at dock) (increase (total-cost) 1)))
 
   ;; One sentence (Walk to 437). The Open is open-store-door, and every other
   ;; action that can run in high-street-town requires (not (store-door-open)),
@@ -97,15 +167,20 @@
   ; src: data/scripts/room-034-high-stre/local-200.txt [0053] — street citizens close 437 again ([0053], [00CC]), so each entry needs a fresh Open right before it
   (:action walk-into-store
     :parameters ()
-    :precondition (and (at high-street-town) (store-door-open))
+    :precondition (and (at high-street-town) (store-door-open) (not (following-storekeeper)))
     :effect (and (not (at high-street-town)) (at store) (not (store-door-open)) (increase (total-cost) 1)))
+
+  ;; Also the first hop of the guide chain: global 67 starts in room 34
+  ;; (local-211 [1131]), and this exit branch of local-204 does not stop it
+  ;; (only the unpaid branch does, [0095]).
 
   ; src: data/scripts/room-030-store/obj-0387-door.txt [008C] — Walk to 387 (state 1, opened as 437's partner) starts local-204
   ; src: data/scripts/room-030-store/local-204.txt [0031] — with nothing unpaid it takes the exit branch
   ; src: data/scripts/room-030-store/local-204.txt [0044] — loadRoomWithEgo(437,34): High Street, town half
+  ; src: data/scripts/room-030-store/local-211.txt [1122] — the guiding storekeeper closes 387 behind him: open it first
   (:action walk-out-of-store
     :parameters ()
-    :precondition (and (at store) (not (shovel-unpaid)))
+    :precondition (and (at store) (not (shovel-unpaid)) (not (store-door-387-closed)))
     :effect (and (not (at store)) (at high-street-town) (increase (total-cost) 1)))
 
   ; src: data/scripts/room-036-mansion-e/obj-0465-door.txt [0030] — Walk to 465 tests getObjectState(465) == 1
@@ -124,17 +199,35 @@
     :effect (and (not (at foyer)) (at mansion) (increase (total-cost) 1)))
 
   ; src: data/scripts/room-058-damnfores/obj-0685-path.txt [004F] — at 215, path 685 refuses unless ego owns the map 442 (or Bit[401])
+  ; src: data/scripts/room-058-damnfores/obj-0685-path.txt [00C1] — Bit[401] = 1
   ; src: data/scripts/room-058-damnfores/obj-0685-path.txt [00C6] — otherwise loadRoomWithEgo(685,203)
   (:action walk-forest-gate-215-203
     :parameters ()
-    :precondition (and (at f215) (has treasure-map))
-    :effect (and (not (at f215)) (at f203) (increase (total-cost) 1)))
+    :precondition (and (at f215) (has treasure-map) (not (following-storekeeper)))
+    :effect (and (not (at f215)) (at f203) (forest-gate-open) (increase (total-cost) 1)))
 
   ; src: data/scripts/room-058-damnfores/obj-0688-path.txt [004F] — at 215, path 688 refuses unless ego owns the map 442 (or Bit[401])
+  ; src: data/scripts/room-058-damnfores/obj-0688-path.txt [0066] — Bit[401] = 1
   ; src: data/scripts/room-058-damnfores/obj-0688-path.txt [006B] — otherwise loadRoomWithEgo(688,220)
   (:action walk-forest-gate-215-220
     :parameters ()
-    :precondition (and (at f215) (has treasure-map))
+    :precondition (and (at f215) (has treasure-map) (not (following-storekeeper)))
+    :effect (and (not (at f215)) (at f220) (forest-gate-open) (increase (total-cost) 1)))
+
+  ;; Once Bit[401] is set the gates pass without the map (no script clears it).
+
+  ; src: data/scripts/room-058-damnfores/obj-0685-path.txt [0064] — at 215, path 685 passes once Bit[401] is set
+  ; src: data/scripts/room-058-damnfores/obj-0685-path.txt [00C6] — loadRoomWithEgo(685,203)
+  (:action walk-forest-gate-215-203-open
+    :parameters ()
+    :precondition (and (at f215) (forest-gate-open) (not (following-storekeeper)))
+    :effect (and (not (at f215)) (at f203) (increase (total-cost) 1)))
+
+  ; src: data/scripts/room-058-damnfores/obj-0688-path.txt [005B] — at 215, path 688 passes once Bit[401] is set
+  ; src: data/scripts/room-058-damnfores/obj-0688-path.txt [006B] — loadRoomWithEgo(688,220)
+  (:action walk-forest-gate-215-220-open
+    :parameters ()
+    :precondition (and (at f215) (forest-gate-open) (not (following-storekeeper)))
     :effect (and (not (at f215)) (at f220) (increase (total-cost) 1)))
 
   ; src: data/scripts/room-052-circus-gr/obj-0621-circus-tent.txt [000F] — the tent opens only while !Bit[103]
@@ -223,14 +316,31 @@
     :precondition (and (at foyer) (has foyer-idol))
     :effect (and (not (at foyer)) (at underwater) (not (has foyer-idol)) (increase (total-cost) 1)))
 
+  ;; Split on (treasure-trial-done). Bit[85] is set at local-200 [0041],
+  ;; before ego is moved to room 83, whose entry then plays the Elaine rescue
+  ;; scene (room-083-cu-dock local-201). If the treasure is already dug up, the
+  ;; goal holds at [0041] and the run ends there (the bridge quits on the
+  ;; first frame the goal holds, docs/plan.md C1), so the scene never plays.
+
   ; src: data/scripts/room-042-underwate/obj-0578-fabulous-idol.txt [001B] — Pick up 578 while it lies in the room starts local-203
   ; src: data/scripts/room-042-underwate/local-203.txt [0024] — pickupObject(578), then local-200
   ; src: data/scripts/room-042-underwate/local-200.txt [0041] — startScript(71,[2]): idol trial complete
   ; src: data/scripts/global/script-071.txt [008D] — Bit[83 + 2] = Bit[85] = 1
   ; src: data/scripts/room-042-underwate/local-200.txt [0091] — putActorInRoom(ego,83): the dock close-up
+  ; src: data/scripts/room-083-cu-dock/entry.txt [008E] — Var[277] == 4: the Elaine rescue scene local-201, control back at local-201.txt [07A0]
   (:action walk-up-ladder-taking-idol
     :parameters ()
-    :precondition (and (at underwater))
+    :precondition (and (at underwater) (not (treasure-trial-done)))
+    :effect (and (not (at underwater)) (at cu-dock) (idol-trial-done) (increase (total-cost) 1)))
+
+  ; src: data/scripts/room-042-underwate/obj-0578-fabulous-idol.txt [001B] — Pick up 578 while it lies in the room starts local-203
+  ; src: data/scripts/room-042-underwate/local-203.txt [0024] — pickupObject(578), then local-200
+  ; src: data/scripts/room-042-underwate/local-200.txt [0041] — startScript(71,[2]): Bit[85]; with Bit[86] already set the goal holds here
+  ; src: data/scripts/global/script-071.txt [008D] — Bit[83 + 2] = Bit[85] = 1
+  ; src: data/scripts/room-042-underwate/local-200.txt [0091] — (ego would go on to room 83; the run has ended by then)
+  (:action walk-up-ladder-taking-idol-last
+    :parameters ()
+    :precondition (and (at underwater) (treasure-trial-done))
     :effect (and (not (at underwater)) (at cu-dock) (idol-trial-done) (increase (total-cost) 1)))
 
   ;; ===================================================================
@@ -241,15 +351,23 @@
   ; src: data/scripts/global/script-025.txt [0024] — script 25 sets the door (and its partner) to state 1
   (:action open-bar-door
     :parameters ()
-    :precondition (and (at dock) (not (bar-door-open)))
+    :precondition (and (at dock) (not (bar-door-open)) (not (following-storekeeper)))
     :effect (and (bar-door-open) (increase (total-cost) 1)))
 
   ; src: data/scripts/room-034-high-stre/obj-0437-door.txt [0018] — Open 437 runs startScript(25,[437,387])
   ; src: data/scripts/global/script-025.txt [0024] — script 25 sets the door (and its partner) to state 1
   (:action open-store-door
     :parameters ()
-    :precondition (and (at high-street-town) (not (store-door-open)))
+    :precondition (and (at high-street-town) (not (store-door-open)) (not (following-storekeeper)))
     :effect (and (store-door-open) (increase (total-cost) 1)))
+
+  ; src: data/scripts/room-030-store/local-211.txt [1122] — the guiding storekeeper closes 387 alone (script 26 with no partner)
+  ; src: data/scripts/room-030-store/obj-0387-door.txt [004E] — Open 387 runs startScript(25,[387,437])
+  ; src: data/scripts/global/script-025.txt [0024] — script 25 sets the door (and its partner) to state 1
+  (:action open-store-door-from-inside
+    :parameters ()
+    :precondition (and (at store) (store-door-387-closed))
+    :effect (and (not (store-door-387-closed)) (increase (total-cost) 1)))
 
   ; src: data/scripts/room-036-mansion-e/obj-0465-door.txt [0018] — Open 465 runs startScript(25,[465,633])
   ; src: data/scripts/room-036-mansion-e/local-201.txt [00CE] — 465 becomes touchable only when the poodles fall asleep
@@ -264,6 +382,38 @@
     :parameters ()
     :precondition (and (at foyer) (not (idol-room-visited)) (not (idol-room-door-open)))
     :effect (and (idol-room-door-open) (increase (total-cost) 1)))
+
+  ;; Provoking the cook: Open 316 while he is in the kitchen (local-211 runs)
+  ;; plays local-214 ("You can't come back here!"), which starts local-212:
+  ;; the cook comes out 600 jiffies later instead of after local-211's
+  ;; remaining 1800-3000. local-211 keeps running, so this can only shorten
+  ;; the wait. A click on 316 while the cook is out of room 28 runs the
+  ;; door's verb directly (local-203 [003A]-[004A]), the same as the pushed
+  ;; sentence; the step's `until` asserts that branch. The off-screen variant
+  ;; from the left half walks ego across x 320, where local-201 pans the
+  ;; camera to the right half (rules/glitchless.md, "Camera visibility"). The
+  ;; cook race of model.md section 7.1 does not apply: he is in the kitchen.
+
+  ; src: data/scripts/room-028-bar/obj-0316-door.txt [0018] — Open 316 while local-211 runs (cook in the kitchen)
+  ; src: data/scripts/room-028-bar/obj-0316-door.txt [0021] — starts local-214 instead of opening
+  ; src: data/scripts/room-028-bar/local-214.txt [004B] — the cutscene ends with startScript(212)
+  ; src: data/scripts/room-028-bar/local-212.txt [0020] — two delay(300), then startScript(216): the cook comes out
+  ; src: data/scripts/room-028-bar/local-203.txt [003A] — click equivalence: cook not in 28, so a click runs the door's verb directly
+  (:action provoke-cook
+    :parameters ()
+    :precondition (and (at bar-right) (cook-timer-fresh) (not (cook-provoked)))
+    :effect (and (cook-provoked) (increase (total-cost) 1)))
+
+  ; src: data/scripts/room-028-bar/obj-0316-door.txt [0018] — Open 316 while local-211 runs (cook in the kitchen)
+  ; src: data/scripts/room-028-bar/obj-0316-door.txt [0021] — starts local-214 instead of opening
+  ; src: data/scripts/room-028-bar/local-214.txt [004B] — the cutscene ends with startScript(212)
+  ; src: data/scripts/room-028-bar/local-212.txt [0020] — two delay(300), then startScript(216): the cook comes out
+  ; src: data/scripts/room-028-bar/local-203.txt [003A] — click equivalence: cook not in 28, so a click runs the door's verb directly
+  ; src: data/scripts/room-028-bar/local-201.txt [0012] — the walk to 316 crosses x 320 and the camera pans to the right half
+  (:action walk-to-kitchen-door-provoking-cook
+    :parameters ()
+    :precondition (and (at bar-left) (cook-timer-fresh) (not (cook-provoked)))
+    :effect (and (not (at bar-left)) (at bar-right) (cook-provoked) (increase (total-cost) 1)))
 
   ;; ===================================================================
   ;; Kitchen: meat, pot, stew. The pot-guard facts track the circus
@@ -359,9 +509,11 @@
   ; src: data/scripts/global/script-182.txt [0017] — the petal is consumed (owner 0)
   ; src: data/scripts/room-085-melee/local-201.txt [0035] — no Use is possible on the map: every map click becomes Walk to
   ; src: data/scripts/room-034-high-stre/local-200.txt [0053] — not between open-store-door and walk-into-store (citizens close 437)
+  ; src: data/scripts/room-028-bar/local-212.txt [0020] — not between a provoke and the kitchen walk
   (:action drug-meat-with-petal
     :parameters ()
-    :precondition (and (has meat) (has petal) (not (at melee-map)) (not (at tent)) (not (store-door-open)))
+    :precondition (and (has meat) (has petal) (not (at melee-map)) (not (at tent)) (not (store-door-open))
+                       (not (cook-provoked)))
     :effect (and (meat-drugged) (not (has petal)) (increase (total-cost) 1)))
 
   ;; Drugging, route B: through the stew.
@@ -422,7 +574,7 @@
   ; src: data/scripts/room-035-low-stree/local-218.txt [0945] — 100 pieces of eight are paid
   (:action buy-map
     :parameters ()
-    :precondition (and (at low-street) (circus-money) (not (has treasure-map)))
+    :precondition (and (at low-street) (circus-money) (not (has treasure-map)) (not (following-storekeeper)))
     :effect (and (has treasure-map) (increase (total-cost) 1)))
 
   ;; The shovel is bought by picking it up and walking to the door 387 with it
@@ -436,7 +588,7 @@
   ; src: data/scripts/room-030-store/local-204.txt [001B] — an owned shovel without Bit[99] counts as unpaid
   (:action pick-up-shovel
     :parameters ()
-    :precondition (and (at store) (not (has shovel)) (not (shovel-unpaid)))
+    :precondition (and (at store) (not (has shovel)) (not (shovel-unpaid)) (not (following-storekeeper)))
     :effect (and (shovel-unpaid) (increase (total-cost) 1)))
 
   ; src: data/scripts/room-030-store/obj-0387-door.txt [008C] — Walk to 387 (state 1) starts local-204
@@ -446,18 +598,20 @@
   ; src: data/scripts/room-030-store/local-211.txt [0733] — buys at once when Var[195] >= 75
   ; src: data/scripts/room-030-store/local-211.txt [09CE] — Bit[99] = 1, shovel paid
   ; src: data/scripts/room-030-store/local-211.txt [03EB] — with no topic left the dialogue ends by itself
+  ; src: data/scripts/room-030-store/local-211.txt [00FA] — not once the leaders were asked: topic 122 would stay in the menu (the guide variants)
   (:action pay-for-shovel
     :parameters ()
-    :precondition (and (at store) (shovel-unpaid) (circus-money)
+    :precondition (and (at store) (shovel-unpaid) (circus-money) (not (sword-master-asked)) (not (following-storekeeper))
                        (not (otis-breath-known)) (not (has repellent)))
     :effect (and (has shovel) (not (shovel-unpaid)) (increase (total-cost) 1)))
 
   ; src: data/scripts/room-030-store/local-204.txt [042B] — Walk to 387 with an unpaid item ends in the store menu (local-211)
   ; src: data/scripts/room-030-store/local-211.txt [09CE] — Bit[99] = 1, shovel paid
   ; src: data/scripts/room-030-store/local-211.txt [032D] — topic "Do you have files?" while ego owns 640, so "browse" ends the menu
+  ; src: data/scripts/room-030-store/local-211.txt [00FA] — not once the leaders were asked: topic 122 would stay in the menu (the guide variants)
   (:action pay-for-shovel-files-topic
     :parameters ()
-    :precondition (and (at store) (shovel-unpaid) (circus-money)
+    :precondition (and (at store) (shovel-unpaid) (circus-money) (not (sword-master-asked)) (not (following-storekeeper))
                        (not (otis-breath-known)) (has repellent))
     :effect (and (has shovel) (not (shovel-unpaid)) (increase (total-cost) 1)))
 
@@ -466,20 +620,138 @@
   ; src: data/scripts/room-030-store/local-211.txt [0251] — topic "breath mint" while Bit[420] and !Bit[312]
   ; src: data/scripts/room-030-store/local-211.txt [1BC0] — pickupObject(395): the mints
   ; src: data/scripts/room-030-store/local-211.txt [1BC8] — 1 piece of eight is paid
+  ; src: data/scripts/room-030-store/local-211.txt [00FA] — not once the leaders were asked: topic 122 would stay in the menu (the guide variants)
   (:action pay-for-shovel-and-mints
     :parameters ()
-    :precondition (and (at store) (shovel-unpaid) (circus-money)
+    :precondition (and (at store) (shovel-unpaid) (circus-money) (not (sword-master-asked)) (not (following-storekeeper))
                        (otis-breath-known) (not (has mints)) (not (has repellent)))
     :effect (and (has shovel) (has mints) (not (shovel-unpaid)) (increase (total-cost) 1)))
 
   ; src: data/scripts/room-030-store/local-204.txt [042B] — Walk to 387 with an unpaid item ends in the store menu (local-211)
   ; src: data/scripts/room-030-store/local-211.txt [1BC0] — pickupObject(395): the mints
   ; src: data/scripts/room-030-store/local-211.txt [032D] — topic "Do you have files?" while ego owns 640, so "browse" ends the menu
+  ; src: data/scripts/room-030-store/local-211.txt [00FA] — not once the leaders were asked: topic 122 would stay in the menu (the guide variants)
   (:action pay-for-shovel-and-mints-files-topic
     :parameters ()
-    :precondition (and (at store) (shovel-unpaid) (circus-money)
+    :precondition (and (at store) (shovel-unpaid) (circus-money) (not (sword-master-asked)) (not (following-storekeeper))
                        (otis-breath-known) (not (has mints)) (has repellent))
     :effect (and (has shovel) (has mints) (not (shovel-unpaid)) (increase (total-cost) 1)))
+
+  ;; ===================================================================
+  ;; The storekeeper as guide (treasure.md section 7): instead of buying the
+  ;; map, ask him the way to the Sword Master and follow him into the forest.
+  ;; Passing gate 685 at 215 while his script 67 runs sets Bit[401], and the
+  ;; gates never ask for the map again. docs/part1/model.md section 14.
+  ;; ===================================================================
+
+  ;; Store topic 122 needs Var[199]. Only the leaders' first meeting is
+  ;; modelled (its choose list fits only that branch): no trial done
+  ;; (local-220 [0261] skips the first menu once Var[196] > 0), and not before
+  ;; this bar visit's kitchen entry (local-211 [0021] redraws the cook's delay
+  ;; while local-220 runs). Walk point (473,128): the right half.
+
+  ; src: data/scripts/room-028-bar/obj-0322-important-looking-pirates.txt [001F] — Talk to 322 starts local-220 (Var[196] < 3)
+  ; src: data/scripts/room-028-bar/local-220.txt [02B2] — first meeting: "What be ye wantin', boy?", menu at [033D] ("I want to be a pirate.")
+  ; src: data/scripts/room-028-bar/local-220.txt [0910] — Var[197] = 1 after the trials speech, then the main menu [094B]
+  ; src: data/scripts/room-028-bar/local-220.txt [0970] — "Tell me more about mastering the sword."
+  ; src: data/scripts/room-028-bar/local-220.txt [1036] — Var[198 + 1] = Var[199] = 1, back to the menu
+  ; src: data/scripts/room-028-bar/local-220.txt [0DCD] — "I'll just be running along now." ends the dialogue ([1983]-[19EB])
+  (:action talk-to-pirate-leaders
+    :parameters ()
+    :precondition (and (at bar-right) (not (sword-master-asked)) (not (cook-timer-fresh)) (not (cook-provoked))
+                       (not (idol-trial-done)) (not (treasure-trial-done)))
+    :effect (and (sword-master-asked) (increase (total-cost) 1)))
+
+  ;; The guide is asked after the purchases in the same dialogue: topic 122
+  ;; ends the dialogue, so leftover topics (mints, files) do not matter. The
+  ;; mints must be bought first if they are bought at all: the store is not
+  ;; visited again while following.
+
+  ; src: data/scripts/room-030-store/local-204.txt [042B] — Walk to 387 with the unpaid shovel ends in the store menu (local-211)
+  ; src: data/scripts/room-030-store/local-211.txt [09CE] — Bit[99] = 1, shovel paid
+  ; src: data/scripts/room-030-store/local-211.txt [00FA] — topic 122 "I'm looking for the Sword Master" while Var[199] is set
+  ; src: data/scripts/room-030-store/local-211.txt [0ED2] — Bit[102]; [1122] he leaves and closes 387 alone
+  ; src: data/scripts/room-030-store/local-211.txt [1131] — startScript(67,[34]): he waits for ego on High Street; [1138] the dialogue ends
+  (:action pay-for-shovel-ask-guide
+    :parameters ()
+    :precondition (and (at store) (shovel-unpaid) (circus-money) (sword-master-asked) (not (following-storekeeper)))
+    :effect (and (has shovel) (not (shovel-unpaid)) (following-storekeeper) (store-door-387-closed)
+                 (increase (total-cost) 1)))
+
+  ; src: data/scripts/room-030-store/local-204.txt [042B] — Walk to 387 with the unpaid shovel ends in the store menu (local-211)
+  ; src: data/scripts/room-030-store/local-211.txt [09CE] — Bit[99] = 1, shovel paid
+  ; src: data/scripts/room-030-store/local-211.txt [1BC0] — pickupObject(395): the mints ([0251] topic while Bit[420])
+  ; src: data/scripts/room-030-store/local-211.txt [00FA] — topic 122 "I'm looking for the Sword Master" while Var[199] is set
+  ; src: data/scripts/room-030-store/local-211.txt [1122] — he leaves and closes 387 alone
+  ; src: data/scripts/room-030-store/local-211.txt [1131] — startScript(67,[34]): he waits for ego on High Street; [1138] the dialogue ends
+  (:action pay-for-shovel-and-mints-ask-guide
+    :parameters ()
+    :precondition (and (at store) (shovel-unpaid) (circus-money) (sword-master-asked) (not (following-storekeeper))
+                       (otis-breath-known) (not (has mints)))
+    :effect (and (has shovel) (has mints) (not (shovel-unpaid)) (following-storekeeper) (store-door-387-closed)
+                 (increase (total-cost) 1)))
+
+  ;; Following: global 67 puts him in room Local[0], waits until VAR_ROOM is
+  ;; that room, walks him to its exit and restarts itself for the next room
+  ;; ([02D5]-[0353]). It gives up when ego has not entered the room within
+  ;; 1800 jiffies of its start (3600 in 33 and 85) ([027D], [035A]). A room
+  ;; change stops his walk (ScummVM startScene hides every actor), so ego may
+  ;; be ahead of him. Ego takes his exact path with no detour: the generic
+  ;; walk and every other action on these nodes require (not
+  ;; (following-storekeeper)). The lookout is the one room ego must cross that
+  ;; he skips (33 -> 85); room 85's 3600-jiffy limit covers it.
+
+  ; src: data/scripts/global/script-067.txt [000D] — room 34: exit 433 (archway to 35), 1800 jiffies
+  ; src: data/scripts/room-034-high-stre/obj-0433-archway.txt [0011] — loadRoomWithEgo(451,35)
+  (:action walk-follow-guide-to-low-street
+    :parameters ()
+    :precondition (and (at high-street-town) (following-storekeeper) (not (store-door-open)))
+    :effect (and (not (at high-street-town)) (at low-street) (increase (total-cost) 1)))
+
+  ; src: data/scripts/global/script-067.txt [003D] — room 35: exit 450 (archway to 33), 1800 jiffies
+  ; src: data/scripts/room-035-low-stree/obj-0450-archway.txt [0091] — loadRoomWithEgo(427,33)
+  (:action walk-follow-guide-to-dock
+    :parameters ()
+    :precondition (and (at low-street) (following-storekeeper))
+    :effect (and (not (at low-street)) (at dock) (increase (total-cost) 1)))
+
+  ; src: data/scripts/global/script-067.txt [0070] — room 33: exit 426 (cliffside), next room 85, 3600 jiffies ([007F])
+  ; src: data/scripts/room-033-dock/obj-0426-cliffside.txt [000C] — loadRoomWithEgo(486,38): the lookout
+  (:action walk-follow-guide-to-lookout
+    :parameters ()
+    :precondition (and (at dock) (following-storekeeper))
+    :effect (and (not (at dock)) (at lookout) (increase (total-cost) 1)))
+
+  ; src: data/scripts/global/script-067.txt [007F] — room 85 waits 3600 jiffies, which covers ego's lookout crossing
+  ; src: data/scripts/room-038-lookout/obj-0487-path.txt [0010] — loadRoomWithEgo(913,85): the map
+  (:action walk-follow-guide-to-map
+    :parameters ()
+    :precondition (and (at lookout) (following-storekeeper))
+    :effect (and (not (at lookout)) (at melee-map) (increase (total-cost) 1)))
+
+  ; src: data/scripts/global/script-067.txt [00A3] — room 85: exit 911 (fork), next room 218
+  ; src: data/scripts/room-085-melee/obj-0911-fork.txt [000C] — loadRoomWithEgo(687,218)
+  (:action walk-follow-guide-to-f218
+    :parameters ()
+    :precondition (and (at melee-map) (following-storekeeper))
+    :effect (and (not (at melee-map)) (at f218) (increase (total-cost) 1)))
+
+  ; src: data/scripts/global/script-067.txt [00D6] — room 218: next room 215, 1800 jiffies
+  ; src: data/scripts/room-058-damnfores/obj-0685-path.txt [0168] — at 218, path 685 loads 215
+  (:action walk-follow-guide-to-f215
+    :parameters ()
+    :precondition (and (at f218) (following-storekeeper))
+    :effect (and (not (at f218)) (at f215) (increase (total-cost) 1)))
+
+  ; src: data/scripts/global/script-067.txt [010E] — room 215: exit 685, next room 203
+  ; src: data/scripts/room-058-damnfores/obj-0685-path.txt [005B] — at 215, path 685 passes while script 67 runs (no map needed)
+  ; src: data/scripts/room-058-damnfores/obj-0685-path.txt [00C1] — Bit[401] = 1: the gates stay open for good
+  ; src: data/scripts/room-058-damnfores/obj-0685-path.txt [00C6] — loadRoomWithEgo(685,203)
+  (:action walk-forest-gate-215-203-with-guide
+    :parameters ()
+    :precondition (and (at f215) (following-storekeeper))
+    :effect (and (not (at f215)) (at f203) (not (following-storekeeper)) (forest-gate-open)
+                 (increase (total-cost) 1)))
 
   ;; ===================================================================
   ;; Idol chain.
@@ -513,6 +785,30 @@
     :precondition (and (at jail) (not (otis-breath-known)))
     :effect (and (otis-breath-known) (increase (total-cost) 1)))
 
+  ;; Bit[420] the other way: a give Otis refuses. Every give except the mugs,
+  ;; the opened cake and the mints ends at local-203 [034C], which sets
+  ;; Bit[420]. An item with no handler of its own (the meat), or the
+  ;; repellent while 405 still has class 6, takes the refusal branch [029D],
+  ;; which changes no owner. One sentence, like the Talk; the duration differs.
+
+  ; src: data/scripts/global/script-002.txt [009A] — Give to a class-5 object runs its verb 80 (prisoner 405 has class 5)
+  ; src: data/scripts/room-031-jail/obj-0405-prisoner.txt [006F] — verb 80 runs local-203 with the item
+  ; src: data/scripts/room-031-jail/local-203.txt [029D] — no handler for 566: "I don't want anything but my freedom!"; [02DC] "...and maybe a breath mint."
+  ; src: data/scripts/room-031-jail/local-203.txt [0351] — then Bit[420] = 1 (it was clear)
+  (:action give-meat-to-prisoner
+    :parameters ()
+    :precondition (and (at jail) (has meat) (not (otis-breath-known)))
+    :effect (and (otis-breath-known) (increase (total-cost) 1)))
+
+  ; src: data/scripts/room-031-jail/obj-0405-prisoner.txt [006F] — verb 80 runs local-203 with the item
+  ; src: data/scripts/room-031-jail/local-203.txt [011F] — the repellent is taken only once 405's class 6 is clear
+  ; src: data/scripts/room-031-jail/local-203.txt [01EB] — otherwise goto [029D]: the refusal, nothing changes owner
+  ; src: data/scripts/room-031-jail/local-203.txt [0351] — then Bit[420] = 1 (it was clear)
+  (:action give-repellent-to-prisoner-before-mints
+    :parameters ()
+    :precondition (and (at jail) (has repellent) (not (otis-breath-fresh)) (not (otis-breath-known)))
+    :effect (and (otis-breath-known) (increase (total-cost) 1)))
+
   ; src: data/scripts/room-031-jail/obj-0405-prisoner.txt [006F] — Give to 405 runs local-203 with the item
   ; src: data/scripts/room-031-jail/local-203.txt [00BF] — mints: setClass(405,[6]) clears the bad breath; the mints are kept
   ; src: data/scripts/room-031-jail/local-203.txt [0112] — chainScript(202): the dialogue opens
@@ -534,9 +830,11 @@
   ; src: data/scripts/room-031-jail/obj-0420-cake.txt [0056] — Open cake while it has class 6
   ; src: data/scripts/room-031-jail/obj-0420-cake.txt [005F] — setClass(420,[6,131]): class 6 cleared, renamed "file"
   ; src: data/scripts/room-034-high-stre/local-200.txt [0053] — not between open-store-door and walk-into-store (citizens close 437)
+  ; src: data/scripts/room-028-bar/local-212.txt [0020] — not between a provoke and the kitchen walk
   (:action open-cake
     :parameters ()
-    :precondition (and (has cake) (not (cake-opened)) (not (at melee-map)) (not (at tent)) (not (store-door-open)))
+    :precondition (and (has cake) (not (cake-opened)) (not (at melee-map)) (not (at tent)) (not (store-door-open))
+                       (not (cook-provoked)))
     :effect (and (cake-opened) (increase (total-cost) 1)))
 
   ; src: data/scripts/room-053-foyer/obj-0637-gaping-hole.txt [0018] — Walk to 637 owning 420 with class 6 clear

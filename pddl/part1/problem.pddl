@@ -37,8 +37,8 @@
     (link high-street-mansion mansion) ; src: data/scripts/room-034-high-stre/obj-0431-governor-s-mansion.txt [000C] — Governor's mansion: loadRoomWithEgo(466,36)
     (link high-street-mansion high-street-town) ; src: data/scripts/room-034-high-stre/obj-0435-town.txt [002E] — town: walk back to the town half
     (link jail high-street-town) ; src: data/scripts/room-031-jail/obj-0400-doorway.txt [0037] — doorway 400: loadRoomWithEgo(434,34)
-    (link bar-left dock) ; src: data/scripts/room-028-bar/obj-0315-door.txt [0072] — door 315 needs state 1 (open since the dock door was opened); first exit [0080]-[008A] Bit[446] = 1 and global/script-120.txt [0538] loadRoomWithEgo(428,33) after the LeChuck cutscene; later exits [0090] loadRoomWithEgo(428,33)
-    (link bar-right dock) ; src: data/scripts/room-028-bar/obj-0315-door.txt [0072] — the same door 315 from the right half (rooms.md T25a): first exit [0080]-[008A] -> global/script-120.txt [0538], later exits [0090]; local-201.txt [0000] pans the camera to the left half as ego walks left, so 315 comes on screen
+    ;; No bar -> dock links: door 315 is split on Bit[446] (the first exit plays
+    ;; the LeChuck cutscene), so it is the walk-out-of-bar-* actions.
     (link bar-left bar-right) ; src: data/scripts/room-028-bar/obj-0323-curtain.txt [0018] — curtain: walk to (330,137), right half
     (link bar-right bar-left) ; src: data/scripts/room-028-bar/obj-0323-curtain.txt [0022] — curtain: walk to (310,137), left half
     (link kitchen bar-right) ; src: data/scripts/room-041-kitchen/obj-0570-door.txt [003C] — door 570 (state 1): loadRoomWithEgo(316,28)

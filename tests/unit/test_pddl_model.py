@@ -59,6 +59,48 @@ REPEATED_SENTENCE_PAIRS = {
         "pay-for-shovel-and-mints-files-topic",
     )
 }
+# The cost-1-per-action optimum (docs/part1/model.md section 8). The time
+# objective rewrites the costs in a copy of the model; the hand-written model
+# keeps unit costs, and alternatives added for the time objective must not
+# make the unit-cost plan cheaper by accident.
+UNIT_COST_OPTIMUM = 66
+# Split pairs (docs/part1/model.md section 14): the same sentence whose
+# duration depends on one fact, so each half gets its own measured cost.
+# (action that requires the fact false, action that requires it true, fact).
+SPLIT_PAIRS = [
+    # First exit through 315 plays the LeChuck "Meanwhile" cutscene and sets Bit[446]
+    # (room-028-bar/obj-0315-door.txt [0080]-[008A]); later exits load the dock at once ([0090]).
+    ("walk-out-of-bar-from-left-meanwhile", "walk-out-of-bar-from-left", "lechuck-cutscene-seen"),
+    ("walk-out-of-bar-from-right-meanwhile", "walk-out-of-bar-from-right", "lechuck-cutscene-seen"),
+    # After a provoked cook (room-028-bar/local-214.txt [004B] -> local-212.txt) the wait for him
+    # is 600 jiffies instead of local-211's 1800-3000.
+    ("walk-into-kitchen", "walk-into-kitchen-after-provoking-cook", "cook-provoked"),
+    # Bit[85] is set at room-042-underwate/local-200.txt [0041]; when the treasure is already done
+    # the goal holds there and the Elaine scene in room 83 never plays.
+    ("walk-up-ladder-taking-idol", "walk-up-ladder-taking-idol-last", "treasure-trial-done"),
+]
+# The storekeeper as guide (docs/part1/model.md section 14): global 67 walks him
+# store -> 34 -> 35 -> 33 -> 85 -> 218 -> 215 -> 203, waiting in each room until
+# VAR_ROOM is his room and giving up after 1800 jiffies (3600 in 33 and 85)
+# (global/script-067.txt [000D]-[0128], [02E3], [035A]). The model follows him
+# with no detour: these are the nodes on his path, and the only actions allowed
+# there while (following-storekeeper) holds.
+FOLLOW_NODES = {"store", "high-street-town", "low-street", "dock", "lookout", "melee-map", "f218", "f215"}
+FOLLOW_ACTIONS = {
+    "open-store-door-from-inside",
+    "walk-out-of-store",
+    "walk-follow-guide-to-low-street",
+    "walk-follow-guide-to-dock",
+    "walk-follow-guide-to-lookout",
+    "walk-follow-guide-to-map",
+    "walk-follow-guide-to-f218",
+    "walk-follow-guide-to-f215",
+    "walk-forest-gate-215-203-with-guide",
+    # Instant or nearly so (6-78 ticks), far inside the 1800-jiffy limit.
+    "pick-up-petal",
+    "drug-meat-with-petal",
+    "open-cake",
+}
 
 
 # --- tiny PDDL reader ----------------------------------------------------------
@@ -339,18 +381,36 @@ def _sentence(step: dict) -> tuple | None:
     return (step["verb"], step["obj"], step.get("obj2", 0), where)
 
 
-def _ground_actions() -> dict[str, tuple[set, set]]:
-    """Every ground action key -> (positive precondition atoms, add effect atoms)."""
+def _ground_actions() -> dict[str, tuple[set, set, set, set]]:
+    """Every ground action key -> (positive pre, negative pre, add, delete) atom sets."""
+
+    def split(expr) -> tuple[set, set]:
+        atoms = _atoms(expr)
+        return {tuple(a) for pos, a in atoms if pos}, {tuple(a) for pos, a in atoms if not pos}
+
     out = {}
     for name, action in _actions().items():
+        pre, neg = split(_keyword_value(action, ":precondition"))
+        add, dele = split(_keyword_value(action, ":effect"))
         if name == "walk":
-            continue
-        pre = {tuple(a) for pos, a in _atoms(_keyword_value(action, ":precondition")) if pos}
-        add = {tuple(a) for pos, a in _atoms(_keyword_value(action, ":effect")) if pos}
-        out[name] = (pre, add)
-    for a, b in _problem_links():
-        out[f"walk {a} {b}"] = ({("at", a), ("link", a, b)}, {("at", b)})
+            for a, b in _problem_links():
+                bind = {"?from": a, "?to": b}
+                ground = lambda atoms: {tuple(bind.get(t, t) for t in atom) for atom in atoms}  # noqa: E731
+                out[f"walk {a} {b}"] = (ground(pre), ground(neg), ground(add), ground(dele))
+        else:
+            out[name] = (pre, neg, add, dele)
     return out
+
+
+def _enables(a: tuple[set, set, set, set], b: tuple[set, set, set, set]) -> bool:
+    """A adds a fact B requires, and B is still applicable right after A (as far as A's effects tell)."""
+    _, _, add_a, del_a = a
+    pre_b, neg_b, _, _ = b
+    if not add_a & pre_b or add_a & neg_b or del_a & pre_b:
+        return False
+    at_a = {f for f in add_a if f[0] == "at"}
+    at_b = {f for f in pre_b if f[0] == "at"}
+    return not (at_a and at_b and not at_a & at_b)
 
 
 def _compiled_templates() -> dict[str, list[dict]]:
@@ -365,7 +425,8 @@ def test_no_consecutive_duplicate_sentences():
     The engine runs a repeated sentence twice, so a duplicate is either a
     wasted action (a defensive re-Open of an open door) or a second click that
     must be documented (DOUBLE_SENTENCE_ALLOWED). Across actions, A's last
-    sentence is compared with B's first whenever A adds a fact B requires,
+    sentence is compared with B's first whenever A adds a fact B requires and
+    leaves B applicable (A does not end elsewhere or add a fact B needs false),
     e.g. open-store-door -> walk-into-store.
     """
     _require_index()
@@ -377,12 +438,12 @@ def test_no_consecutive_duplicate_sentences():
             if sentences[i] is not None and sentences[i] == sentences[i - 1] and key not in DOUBLE_SENTENCE_ALLOWED:
                 bad.append(f"{key!r} steps {i - 1} and {i} push {sentences[i]}")
     ground = _ground_actions()
-    for a, (_, add_a) in ground.items():
+    for a, ga in ground.items():
         last = _sentence(compiled[a][-1])
         if last is None:
             continue
-        for b, (pre_b, _) in ground.items():
-            if not add_a & pre_b:
+        for b, gb in ground.items():
+            if not _enables(ga, gb):
                 continue
             # A walk straight back (the bar curtain 323 both ways) is never in an optimal plan.
             if a.startswith("walk ") and b.split()[1:] == a.split()[:0:-1]:
@@ -410,6 +471,146 @@ def test_store_door_open_is_used_at_once():
         assert (False, ["store-door-open"]) in pre, (
             f"action {name} can run between open-store-door and walk-into-store; add (not (store-door-open))"
         )
+
+
+# --- alternatives and splits for the time objective (model.md section 14) -----------
+
+
+def _pre(name: str) -> list[tuple[bool, list]]:
+    return _atoms(_keyword_value(_actions()[name], ":precondition"))
+
+
+def _eff(name: str) -> list[tuple[bool, list]]:
+    return _atoms(_keyword_value(_actions()[name], ":effect"))
+
+
+def _init_facts() -> list[list]:
+    return [f for f in _section(_parse_sexp(PROBLEM.read_text()), ":init")[1:] if f[0] != "="]
+
+
+def _may_run_in(name: str, rooms: set[str]) -> bool:
+    """True unless the action's (at ...) precondition pins it to a node outside ``rooms``."""
+    at = [atom[1] for pos, atom in _pre(name) if pos and atom[0] == "at"]
+    return not at or any(r.startswith("?") or r in rooms for r in at)
+
+
+def test_bar_exits_are_actions_not_links():
+    """The bar exit is split on Bit[446], so it cannot stay a static link (a link carries no guard)."""
+    links = set(_problem_links())
+    assert ("bar-left", "dock") not in links
+    assert ("bar-right", "dock") not in links
+    for side in ("left", "right"):
+        first, later = f"walk-out-of-bar-from-{side}-meanwhile", f"walk-out-of-bar-from-{side}"
+        for name in (first, later):
+            assert (True, ["at", f"bar-{side}"]) in _pre(name)
+            assert (True, ["at", "dock"]) in _eff(name)
+        assert (True, ["lechuck-cutscene-seen"]) in _eff(first)
+    assert ["lechuck-cutscene-seen"] not in _init_facts()  # Bit[446] is clear at segment start
+
+
+def test_split_pairs_have_complementary_guards():
+    """Each split pair is one sentence; exactly one half applies in any state."""
+    actions = _actions()
+    steps = _steps()["actions"]
+    for off, on, fact in SPLIT_PAIRS:
+        assert off in actions and on in actions, (off, on)
+        assert (False, [fact]) in _pre(off), f"{off} must require (not ({fact}))"
+        assert (True, [fact]) in _pre(on), f"{on} must require ({fact})"
+        assert steps[off]["steps"] == steps[on]["steps"], f"{off} and {on} must push the same steps"
+        moves = lambda n: sorted((pos, a) for pos, a in _eff(n) if a[0] == "at")  # noqa: E731
+        assert moves(off) == moves(on), f"{off} and {on} must move ego the same way"
+
+
+def test_cook_provoked_is_used_at_once():
+    """(cook-provoked) holds only between a provoking Open 316 and the kitchen walk it shortens.
+
+    Open 316 while the cook is in the kitchen runs room-028-bar/local-214.txt, which starts
+    local-212 ([004B]): the cook comes out 600 jiffies later. Only the kitchen walk may follow,
+    so every other action that can run in the bar requires the fact false.
+    """
+    for name in _actions():
+        if name == "walk-into-kitchen-after-provoking-cook" or not _may_run_in(name, {"bar-left", "bar-right"}):
+            continue
+        assert (False, ["cook-provoked"]) in _pre(name), (
+            f"action {name} can run between a provoke and walk-into-kitchen-after-provoking-cook"
+        )
+
+
+def test_provoke_needs_a_fresh_cook_timer():
+    """Provoking works only while this bar visit's local-211 timer runs (cook in the kitchen).
+
+    walk-into-bar starts it (room-028-bar/local-205.txt [0040]-[0044]); a return from the
+    kitchen brings the cook out at once ([0033]-[003A]), so every kitchen entry consumes it.
+    """
+    provokes = [n for n in _actions() if (True, ["cook-provoked"]) in _eff(n)]
+    assert sorted(provokes) == ["provoke-cook", "walk-to-kitchen-door-provoking-cook"]
+    for name in provokes:
+        assert (True, ["cook-timer-fresh"]) in _pre(name)
+    assert (True, ["cook-timer-fresh"]) in _eff("walk-into-bar")
+    setters = [n for n in _actions() if (True, ["cook-timer-fresh"]) in _eff(n)]
+    assert setters == ["walk-into-bar"]
+    for name in _actions():
+        if (True, ["at", "kitchen"]) in _eff(name):
+            assert (True, ["cook-timer-fresh"]) in _pre(name), f"{name} must require (cook-timer-fresh)"
+            assert (False, ["cook-timer-fresh"]) in _eff(name), f"{name} must delete (cook-timer-fresh)"
+
+
+def test_following_the_storekeeper_is_isolated():
+    """While global 67 guides, the plan walks his path and nothing else (no detour can outlast his timeout)."""
+    for name in _actions():
+        if name in FOLLOW_ACTIONS or not _may_run_in(name, FOLLOW_NODES):
+            continue
+        assert (False, ["following-storekeeper"]) in _pre(name), (
+            f"action {name} can run while the plan follows the storekeeper; add (not (following-storekeeper))"
+        )
+    starters = sorted(n for n in _actions() if (True, ["following-storekeeper"]) in _eff(n))
+    assert starters == ["pay-for-shovel-and-mints-ask-guide", "pay-for-shovel-ask-guide"]
+    enders = [n for n in _actions() if (False, ["following-storekeeper"]) in _eff(n)]
+    assert enders == ["walk-forest-gate-215-203-with-guide"]
+    for name in FOLLOW_ACTIONS:
+        if name.startswith("walk-follow-guide") or name == "walk-forest-gate-215-203-with-guide":
+            assert (True, ["following-storekeeper"]) in _pre(name), name
+    # The gate is passed with 685 only: 688 at 215 has no script-67 exemption
+    # (room-058-damnfores/obj-0688-path.txt [004F]-[006B] vs obj-0685-path.txt [005B]).
+    assert (True, ["at", "f203"]) in _eff("walk-forest-gate-215-203-with-guide")
+    assert (True, ["forest-gate-open"]) in _eff("walk-forest-gate-215-203-with-guide")
+
+
+def test_store_menu_with_the_guide_topic():
+    """Once the leaders were asked (Var[199]), the store menu shows topic 122 after the purchases.
+
+    It must be chosen (it ends the dialogue at room-030-store/local-211.txt [1138]); the
+    old pay variants' choose lists would leave it in the menu, so they are barred.
+    """
+    steps = _steps()["actions"]
+    pays = [n for n in _actions() if (True, ["shovel-unpaid"]) in _pre(n) and (True, ["has", "shovel"]) in _eff(n)]
+    assert len(pays) == 6
+    for name in pays:
+        guided = (True, ["following-storekeeper"]) in _eff(name)
+        assert (guided, ["sword-master-asked"]) in _pre(name), name
+        assert (steps[name]["steps"][-1]["choose"][-1] == "Sword Master") == guided, name
+        if guided:
+            assert (True, ["store-door-387-closed"]) in _eff(name)  # local-211.txt [1122] closes 387
+
+
+def test_pirate_leaders_talk_is_the_first_meeting():
+    """The choose list fits only the first talk with no trial done (room-028-bar/local-220.txt [02B2])."""
+    pre = _pre("talk-to-pirate-leaders")
+    for fact in (["sword-master-asked"], ["idol-trial-done"], ["treasure-trial-done"], ["cook-timer-fresh"]):
+        assert (False, fact) in pre, fact
+    assert (True, ["at", "bar-right"]) in pre  # walk point (473,128), right half
+    assert (True, ["sword-master-asked"]) in _eff("talk-to-pirate-leaders")
+    gate_open = sorted(n for n in _actions() if (True, ["forest-gate-open"]) in _pre(n))
+    assert gate_open == ["walk-forest-gate-215-203-open", "walk-forest-gate-215-220-open"]
+
+
+def test_breath_gives_keep_the_item():
+    """A refused give still sets Bit[420] (room-031-jail/local-203.txt [029D] -> [0351]) and takes nothing."""
+    learners = [n for n in _actions() if (True, ["otis-breath-known"]) in _eff(n)]
+    assert sorted(learners) == ["give-meat-to-prisoner", "give-repellent-to-prisoner-before-mints", "talk-to-prisoner"]
+    for name in learners:
+        assert (False, ["otis-breath-known"]) in _pre(name)
+        assert not [a for pos, a in _eff(name) if not pos and a[0] == "has"], f"{name} must keep every item"
 
 
 # --- the real planner ------------------------------------------------------------
@@ -441,6 +642,7 @@ def test_planner_finds_plan(optimal_plan: Plan):
     plan = optimal_plan
     assert plan.actions
     assert plan.cost == len(plan.actions)  # every action costs 1
+    assert plan.cost == UNIT_COST_OPTIMUM
     steps = _steps()
     for action in plan.actions:
         assert " ".join(action) in steps["actions"], f"plan action {action} has no step template"
