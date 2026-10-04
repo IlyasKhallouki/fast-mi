@@ -362,3 +362,21 @@ def test_real_model_with_no_measurements_plans_like_the_unit_model(fd_ready, tmp
 
 def test_parse_plan_of_timed_trailer_is_general_cost():
     assert parse_plan("(drive a d)\n; cost = 40 (general cost)\n").cost == 40
+
+
+# Fast Downward stores g in a 30-bit field (docs/research/fd-costs.md §1): a plan cost above
+# 2**29 - 1 silently wraps and yields a wrong plan, so absurd costs must fail loudly here.
+def test_integer_cost_rejects_absurd_tick_counts():
+    from speedrun.costing import MAX_ACTION_COST, CostingError, integer_cost
+
+    assert integer_cost(MAX_ACTION_COST) == MAX_ACTION_COST
+    with pytest.raises(CostingError, match="overflow"):
+        integer_cost(MAX_ACTION_COST + 1)
+
+
+def test_cost_budget_guard_rejects_tables_that_could_overflow_fd():
+    from speedrun.costing import FD_COST_BUDGET, CostingError, check_cost_budget
+
+    check_cost_budget([FD_COST_BUDGET // 2, FD_COST_BUDGET // 4])
+    with pytest.raises(CostingError, match="overflow"):
+        check_cost_budget([FD_COST_BUDGET // 2, FD_COST_BUDGET // 2 + 1])

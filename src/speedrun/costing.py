@@ -65,9 +65,33 @@ class CostingError(Exception):
     """The domain/problem cannot be costed, or a cost table is inconsistent."""
 
 
+# Fast Downward keeps g in a 30-bit field (search_node_info.h:19): a path cost above
+# 2**29 - 1 silently wraps and the planner returns a wrong plan with exit 0
+# (docs/research/fd-costs.md §1). One action may cost at most MAX_ACTION_COST
+# ticks (about 4.6 hours of game time), and the sum of every ground action's cost
+# must stay below FD_COST_BUDGET, which leaves a 4x margin for plans that repeat
+# actions.
+MAX_ACTION_COST = 1_000_000
+FD_COST_BUDGET = 2**27
+
+
 def integer_cost(mean: float) -> int:
     """The planner's cost for a measured mean: rounded to an integer, and at least 1."""
-    return max(1, round(mean))
+    cost = max(1, round(mean))
+    if cost > MAX_ACTION_COST:
+        raise CostingError(
+            f"cost {cost} ticks exceeds {MAX_ACTION_COST}: risks Fast Downward's 30-bit g overflow"
+        )
+    return cost
+
+
+def check_cost_budget(costs) -> None:
+    """Raise unless the summed costs stay safely inside Fast Downward's g range."""
+    total = sum(costs)
+    if total >= FD_COST_BUDGET:
+        raise CostingError(
+            f"summed action costs {total} >= {FD_COST_BUDGET}: a plan could overflow Fast Downward's g"
+        )
 
 
 # --- a comment-aware s-expression reader with source offsets -------------------------
@@ -451,6 +475,7 @@ def apply_costs(
     timed_names = {d.split()[0].lstrip("(") for d in declarations}
     if sum(1 for key in defined if key[0] in timed_names) != expected:
         raise CostingError(f"internal: {expected} ground instances but a different number of cost values")
+    check_cost_budget(ground_costs(timed_domain, timed_problem).values())
     return timed_domain, timed_problem
 
 
