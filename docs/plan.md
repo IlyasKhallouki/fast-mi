@@ -194,7 +194,8 @@ The flow for each step:
   - `step_timeout`;
   - `bad_plan`;
   - `dump_not_reached`: `max_ticks` was hit before the first idle frame in dump mode.
-- **String escaping:** the bridge writes ASCII JSON. Bytes ≥ 0x80 in game text become `\u00XX`, the byte value in Latin-1. Python must decode text fields with `s.encode("latin-1").decode("mac_roman")`, because Mac MI1 text is Mac Roman.
+- **String escaping:** the bridge writes ASCII JSON. Bytes ≥ 0x80 in game text become `\u00XX`, the byte value in Latin-1. MI1's charset follows the DOS code-page layout, not Mac Roman: "Mêlée" is stored as `M\x88l\x82e` (`room-030-store/local-211.txt [0110]`). Python decodes text fields, and names in `objects.json`, with one shared decoder: `s.encode("latin-1").decode("cp437")`, with `0x0F` mapped to `™`.
+- **Dialogue matching:** `choose` substrings in plans must be pure ASCII, and the compiler rejects anything else. The bridge matches them case-insensitively against the visible verb text's raw bytes, after stripping escapes.
 - **Location:** the trace embeds game text through choice texts, so it lives under `out/` and is gitignored.
 
 ### C6. `objects.json` (`SPEEDRUN_DUMP_OBJECTS=1`)
