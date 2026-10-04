@@ -849,6 +849,20 @@ A research agent writes this. It covers:
 
 The fixed-seed "look into the future" approach (RNG manipulation) is **not** in scope. Routes are chosen by their mean ticks over many seeds, never by the outcome of one known seed.
 
+**Checkpoint.** The tag `v1-unit-cost` marks the working unit-cost v1 before this phase: 66 actions, demo/headless parity, 520 tests.
+
+**What "optimal" means here.** Action durations depend on context:
+- the first bar exit carries the LeChuck cutscene, and later exits don't;
+- a walk's length depends on where ego entered the room;
+- dialogue branches and NPC timing vary with the RNG.
+
+So any static per-action cost table is a **surrogate model**. Fast Downward proves optimality only for that surrogate. The claim "fastest route" rests on the **empirical evaluation**: candidate plans measured on the same seeds, with the winner reported on **held-out** seeds.
+
+To keep the surrogate faithful:
+- one-shot actions with a different duration (e.g. the first bar exit) become separate PDDL actions;
+- costs are keyed by context where it matters, e.g. walks by entry room;
+- every action whose variance across contexts exceeds its variance across seeds is flagged in `docs/optimization.md`.
+
 **Objective.** The goal is to minimise the expected ticks from segment start to goal. "Expected" means the mean over N seeds (default N = 30), with the standard deviation, minimum and maximum reported. Fast Downward stays the only search. We only change the action costs we feed it.
 
 ### Contracts (additions to C1, C4, C5)
@@ -883,12 +897,29 @@ The fixed-seed "look into the future" approach (RNG manipulation) is **not** in 
   - Does the override branch reach the same state as playing the cutscene through?
   - Are there skips that would alter the route or soft-lock it?
   - Output goes to `docs/part1/skips.md`.
-- **Fast Downward:** per-action costs. Can `lmcut` take integer constants per action, plus static `(walk-cost ?from ?to)` functions for the parameterised walk?
+- **Fast Downward:** per-action costs. Can `lmcut` take integer constants per action, plus static `(walk-cost ?from ?to)` functions for the parameterised walk? How costly is context keying, e.g. `(entered-from ?r)` state plus costs keyed by entry room?
+- **Skip safety, var 19.** A mid-game Esc that skips an assignment to `VAR_TIMER_NEXT` (var 19) is in the logo speed glitch family and is banned even after `tick0`. List every route cutscene whose override path skips a var 19 write.
+- **Text skip trigger.** Inject `.` only while a real actor line is showing (the talk-actor or WaitForMessage rule from idle detection), never for the map's hover label.
+
+### Task 8.1b: Model — re-admit alternatives excluded only on action count
+
+`docs/part1/model.md` §5 excluded some alternatives partly because they cost more actions:
+- the storekeeper-guide route instead of the map;
+- `Use meat with poodles`;
+- the minutes deal;
+- and others.
+
+Under a time objective, re-add every alternative whose only exclusion reason was action count, and let Fast Downward choose. Alternatives excluded for replay or rules reasons stay out.
+
+Also split one-shot actions whose duration differs from later repeats:
+- the first bar exit (LeChuck cutscene, `Bit[446]`);
+- first-visit dialogues versus later ones.
 
 ### Task 8.2: Bridge — skips (TDD)
 
 - Implement the two switches, the `skip` records and `no_skip`.
 - `engine.py` gains `EngineConfig.skip_text` and `skip_cutscenes`, both defaulting to True, and moves the XDG data and cache dirs into each run dir so parallel runs never share files.
+- **Skip-safety harness.** For each route cutscene, run the plan with and without skips on the same seed. Diff bits, inventory and owners at every `step_end`. Any difference marks that step `no_skip`, with a citation. Also assert var 19 is identical after every skip.
 - Tests:
   - a text skip shortens a known talking step;
   - an Esc skip shortens the first bar exit (the LeChuck cutscene, 9,492 ticks unskipped);
@@ -912,9 +943,14 @@ The fixed-seed "look into the future" approach (RNG manipulation) is **not** in 
 
 `speedrun optimize <segment> [--seeds 30] [--candidates 20] [--jobs N]`:
 
-1. **Optimistic measurement loop.** Measured actions carry their mean ticks; unmeasured actions carry a lower bound of 1 tick. Plan, measure the plan on the seed set, fold the results into the cost table, and repeat. Stop when the optimal plan contains only measured actions and is unchanged. With admissible lower bounds, this proves the plan optimal for the mean-cost model.
+1. **Optimistic measurement loop.** Measured actions carry their mean ticks; unmeasured actions carry a lower bound of 1 tick. Plan, measure the plan on 3–5 exploration seeds, fold the results into the cost table, and repeat. Stop when the optimal plan contains only measured actions and is unchanged. With admissible lower bounds, this proves the plan optimal for the surrogate cost model only.
+   - A plan that fails on any seed is rejected. The failing action is reported as a model bug, with its error and stall records, rather than just being penalised.
+   - Parallel runs use generous `run_engine` wall-clock timeouts. Ticks don't depend on CPU load, but the kill timer does.
 2. **Candidate generation.** Re-plan with K cost vectors sampled from each action's measured distribution (Thompson sampling, with a fixed sampler seed), plus the unit-cost plan and the mean-cost plan. Collect the distinct plans.
-3. **Evaluation.** Measure every candidate on the same N seeds and pick the lowest mean total ticks. Report a paired comparison against the runner-up (the same seeds), including the mean difference and its standard error.
+3. **Evaluation.**
+   - **Selection:** measure every candidate on seeds 1–30 and pick the lowest mean total ticks.
+   - **Report:** measure the winner and the runner-up again on held-out seeds 31–60, to avoid the winner's curse. Include a paired comparison on those seeds (mean difference and standard error), plus the stdev, min and max.
+   - **Rejection:** a candidate that fails on any seed is rejected.
 4. **Output.**
    - `out/plans/<segment>.time.sas_plan` and `.jsonl` (the chosen plan);
    - `pddl/<segment>/measured-costs.json` (committed: the cost table with sample counts, as derived data);
@@ -927,7 +963,7 @@ Run the time-optimal plan on all seeds. Debug any failure that skips introduce, 
 
 ### Task 8.6: Reports and final demo
 
-- Update `docs/comparison.md` with the time-optimal route and its mean ticks.
+- Fully re-align `docs/comparison.md` against the time-optimal plan, not just new numbers. Reuse the earlier classified differences where the routes still agree.
 - Run the final visible demo of the time-optimal plan, with seed 1 and identical headless parity.
 - Run the full suite.
 
