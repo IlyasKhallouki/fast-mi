@@ -15,14 +15,45 @@ def test_help_lists_subcommands(capsys):
         assert name in out
 
 
+def test_help_lists_command_options(capsys):
+    with pytest.raises(SystemExit):
+        main(["--help"])
+    out = capsys.readouterr().out
+    for option in ("--max-ticks", "--seed", "--boot-param", "--replan"):
+        assert option in out
+    assert "speedrun run" in out and "speedrun demo" in out
+
+
+@pytest.mark.parametrize("command", ["run", "demo"])
+def test_run_demo_options_parse(command):
+    from speedrun.cli import build_parser
+
+    args = build_parser().parse_args(
+        [command, "part1", "--seed", "7", "--max-ticks", "900", "--replan", "--boot-param", "3"]
+    )
+    assert (args.segment, args.seed, args.max_ticks, args.replan, args.boot_param) == ("part1", 7, 900, True, 3)
+    defaults = build_parser().parse_args([command, "part1"])
+    assert (defaults.seed, defaults.max_ticks, defaults.replan, defaults.boot_param) == (1, None, False, None)
+
+
+def test_compile_defaults_to_part1():
+    from speedrun.cli import build_parser
+
+    assert build_parser().parse_args(["compile"]).segment == "part1"
+
+
 def test_unknown_subcommand_exits_nonzero():
     with pytest.raises(SystemExit) as excinfo:
         main(["bogus"])
     assert excinfo.value.code != 0
 
 
-def test_stub_subcommand_returns_2():
-    assert main(["plan", "part1"]) == 2
+def test_plan_missing_segment_returns_1(tmp_path, monkeypatch, capsys):
+    # Never touches the real pddl/ tree: pddl/part1 may exist and would launch Fast Downward.
+    monkeypatch.setattr(paths, "PDDL_DIR", tmp_path / "pddl")
+    monkeypatch.setattr(paths, "PLANS_DIR", tmp_path / "out" / "plans")
+    assert main(["plan", "part1"]) == 1
+    assert "part1" in capsys.readouterr().err
 
 
 def test_paths_root_is_repo_root():

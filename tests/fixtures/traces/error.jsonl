@@ -1,0 +1,7 @@
+{"type":"boot","tick":0,"frame":0,"bridge":"speedrun-bridge v1","game":"toygame","variant":"Synthetic","fast":true,"audio_pump":true,"seed":1,"boot_param":0}
+{"type":"segment_start","tick":500,"frame":125,"tick0":500,"room":101}
+{"type":"step_start","step":0,"tick":510,"frame":128,"action":"take-widget","room":101,"sentence":[9,500,0]}
+{"type":"step_end","step":0,"tick":800,"frame":200,"room":101,"changes":{"vars":{"34":[0,1]},"bits":{},"inventory":{"added":[500],"removed":[]},"room":[101,101]}}
+{"type":"step_start","step":1,"tick":810,"frame":203,"action":"buy-ledger","room":101,"sentence":[9,512,0]}
+{"type":"error","tick":900,"frame":226,"step":1,"code":"room_mismatch","message":"expected room 102, ego in 101"}
+{"type":"end","tick":900,"frame":226,"reason":"error","room":101,"audio_frames":330750,"music_timer":4,"vars_fnv1a":"0badf00d"}

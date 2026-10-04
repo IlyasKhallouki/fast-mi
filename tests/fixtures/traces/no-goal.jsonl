@@ -1,0 +1,6 @@
+{"type":"boot","tick":0,"frame":0,"bridge":"speedrun-bridge v1","game":"toygame","variant":"Synthetic","fast":true,"audio_pump":true,"seed":1,"boot_param":0}
+{"type":"segment_start","tick":600,"frame":150,"tick0":600,"room":101}
+{"type":"step_start","step":0,"tick":610,"frame":153,"action":"take-widget","room":101,"sentence":[9,500,0]}
+{"type":"step_end","step":0,"tick":900,"frame":225,"room":101,"changes":{"vars":{},"bits":{},"inventory":{"added":[500],"removed":[]},"room":[101,101]}}
+{"type":"stall","tick":4500,"frame":1125,"reason":"cutscene","slot":5}
+{"type":"end","tick":36900,"frame":9225,"reason":"plan_exhausted","room":101,"audio_frames":13561875,"music_timer":40,"vars_fnv1a":"12345678"}

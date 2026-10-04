@@ -1,0 +1,17 @@
+{"type":"boot","tick":0,"frame":0,"bridge":"speedrun-bridge v1","game":"toygame","variant":"Synthetic","fast":true,"audio_pump":true,"seed":1,"boot_param":0}
+{"type":"step_start","step":0,"tick":100,"frame":25,"action":"answer-clerk","room":101}
+{"type":"choice","step":0,"tick":150,"frame":38,"verb_id":121,"text":"goodbye"}
+{"type":"step_end","step":0,"tick":400,"frame":100,"room":101,"changes":{"vars":{},"bits":{},"inventory":{"added":[],"removed":[]},"room":[101,101]}}
+{"type":"segment_start","tick":1000,"frame":250,"tick0":1000,"room":101}
+{"type":"step_start","step":1,"tick":1010,"frame":253,"action":"take-widget","room":101,"sentence":[9,500,0]}
+{"type":"step_end","step":1,"tick":1250,"frame":300,"room":101,"changes":{"vars":{"34":[0,1],"35":[2,5]},"bits":{"85":[0,1]},"inventory":{"added":[500],"removed":[]},"room":[101,101]}}
+{"type":"step_start","step":2,"tick":1260,"frame":303,"action":"wind-widget","room":101}
+{"type":"click","step":2,"tick":1270,"frame":305,"verb_id":2}
+{"type":"click","step":2,"tick":1280,"frame":307,"verb_id":300}
+{"type":"future_record","tick":1290,"frame":309,"detail":"unknown record types are ignored"}
+{"type":"stall","tick":1500,"frame":350,"reason":"sentence_script_running","slot":3}
+{"type":"step_end","step":2,"tick":1600,"frame":370,"room":101,"changes":{"vars":{"34":[1,2]},"bits":{"86":[0,1],"12":[1,0]},"inventory":{"added":[],"removed":[500]}}}
+{"type":"step_start","step":3,"tick":1610,"frame":373,"action":"walk workshop office","room":101,"sentence":[11,501,0]}
+{"type":"step_end","step":3,"tick":1900,"frame":420,"room":102,"changes":{"vars":{"4":[101,102],"7":[0,3],"9":[1,0]},"bits":null,"inventory":{"added":[],"removed":[]},"room":[101,102]}}
+{"type":"goal","tick":2360,"frame":515,"ticks_from_start":1360}
+{"type":"end","tick":2420,"frame":530,"reason":"goal","room":102,"audio_frames":889350,"music_timer":12,"vars_fnv1a":"9f3c1a2b"}

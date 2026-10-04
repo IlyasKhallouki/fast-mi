@@ -1,0 +1,9 @@
+{"type":"boot","tick":0,"frame":0,"bridge":"speedrun-bridge v1","game":"toygame","variant":"Synthetic","fast":true,"audio_pump":true,"seed":1,"boot_param":0}
+{"type":"segment_start","tick":300,"frame":75,"tick0":300,"room":102}
+{"type":"step_start","step":0,"tick":310,"frame":78,"action":"buy-ledger","room":102,"sentence":[13,511,0]}
+{"type":"choice","step":0,"tick":400,"frame":100,"verb_id":121,"text":"I\u00d5d like the ledger"}
+{"type":"choice","step":0,"tick":520,"frame":130,"verb_id":122,"text":"yes"}
+{"type":"step_end","step":0,"tick":700,"frame":175,"room":102,"changes":{"vars":{},"bits":{"7":[0,1]},"inventory":{"added":[512],"removed":[]},"room":[102,102]}}
+{"type":"step_start","step":1,"tick":710,"frame":178,"action":"answer-clerk","room":102}
+{"type":"error","tick":800,"frame":200,"step":1,"code":"choice_not_found","message":"no visible choice matches \u00d2goodbye\u00d3"}
+{"type":"end","tick":800,"frame":200,"reason":"error","room":102,"audio_frames":294000,"music_timer":3,"vars_fnv1a":"cafef00d"}
