@@ -23,7 +23,10 @@ DOCK_START = [
 # Boot to the first free control on the dock, measured with seed 1 and the
 # pinned engine settings. Any change to it is a change in boot timing (or in
 # the idle predicate) and should be looked at, not just re-pinned.
-BOOT_TO_DOCK_TICKS = 12865
+# It was 12865 with talkspeed 60 (VAR_CHARINC 7); Phase 8 pins the maximum,
+# talkspeed 255 (VAR_CHARINC 0, docs/research/skips-engine.md section 5), so the
+# intro's text lines end sooner.
+BOOT_TO_DOCK_TICKS = 9325
 # The segment test runs to this cap: a minute of game time past the dock.
 DOCK_MAX_TICKS = BOOT_TO_DOCK_TICKS + 3600
 TIMEOUT_S = 120

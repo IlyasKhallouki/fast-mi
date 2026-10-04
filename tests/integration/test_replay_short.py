@@ -20,8 +20,8 @@ FIRST_ACTIONS = [
     ("use-meat-with-pot",),  # script 2 auto-picks up both: three queued sentences
 ]
 MEAT, POT = 566, 567
-# Boot to the dock takes 12865 ticks (test_bridge_dumps.BOOT_TO_DOCK_TICKS).
-DOCK_MAX_TICKS = 12865 + 3600
+# Boot to the dock takes 9325 ticks (test_bridge_dumps.BOOT_TO_DOCK_TICKS).
+DOCK_MAX_TICKS = 9325 + 3600
 TIMEOUT_S = 180
 
 

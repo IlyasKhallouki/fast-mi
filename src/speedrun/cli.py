@@ -1,11 +1,22 @@
 """`speedrun` command-line entry point.
 
-The pipeline is ``dump-objects`` -> ``plan`` -> ``compile`` -> ``run``/``demo``.
+The pipeline is ``dump-objects`` -> ``plan`` -> ``compile`` -> ``run``/``demo``;
+``measure`` replays a plan on many seeds and ``optimize`` searches for the
+time-optimal plan (Phase 8).
 Each later command brings its inputs up to date first: ``compile`` dumps the
 objects if ``out/objects.json`` is missing and re-plans if the ``.sas_plan`` is
 older than the model or incomplete, and ``run``/``demo`` recompile if the
 ``.jsonl`` is older than any of its inputs. An output whose inputs were edited
 while it was being built is back-dated, so the next command rebuilds it.
+
+**Objective.** ``run``, ``demo`` and ``measure`` replay the *time* plan,
+``out/plans/<segment>.time.jsonl`` (written by ``speedrun optimize``), when it
+is fresh: newer than ``domain.pddl``, ``problem.pddl``, ``segment.toml``,
+``steps.toml``, ``measured-costs.json`` and ``objects.json``, with
+``measured-costs.json`` measured under the engine's current timing pins
+(``speedrun.engine.timing_settings``, e.g. ``talkspeed``). Otherwise they use
+the action-count plan, recompiled as above. ``--objective actions|time``
+overrides the choice, and every command prints the objective it used.
 
 Every handler reads ``paths.*`` at call time, and calls ``run_engine`` and
 ``run_planner`` through this module's globals, so tests can monkeypatch both
@@ -26,13 +37,14 @@ from collections.abc import Iterable
 from datetime import UTC, datetime
 from pathlib import Path
 
-from speedrun import gamedata, paths
+from speedrun import gamedata, measure, paths
 from speedrun.compiler import CompileError, ObjectIndex, compile_plan, load_steps, write_jsonl
-from speedrun.engine import EngineConfig, EngineResult, run_engine
+from speedrun.costing import CostingError, CostTable, write_timed
+from speedrun.engine import EngineConfig, EngineResult, run_engine, timing_settings
 from speedrun.planner import Plan, PlannerError, parse_plan, plan_is_complete, run_planner
 from speedrun.segments import Segment, SegmentError, load_segment
 from speedrun.stats import plan_stats
-from speedrun.trace import Trace, TraceError, format_error, format_table, load_trace, summary
+from speedrun.trace import Trace, TraceError, format_error, format_table, format_ticks, load_trace, summary
 
 DEFAULT_SEGMENT = "part1"
 
@@ -70,6 +82,21 @@ def _non_negative_int(text: str) -> int:
     return value
 
 
+def _seed_spec(text: str) -> list[int]:
+    try:
+        return measure.parse_seeds(text)
+    except ValueError as e:
+        raise argparse.ArgumentTypeError(str(e)) from e
+
+
+def default_jobs() -> int:
+    """Parallel engine runs: every CPU but two, and at least one."""
+    return max(1, (os.cpu_count() or 1) - 2)
+
+
+OBJECTIVES = ("actions", "time")
+
+
 # --- parser ------------------------------------------------------------------
 
 
@@ -97,6 +124,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("plan", help="run Fast Downward on the segment's PDDL model")
     p.add_argument("segment", help="segment name, e.g. part1")
+    p.add_argument(
+        "--objective", choices=OBJECTIVES, default="actions",
+        help="actions: the model as written (default); time: a timed copy costed from measured-costs.json",
+    )  # fmt: skip
 
     p = sub.add_parser("compile", help="compile the planner output to the player's JSONL")
     p.add_argument(
@@ -117,6 +148,35 @@ def build_parser() -> argparse.ArgumentParser:
             "--boot-param", type=int, metavar="N",
             help="pass ScummVM --boot-param=N (forces debug mode: the run is NOT a valid measured run)",
         )  # fmt: skip
+        p.add_argument(
+            "--objective", choices=OBJECTIVES,
+            help="replay the action-count or the time plan (default: time if its plan is fresh, else actions)",
+        )  # fmt: skip
+
+    p = sub.add_parser("measure", help="replay a plan headless on many seeds and report per-action ticks")
+    p.add_argument("segment", help="segment name, e.g. part1")
+    p.add_argument("--seeds", type=_seed_spec, default=measure.parse_seeds(measure.DEFAULT_SEEDS), metavar="SPEC",
+                   help=f"seeds, e.g. 1-30 or 1,2,5 (default {measure.DEFAULT_SEEDS})")  # fmt: skip
+    p.add_argument("--jobs", type=_positive_int, metavar="N", help="parallel runs (default: CPUs - 2)")
+    p.add_argument("--plan", type=Path, metavar="FILE",
+                   help="a compiled .jsonl, or a Fast Downward plan to compile (default: the segment's plan)")  # fmt: skip
+    p.add_argument("--no-skips", action="store_true", help="turn text and cutscene skipping off")
+    p.add_argument("--objective", choices=OBJECTIVES, help="which segment plan to measure (default as for run)")
+
+    p = sub.add_parser("optimize", help="search for the plan with the lowest mean ticks over many seeds")
+    p.add_argument("segment", help="segment name, e.g. part1")
+    for flag, default, text in (
+        ("--explore-seeds", "1-5", "seeds that measure each optimistic plan"),
+        ("--select-seeds", "1-30", "seeds that pick the winner among the candidates"),
+        ("--report-seeds", "31-60", "held-out seeds for the winner and runner-up"),
+    ):
+        p.add_argument(flag, type=_seed_spec, default=measure.parse_seeds(default), metavar="SPEC",
+                       help=f"{text} (default {default})")  # fmt: skip
+    p.add_argument("--candidates", type=_non_negative_int, default=20, metavar="K",
+                   help="plans from sampled cost vectors (default 20)")  # fmt: skip
+    p.add_argument("--jobs", type=_positive_int, metavar="N", help="parallel runs (default: CPUs - 2)")
+    p.add_argument("--max-iterations", type=_positive_int, default=40, metavar="N",
+                   help="cap on the optimistic measure-and-replan loop (default 40)")  # fmt: skip
 
     # The top-level help lists every command with its options, not just the names.
     usages = [
@@ -134,18 +194,22 @@ def _utc_stamp() -> str:
     return datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
 
 
-def _new_run_dir(mode: str) -> Path:
-    """``RUNS_DIR/<UTC>-<mode>``, with a ``-N`` suffix if that name is taken."""
-    stamp = _utc_stamp()
-    paths.RUNS_DIR.mkdir(parents=True, exist_ok=True)
+def new_dir(parent: Path, name: str) -> Path:
+    """Create ``parent/name``, with a ``-N`` suffix if that name is taken."""
+    parent.mkdir(parents=True, exist_ok=True)
     for n in itertools.count():
-        run_dir = paths.RUNS_DIR / (f"{stamp}-{mode}" if n == 0 else f"{stamp}-{mode}-{n}")
+        path = parent / (name if n == 0 else f"{name}-{n}")
         try:
-            run_dir.mkdir()
+            path.mkdir()
         except FileExistsError:
             continue
-        return run_dir
+        return path
     raise AssertionError("unreachable")
+
+
+def _new_run_dir(mode: str) -> Path:
+    """``RUNS_DIR/<UTC>-<mode>``, with a ``-N`` suffix if that name is taken."""
+    return new_dir(paths.RUNS_DIR, f"{_utc_stamp()}-{mode}")
 
 
 def _launch(cfg) -> EngineResult:
@@ -187,16 +251,63 @@ def _jsonl_path(name: str) -> Path:
     return paths.PLANS_DIR / f"{name}.jsonl"
 
 
+def time_sas_plan_path(name: str) -> Path:
+    """The time-optimal plan chosen by ``speedrun optimize``."""
+    return paths.PLANS_DIR / f"{name}.time.sas_plan"
+
+
+def time_jsonl_path(name: str) -> Path:
+    return paths.PLANS_DIR / f"{name}.time.jsonl"
+
+
+def costs_path(seg: Segment) -> Path:
+    """The pooled measured cost table (derived data, committed)."""
+    return seg.dir / "measured-costs.json"
+
+
+def time_plan_inputs(seg: Segment) -> list[Path]:
+    """What the time plan depends on: the model, its steps, the measured costs and the object dump."""
+    return [*_plan_inputs(seg), seg.steps, costs_path(seg), _objects_path()]
+
+
+def _engine_mismatch(table_path: Path) -> str | None:
+    """Why the measured costs do not fit the engine's current timing pins, or None."""
+    try:
+        data = json.loads(table_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as e:
+        return f"cannot read {table_path}: {e}"
+    measured = data.get("engine") if isinstance(data, dict) else None
+    current = timing_settings()
+    if measured != current:
+        return f"{table_path.name} was measured with engine settings {measured}, but the engine now pins {current}"
+    return None
+
+
+def time_plan_staleness(name: str, seg: Segment) -> str | None:
+    """Why the time plan cannot be used (out of date, or measured under other engine pins), or None."""
+    return _staleness(time_jsonl_path(name), time_plan_inputs(seg)) or _engine_mismatch(costs_path(seg))
+
+
 def _plan_inputs(seg: Segment) -> list[Path]:
     return [seg.domain, seg.problem, seg.dir / "segment.toml"]
 
 
 def _stale(target: Path, inputs: Iterable[Path]) -> bool:
     """True if ``target`` is missing, or any input is missing or newer than it."""
+    return _staleness(target, inputs) is not None
+
+
+def _staleness(target: Path, inputs: Iterable[Path]) -> str | None:
+    """Why ``target`` is out of date (it or an input is missing, or an input is newer), or None."""
     if not target.is_file():
-        return True
+        return f"no {target}"
     built = target.stat().st_mtime_ns
-    return any(not p.is_file() or p.stat().st_mtime_ns > built for p in inputs)
+    for p in inputs:
+        if not p.is_file():
+            return f"no {p}"
+        if p.stat().st_mtime_ns > built:
+            return f"{p.name} is newer than {target.name}"
+    return None
 
 
 def _mtime(path: Path) -> int | None:
@@ -338,8 +449,42 @@ def plan_segment(name: str, seg: Segment) -> Plan:
     return plan
 
 
+def plan_segment_timed(name: str, seg: Segment) -> Plan:
+    """Plan a timed copy of the model, costed from ``measured-costs.json``, under ``PLANS_DIR/<name>-timed/``.
+
+    This is the plan that is optimal for the surrogate (mean-cost) model. It does
+    not replace the time plan, which ``speedrun optimize`` picks by measurement.
+    """
+    table_path = costs_path(seg)
+    if not table_path.is_file():
+        raise CommandError(f"no {table_path}: measure the costs first with `speedrun optimize {name}`")
+    mismatch = _engine_mismatch(table_path)
+    if mismatch:
+        _warn(f"{mismatch}:", "the timed model's costs do not match today's engine (re-run speedrun optimize).")
+    try:
+        table = CostTable.load(table_path)
+        out = paths.PLANS_DIR / f"{name}-timed"
+        domain, problem = write_timed(seg.domain, seg.problem, table.means(), out)
+    except (CostingError, OSError) as e:
+        raise CommandError(f"cannot build the timed model: {e}") from e
+    plan_file = out / f"{name}.sas_plan"
+    print(f"planning {name} with Fast Downward on the timed model {out} ...")
+    try:
+        plan = run_planner(domain, problem, plan_file)
+    except PlannerError as e:
+        raise CommandError(f"{e}\nplanner log: {e.log_path}") from e
+    _print_plan(plan, plan_file)
+    print(f"objective: time (costs: mean ticks from {table_path}, {len(table.actions())} measured actions; "
+          "unmeasured actions cost 1)")  # fmt: skip
+    return plan
+
+
 def _cmd_plan(args: argparse.Namespace) -> int:
-    plan_segment(args.segment, _segment(args.segment))
+    seg = _segment(args.segment)
+    if getattr(args, "objective", "actions") == "time":
+        plan_segment_timed(args.segment, seg)
+    else:
+        plan_segment(args.segment, seg)
     return 0
 
 
@@ -415,6 +560,39 @@ def _ensure_compiled(name: str, seg: Segment, replan: bool) -> Path:
     return jsonl
 
 
+def select_plan(name: str, seg: Segment, objective: str | None, replan: bool = False) -> tuple[str, Path]:
+    """The objective and the compiled plan to replay; prints which and why.
+
+    ``objective`` None picks the time plan when it is fresh (see the module doc),
+    else the action-count plan, which is recompiled if stale. ``replan`` re-plans
+    the action-count model, so it never picks the time plan.
+    """
+    time_jsonl = time_jsonl_path(name)
+    why_stale = time_plan_staleness(name, seg)
+    if objective == "time":
+        if replan:
+            raise CommandError(
+                "--replan re-plans the action-count model; the time plan comes from "
+                f"`speedrun optimize {name}` (drop --replan, or use --objective actions)"
+            )
+        if why_stale:
+            raise CommandError(f"no fresh time plan ({why_stale}); run `speedrun optimize {name}`")
+        print(f"objective: time (requested; plan {time_jsonl} from speedrun optimize)")
+        return "time", time_jsonl
+    if objective is None and not replan and why_stale is None:
+        print(f"objective: time (plan {time_jsonl} from speedrun optimize is fresh)")
+        return "time", time_jsonl
+    if objective == "actions":
+        reason = "requested"
+    elif replan:
+        reason = "--replan re-plans the action-count model"
+    else:
+        reason = f"no fresh time plan: {why_stale}"
+    jsonl = _ensure_compiled(name, seg, replan)
+    print(f"objective: actions ({reason}; plan {jsonl})")
+    return "actions", jsonl
+
+
 def _engine_supports(field_name: str) -> bool:
     return dataclasses.is_dataclass(EngineConfig) and any(
         f.name == field_name for f in dataclasses.fields(EngineConfig)
@@ -467,7 +645,7 @@ def run_segment(name: str, mode: str, args: argparse.Namespace) -> int:
     boot_param = args.boot_param or None
     if boot_param is not None:
         _boot_param_warning(boot_param)
-    jsonl = _ensure_compiled(name, seg, args.replan)
+    objective, jsonl = select_plan(name, seg, getattr(args, "objective", None), args.replan)
 
     run_dir = _new_run_dir(mode)
     config = {
@@ -490,7 +668,7 @@ def run_segment(name: str, mode: str, args: argparse.Namespace) -> int:
                 "EngineConfig has no 'inventory' field, so SPEEDRUN_INVENTORY is not set:",
                 "plan steps that click inventory slots will fail with click_target_missing.",
             )
-    print(f"{mode} {name}: seed {args.seed}, plan {jsonl}, run dir {run_dir}")
+    print(f"{mode} {name}: seed {args.seed}, objective {objective}, plan {jsonl}, run dir {run_dir}")
     _launch(EngineConfig(**config))
 
     trace = _load_run_trace(run_dir)
@@ -514,6 +692,105 @@ def _cmd_run(args: argparse.Namespace) -> int:
 
 def _cmd_demo(args: argparse.Namespace) -> int:
     return run_segment(args.segment, "demo", args)
+
+
+# --- measure -------------------------------------------------------------------
+
+
+def _ensure_objects() -> Path:
+    objects_path = _objects_path()
+    if not objects_path.is_file():
+        print(f"{objects_path} is missing: dumping objects first")
+        dump_objects()
+    return objects_path
+
+
+def compile_plan_file(plan_file: Path, seg: Segment, out: Path) -> Path:
+    """Compile a Fast Downward plan file through the segment's steps.toml into ``out`` (a jsonl)."""
+    try:
+        plan = parse_plan(plan_file.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as e:
+        raise CommandError(f"cannot read plan {plan_file}: {e}") from e
+    objects_path = _ensure_objects()
+    try:
+        steps = compile_plan(plan, load_steps(seg.steps), ObjectIndex.from_dump(objects_path))
+    except (OSError, ValueError, CompileError) as e:
+        raise CommandError(f"cannot compile {plan_file}: {e}") from e
+    write_jsonl(steps, out)
+    return out
+
+
+def _print_progress(result: measure.RunResult) -> None:
+    if result.ok:
+        print(f"  seed {result.seed}: {result.total_ticks} ticks ({format_ticks(result.total_ticks)})", flush=True)
+    else:
+        failure = result.failure or {}
+        where = f" at {failure['action']!r}" if failure.get("action") else ""
+        print(f"  seed {result.seed}: FAILED ({failure.get('reason')}{where})", flush=True)
+
+
+def run_measure(name: str, seg: Segment, plan: Path, seeds: list[int], out_dir: Path, jobs: int,
+                skips: bool = True) -> dict:  # fmt: skip
+    """``measure.measure_plan`` with progress lines, mapping its errors to ``CommandError``."""
+    print(f"measuring {plan} on seeds {measure.format_seeds(seeds)} ({len(seeds)} runs, {jobs} at a time, "
+          f"skips {'on' if skips else 'off'}) in {out_dir} ...", flush=True)  # fmt: skip
+    try:
+        return measure.measure_plan(plan, seg, seeds, out_dir, jobs=jobs, skips=skips, progress=_print_progress)
+    except FileNotFoundError as e:  # no ScummVM build
+        raise CommandError(str(e)) from e
+    except measure.MeasureError as e:
+        raise CommandError(str(e)) from e
+
+
+def _cmd_measure(args: argparse.Namespace) -> int:
+    name = args.segment
+    seg = _segment(name)
+    jobs = args.jobs or default_jobs()
+    if args.plan is not None:
+        plan = args.plan
+        if not plan.is_file():
+            raise CommandError(f"no plan file {plan}")
+    else:
+        _, plan = select_plan(name, seg, args.objective)
+    out_dir = new_dir(paths.OUT_DIR / "measure", _utc_stamp())
+    if plan.suffix != ".jsonl":
+        plan = compile_plan_file(plan, seg, out_dir / "plan.jsonl")
+    summary = run_measure(name, seg, plan, args.seeds, out_dir, jobs, skips=not args.no_skips)
+    print()
+    print(measure.format_summary(summary))
+    print(f"summary: {out_dir / 'summary.json'}")
+    total = summary["total"]
+    if total["n_fail"]:
+        seeds = ", ".join(str(f["seed"]) for f in summary["failures"])
+        _warn(f"{total['n_fail']} of {total['n_ok'] + total['n_fail']} seeds failed: {seeds}",
+              f"summary: {out_dir / 'summary.json'}")  # fmt: skip
+        return 1
+    return 0
+
+
+# --- optimize ------------------------------------------------------------------
+
+
+def _cmd_optimize(args: argparse.Namespace) -> int:
+    from speedrun import optimize  # the optimiser imports this module
+
+    name = args.segment
+    seg = _segment(name)
+    settings = optimize.Settings(
+        explore_seeds=args.explore_seeds,
+        select_seeds=args.select_seeds,
+        report_seeds=args.report_seeds,
+        candidates=args.candidates,
+        jobs=args.jobs or default_jobs(),
+        max_iterations=args.max_iterations,
+    )
+    for path in (seg.domain, seg.problem, seg.steps):
+        if not path.is_file():
+            raise CommandError(f"segment {name!r}: {path} not found")
+    try:
+        return optimize.optimize(name, seg, _ensure_objects(), settings)
+    except optimize.OptimizeError as e:
+        raise CommandError(str(e)) from e
 
 
 # --- extract -----------------------------------------------------------------
@@ -566,6 +843,8 @@ COMMANDS = {
     "compile": _cmd_compile,
     "run": _cmd_run,
     "demo": _cmd_demo,
+    "measure": _cmd_measure,
+    "optimize": _cmd_optimize,
 }
 
 

@@ -165,15 +165,44 @@ def test_env_windowed_does_not_force_dummy_drivers(tmp_path):
 
 
 @pytest.mark.parametrize("headless", [True, False])
-def test_env_redirects_xdg_data_and_cache_under_out(tmp_path, isolated_out, headless):
+def test_env_redirects_xdg_data_and_cache_into_the_run_dir(tmp_path, isolated_out, headless):
     # ScummVM's POSIX backend unconditionally creates $XDG_DATA_HOME/scummvm/saves
     # and $XDG_CACHE_HOME/scummvm/{icons,dlcs,logs}, even with --config/--savepath.
+    # They live in the run's own dir, so parallel runs never share a file.
     home = {"XDG_DATA_HOME": "/home/u/.local/share", "XDG_CACHE_HOME": "/home/u/.cache"}
-    env = engine.build_env(_cfg(tmp_path, headless=headless), base_env=home)
+    cfg = _cfg(tmp_path, headless=headless)
+    env = engine.build_env(cfg, base_env=home)
+    assert Path(env["XDG_DATA_HOME"]) == cfg.out_dir / "xdg" / "data"
+    assert Path(env["XDG_CACHE_HOME"]) == cfg.out_dir / "xdg" / "cache"
+
+
+def test_parallel_runs_never_share_xdg_dirs(tmp_path):
+    a = engine.build_env(engine.EngineConfig(out_dir=tmp_path / "a"), base_env={})
+    b = engine.build_env(engine.EngineConfig(out_dir=tmp_path / "b"), base_env={})
     for key in ("XDG_DATA_HOME", "XDG_CACHE_HOME"):
-        assert Path(env[key]).is_relative_to(isolated_out)
-        assert Path(env[key]).is_relative_to(engine.config_dir())
-    assert env["XDG_DATA_HOME"] != env["XDG_CACHE_HOME"]
+        assert a[key] != b[key]
+        assert not Path(a[key]).is_relative_to(engine.config_dir())
+
+
+def test_env_skips_are_on_by_default(tmp_path):
+    cfg = _cfg(tmp_path)
+    assert cfg.skip_text is True and cfg.skip_cutscenes is True
+    env = engine.build_env(cfg, base_env={})
+    assert env["SPEEDRUN_SKIP_TEXT"] == "1"
+    assert env["SPEEDRUN_SKIP_CUTSCENES"] == "1"
+
+
+@pytest.mark.parametrize(
+    ("skip_text", "skip_cutscenes"), [(False, False), (True, False), (False, True)]
+)
+def test_env_skips_can_be_turned_off(tmp_path, skip_text, skip_cutscenes):
+    env = engine.build_env(_cfg(tmp_path, skip_text=skip_text, skip_cutscenes=skip_cutscenes), base_env={})
+    assert ("SPEEDRUN_SKIP_TEXT" in env) is skip_text
+    assert ("SPEEDRUN_SKIP_CUTSCENES" in env) is skip_cutscenes
+    if skip_text:
+        assert env["SPEEDRUN_SKIP_TEXT"] == "1"
+    if skip_cutscenes:
+        assert env["SPEEDRUN_SKIP_CUTSCENES"] == "1"
 
 
 def _parse_ini(text: str) -> dict[str, dict[str, str]]:
@@ -226,7 +255,9 @@ def test_ini_contents(tmp_path, isolated_out):
     # Determinism pins (research sections 12 and 18).
     assert game["original_gui"] == "false"
     assert game["enhancements"] == "0"
-    assert game["talkspeed"] == "60"
+    # Maximum talk speed: 255 is the GUI maximum (VAR_CHARINC 0), and anything above it is
+    # outside the player's range (docs/research/skips-engine.md section 5).
+    assert game["talkspeed"] == "255" == str(engine.TALKSPEED)
 
 
 def test_ini_creates_saves_and_xdg_dirs(tmp_path):
@@ -236,9 +267,10 @@ def test_ini_creates_saves_and_xdg_dirs(tmp_path):
     engine.write_ini(cfg)
     assert cfg.out_dir.is_dir()
     assert engine.saves_dir().is_dir()
-    env = engine.build_env(_cfg(tmp_path), base_env={})
+    env = engine.build_env(cfg, base_env={})
     assert Path(env["XDG_DATA_HOME"]).is_dir()
     assert Path(env["XDG_CACHE_HOME"]).is_dir()
+    assert Path(env["XDG_DATA_HOME"]).is_relative_to(cfg.out_dir)
 
 
 def test_ini_relative_game_path_made_absolute(tmp_path, monkeypatch):

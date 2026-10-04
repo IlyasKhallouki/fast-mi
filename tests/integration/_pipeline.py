@@ -3,8 +3,9 @@
 It does what ``speedrun run part1`` does (``speedrun.cli.run_segment``), but it
 calls the library functions directly and writes everything under a work dir
 the caller passes in. ``out/objects.json`` and ``out/plans/`` are never
-touched. ``run_engine`` still keeps ScummVM's saves and XDG dirs under
-``out/scummvm/``, like every other integration test.
+touched. ``run_engine`` still keeps ScummVM's (unused) saves dir under
+``out/scummvm/``, like every other integration test; its XDG dirs live in
+each run dir.
 """
 
 import json
@@ -20,8 +21,8 @@ from speedrun.trace import Trace, format_table, load_trace, summary
 
 SEGMENT = "part1"
 
-# The object dump stops at the first idle frame on the dock (tick 12865 with
-# seed 1). These are the CLI's own dump budgets (speedrun.cli).
+# The object dump stops at the first idle frame on the dock (tick 9325 with
+# seed 1 at talkspeed 255). These are the CLI's own dump budgets (speedrun.cli).
 DUMP_MAX_TICKS = 60000
 DUMP_TIMEOUT_S = 600
 # Seed 1 reaches the goal at about tick 120000 from boot, in about 15 s of wall

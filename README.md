@@ -46,9 +46,12 @@ uv run speedrun demo part1              # watch Guybrush play the route hands-fr
 | `speedrun compile [part1]` | Turns the plan into the player's JSONL steps, using the object dump for ids. |
 | `speedrun run part1` | Replays headless (about 15 s) and prints the per-step table and total ticks. |
 | `speedrun demo part1` | Replays in a visible window at real speed. The ticks are identical to `run`. |
+| `speedrun measure part1` | Replays the plan headless on many seeds in parallel (`--seeds 1-30`) and reports per-action and total ticks. |
+| `speedrun optimize part1` | Searches for the plan with the lowest mean ticks over many seeds and installs it as the time plan. |
 
 `run` and `demo` re-plan and re-compile automatically when the model is newer than the
-compiled plan. Every run writes `trace.jsonl`, `state-start.json` and `state-end.json` to
+compiled plan. They replay the time plan from `speedrun optimize` when it is fresh, and
+the action-count plan otherwise; `--objective actions|time` chooses explicitly. Every run writes `trace.jsonl`, `state-start.json` and `state-end.json` to
 `out/runs/<timestamp>-<mode>/`.
 
 ## How it fits together

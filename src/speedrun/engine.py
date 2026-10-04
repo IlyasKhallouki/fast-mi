@@ -5,20 +5,25 @@ ScummVM never touches the user's home:
 * ``--config`` points at a per-run ``<out_dir>/scummvm.ini``, so it never
   writes ``~/.config/scummvm/scummvm.ini``. It is per run because the engine
   rewrites its config file (``flushToDisk``), so runs must not share one.
-* ``--savepath`` points saves under ``out/scummvm/saves`` (shared).
-* ``XDG_DATA_HOME`` / ``XDG_CACHE_HOME`` are redirected under
-  ``out/scummvm/xdg`` (shared), because ScummVM's POSIX backend
-  unconditionally creates ``$XDG_DATA_HOME/scummvm/saves``
+* ``--savepath`` points saves under ``out/scummvm/saves`` (shared: nothing
+  ever saves, so nothing writes there).
+* ``XDG_DATA_HOME`` / ``XDG_CACHE_HOME`` are redirected to
+  ``<out_dir>/xdg/{data,cache}``, one pair per run, because ScummVM's POSIX
+  backend unconditionally creates ``$XDG_DATA_HOME/scummvm/saves``
   (``POSIXSaveFileManager``) and ``$XDG_CACHE_HOME/scummvm/{icons,dlcs,logs}``
   (``OSystem_POSIX::getDefault{Icons,DLCs}Path`` / ``getDefaultLogFileName``)
-  even when ``--config`` and ``--savepath`` are given.
+  even when ``--config`` and ``--savepath`` are given. Per-run dirs mean
+  parallel runs (``speedrun measure``) never share a file.
 
 Determinism: every launch passes ``--disable-sdl-audio`` (null mixer, which the
 bridge pumps on game ticks) and ``--random-seed=<seed>``; the config pins
-``vsync=false``, ``original_gui=false``, ``enhancements=0`` and ``talkspeed=60``.
+``vsync=false``, ``original_gui=false``, ``enhancements=0`` and ``talkspeed=255``
+(``TALKSPEED``: maximum talk speed, a player setting under rules/glitchless.md).
 
 The patched engine's bridge is configured through ``SPEEDRUN_*`` env vars
-(contract C1) and is inert unless ``SPEEDRUN_OUT`` is set.
+(contract C1) and is inert unless ``SPEEDRUN_OUT`` is set. Text and cutscene
+skips (``SPEEDRUN_SKIP_TEXT`` / ``SPEEDRUN_SKIP_CUTSCENES``, Phase 8) are on
+by default; a bridge that predates them ignores the variables.
 """
 
 import json
@@ -35,6 +40,18 @@ TARGET = "monkey-mac"
 # After SIGTERM, how long ScummVM gets to quit cleanly (the bridge then writes
 # its end record) before SIGKILL.
 TERM_GRACE_S = 5.0
+
+# Maximum talk speed. ConfMan's talkspeed range is 0-255 (the options GUI slider,
+# gui/options.cpp:575); 241-255 all give getTalkSpeed() 9, so VAR_CHARINC (var 37)
+# = 9 - 9 = 0, set at boot through writeVar's room-0 intercept (script.cpp:741).
+# Values above 255 are outside the player's range. docs/research/skips-engine.md section 5.
+TALKSPEED = 255
+
+
+def timing_settings() -> dict:
+    """The pinned settings that change tick counts. Measurements record them, and
+    measurements taken under different values are never pooled or reused."""
+    return {"talkspeed": TALKSPEED}
 
 
 @dataclass
@@ -53,6 +70,9 @@ class EngineConfig:
     step_timeout: int | None = None
     # Inventory slot layout (segment.toml `inventory`); a `cite` key is dropped.
     inventory: dict | None = None
+    # Phase 8 skips (C1): inject `.` / Esc after the segment start. On by default.
+    skip_text: bool = True
+    skip_cutscenes: bool = True
     timeout_s: float = 600.0
     extra_args: list[str] = field(default_factory=list)
 
@@ -81,12 +101,14 @@ def saves_dir() -> Path:
     return config_dir() / "saves"
 
 
-def _xdg_data_dir() -> Path:
-    return config_dir() / "xdg" / "data"
+def _xdg_data_dir(cfg: EngineConfig) -> Path:
+    """Per run, so parallel runs never share ScummVM's data dir."""
+    return cfg.out_dir / "xdg" / "data"
 
 
-def _xdg_cache_dir() -> Path:
-    return config_dir() / "xdg" / "cache"
+def _xdg_cache_dir(cfg: EngineConfig) -> Path:
+    """Per run, so parallel runs never share ScummVM's cache (and log) dir."""
+    return cfg.out_dir / "xdg" / "cache"
 
 
 def _ini_text(cfg: EngineConfig) -> str:
@@ -115,8 +137,8 @@ def _ini_text(cfg: EngineConfig) -> str:
             ("subtitles", "true"),
             ("original_gui", "false"),
             ("enhancements", "0"),
-            # Sets VAR_CHARINC, the per-character text delay.
-            ("talkspeed", "60"),
+            # Sets VAR_CHARINC (var 37), the per-character text delay: 0 at TALKSPEED.
+            ("talkspeed", str(TALKSPEED)),
         ],
     }
     blocks = []
@@ -133,7 +155,7 @@ def write_ini(cfg: EngineConfig) -> Path:
     XDG prefixes must exist for ScummVM to put its cache/data under them.
     """
     path = ini_path(cfg)
-    for d in (cfg.out_dir, config_dir(), saves_dir(), _xdg_data_dir(), _xdg_cache_dir()):
+    for d in (cfg.out_dir, config_dir(), saves_dir(), _xdg_data_dir(cfg), _xdg_cache_dir(cfg)):
         d.mkdir(parents=True, exist_ok=True)
     path.write_text(_ini_text(cfg))
     return path
@@ -172,10 +194,14 @@ def build_env(cfg: EngineConfig, base_env: Mapping[str, str] | None = None) -> d
     if cfg.inventory is not None:
         layout = {k: v for k, v in cfg.inventory.items() if k != "cite"}
         env["SPEEDRUN_INVENTORY"] = json.dumps(layout)
+    if cfg.skip_text:
+        env["SPEEDRUN_SKIP_TEXT"] = "1"
+    if cfg.skip_cutscenes:
+        env["SPEEDRUN_SKIP_CUTSCENES"] = "1"
 
     # Keep ScummVM's unconditional data/cache dirs out of $HOME (see module doc).
-    env["XDG_DATA_HOME"] = str(_xdg_data_dir())
-    env["XDG_CACHE_HOME"] = str(_xdg_cache_dir())
+    env["XDG_DATA_HOME"] = str(_xdg_data_dir(cfg))
+    env["XDG_CACHE_HOME"] = str(_xdg_cache_dir(cfg))
 
     if cfg.headless:
         env["SDL_VIDEODRIVER"] = "dummy"

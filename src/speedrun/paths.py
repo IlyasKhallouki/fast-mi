@@ -15,6 +15,7 @@ PLANS_DIR = OUT_DIR / "plans"
 RUNS_DIR = OUT_DIR / "runs"
 
 PDDL_DIR = ROOT / "pddl"
+DOCS_DIR = ROOT / "docs"
 DOWNWARD_DIR = ROOT / "third_party" / "downward"
 SCRIPTS_DIR = ROOT / "scripts"
 DATA_DIR = ROOT / "data"
