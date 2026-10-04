@@ -1,15 +1,21 @@
 """Isolated launcher for the (patched) ScummVM binary.
 
-Every launch uses a config file, save dir and XDG data/cache dirs under
-``paths.OUT_DIR / "scummvm"`` so ScummVM never touches the user's home:
+ScummVM never touches the user's home:
 
-* ``--config`` keeps it from writing ``~/.config/scummvm/scummvm.ini``.
-* ``--savepath`` points saves under ``out/``.
-* ``XDG_DATA_HOME`` / ``XDG_CACHE_HOME`` are redirected because ScummVM's POSIX
-  backend unconditionally creates ``$XDG_DATA_HOME/scummvm/saves``
+* ``--config`` points at a per-run ``<out_dir>/scummvm.ini``, so it never
+  writes ``~/.config/scummvm/scummvm.ini``. It is per run because the engine
+  rewrites its config file (``flushToDisk``), so runs must not share one.
+* ``--savepath`` points saves under ``out/scummvm/saves`` (shared).
+* ``XDG_DATA_HOME`` / ``XDG_CACHE_HOME`` are redirected under
+  ``out/scummvm/xdg`` (shared), because ScummVM's POSIX backend
+  unconditionally creates ``$XDG_DATA_HOME/scummvm/saves``
   (``POSIXSaveFileManager``) and ``$XDG_CACHE_HOME/scummvm/{icons,dlcs,logs}``
   (``OSystem_POSIX::getDefault{Icons,DLCs}Path`` / ``getDefaultLogFileName``)
   even when ``--config`` and ``--savepath`` are given.
+
+Determinism: every launch passes ``--disable-sdl-audio`` (null mixer, which the
+bridge pumps on game ticks) and ``--random-seed=<seed>``; the config pins
+``vsync=false``, ``original_gui=false``, ``enhancements=0`` and ``talkspeed=60``.
 
 The patched engine's bridge is configured through ``SPEEDRUN_*`` env vars
 (contract C1) and is inert unless ``SPEEDRUN_OUT`` is set.
@@ -25,6 +31,10 @@ from pathlib import Path
 from speedrun import paths
 
 TARGET = "monkey-mac"
+
+# After SIGTERM, how long ScummVM gets to quit cleanly (the bridge then writes
+# its end record) before SIGKILL.
+TERM_GRACE_S = 5.0
 
 
 @dataclass
@@ -60,8 +70,9 @@ def config_dir() -> Path:
     return paths.OUT_DIR / "scummvm"
 
 
-def ini_path() -> Path:
-    return config_dir() / "scummvm.ini"
+def ini_path(cfg: EngineConfig) -> Path:
+    """Per-run config file: the engine rewrites it, so runs must not share one."""
+    return cfg.out_dir / "scummvm.ini"
 
 
 def saves_dir() -> Path:
@@ -85,6 +96,8 @@ def _ini_text(cfg: EngineConfig) -> str:
             ("confirm_exit", "false"),
             ("fullscreen", "false"),
             ("gui_return_to_launcher_at_exit", "false"),
+            # No CLI flag exists; with SDL's dummy video driver vsync caps runs at 60 fps.
+            ("vsync", "false"),
             ("extrapath", str(paths.ROOT / "third_party" / "scummvm" / "dists" / "engine-data")),
             ("themepath", str(paths.ROOT / "third_party" / "scummvm" / "gui" / "themes")),
         ],
@@ -96,7 +109,12 @@ def _ini_text(cfg: EngineConfig) -> str:
             ("language", "en"),
             ("copy_protection", "false"),
             ("autosave_period", "0"),
+            # Not cosmetic: scripts read VAR_NOSUBTITLES from ConfMan.
             ("subtitles", "true"),
+            ("original_gui", "false"),
+            ("enhancements", "0"),
+            # Sets VAR_CHARINC, the per-character text delay.
+            ("talkspeed", "60"),
         ],
     }
     blocks = []
@@ -107,13 +125,13 @@ def _ini_text(cfg: EngineConfig) -> str:
 
 
 def write_ini(cfg: EngineConfig) -> Path:
-    """(Re)write the isolated ScummVM config and create the dirs it relies on.
+    """(Re)write the run's ScummVM config and create the dirs it relies on.
 
     The saves dir must exist (``--savepath`` rejects a missing path), and the
     XDG prefixes must exist for ScummVM to put its cache/data under them.
     """
-    path = ini_path()
-    for d in (config_dir(), saves_dir(), _xdg_data_dir(), _xdg_cache_dir()):
+    path = ini_path(cfg)
+    for d in (cfg.out_dir, config_dir(), saves_dir(), _xdg_data_dir(), _xdg_cache_dir()):
         d.mkdir(parents=True, exist_ok=True)
     path.write_text(_ini_text(cfg))
     return path
@@ -122,9 +140,11 @@ def write_ini(cfg: EngineConfig) -> Path:
 def build_argv(cfg: EngineConfig) -> list[str]:
     return [
         str(paths.SCUMMVM_BIN),
-        f"--config={ini_path()}",
+        f"--config={ini_path(cfg)}",
         f"--savepath={saves_dir()}",
         *([f"--boot-param={cfg.boot_param}"] if cfg.boot_param is not None else []),
+        "--disable-sdl-audio",
+        f"--random-seed={cfg.seed}",
         *cfg.extra_args,
         TARGET,
     ]
@@ -135,7 +155,6 @@ def build_env(cfg: EngineConfig, base_env: Mapping[str, str] | None = None) -> d
     env = {k: v for k, v in source.items() if not k.startswith("SPEEDRUN_")}
 
     env["SPEEDRUN_OUT"] = str(cfg.out_dir)
-    env["SPEEDRUN_SEED"] = str(cfg.seed)
     env["SPEEDRUN_START"] = json.dumps(cfg.start)
     env["SPEEDRUN_GOAL"] = json.dumps(cfg.goal)
     if cfg.plan is not None:
@@ -157,6 +176,18 @@ def build_env(cfg: EngineConfig, base_env: Mapping[str, str] | None = None) -> d
         env["SDL_VIDEODRIVER"] = "dummy"
         env["SDL_AUDIODRIVER"] = "dummy"
     return env
+
+
+def _stop(proc: subprocess.Popen) -> None:
+    """SIGTERM, then SIGKILL if the process has not exited within TERM_GRACE_S."""
+    if proc.poll() is not None:
+        return
+    proc.terminate()
+    try:
+        proc.wait(timeout=TERM_GRACE_S)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.wait()
 
 
 def run_engine(cfg: EngineConfig) -> EngineResult:
@@ -184,12 +215,10 @@ def run_engine(cfg: EngineConfig) -> EngineResult:
             proc.wait(timeout=cfg.timeout_s)
         except subprocess.TimeoutExpired:
             timed_out = True
-            proc.kill()
-            proc.wait()
+            _stop(proc)
         except BaseException:
             # e.g. KeyboardInterrupt: never leave an orphaned ScummVM behind.
-            proc.kill()
-            proc.wait()
+            _stop(proc)
             raise
 
     return EngineResult(

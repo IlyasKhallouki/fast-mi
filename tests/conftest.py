@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 import pytest
@@ -78,3 +79,47 @@ def engine_ready(game_ready) -> Path:
             f"{BRIDGE_MARKER!r} marker — rebuild with scripts/build-scummvm.sh"
         )
     return paths.SCUMMVM_BIN
+
+
+def home_scummvm_dirs() -> list[Path]:
+    """Where ScummVM would write in the user's home: config, data and cache.
+
+    The XDG base dirs are honoured when set, and the ~/.config, ~/.local/share
+    and ~/.cache defaults are always checked as well.
+    """
+    home = Path.home()
+    dirs: list[Path] = []
+    for var, default in (
+        ("XDG_CONFIG_HOME", home / ".config"),
+        ("XDG_DATA_HOME", home / ".local" / "share"),
+        ("XDG_CACHE_HOME", home / ".cache"),
+    ):
+        value = os.environ.get(var)
+        for base in ((Path(value),) if value else ()) + (default,):
+            if base / "scummvm" not in dirs:
+                dirs.append(base / "scummvm")
+    return dirs
+
+
+def _snapshot(root: Path):
+    """None if absent, else every entry under root with its mtime."""
+    if not root.exists():
+        return None
+    entries = [(".", root.stat().st_mtime_ns)]
+    for p in sorted(root.rglob("*")):
+        entries.append((str(p.relative_to(root)), p.lstat().st_mtime_ns))
+    return entries
+
+
+@pytest.fixture
+def home_scummvm_guard() -> list[Path]:
+    """Fails the test if ScummVM created or modified its dirs in the user's home."""
+    dirs = home_scummvm_dirs()
+    before = {d: _snapshot(d) for d in dirs}
+    yield dirs
+    for d in dirs:
+        after = _snapshot(d)
+        if before[d] is None:
+            assert after is None, f"ScummVM created {d} in the user's home"
+        else:
+            assert after == before[d], f"ScummVM modified {d} in the user's home"

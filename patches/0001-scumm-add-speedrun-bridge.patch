@@ -1,0 +1,750 @@
+diff --git a/engines/scumm/module.mk b/engines/scumm/module.mk
+index 2cee05ab..c6269ac0 100644
+--- a/engines/scumm/module.mk
++++ b/engines/scumm/module.mk
+@@ -97,6 +97,9 @@ MODULE_OBJS := \
+ 	vars.o \
+ 	verbs.o
+ 
++MODULE_OBJS += \
++	speedrun/speedrun_bridge.o
++
+ ifdef USE_IMGUI
+ MODULE_OBJS += \
+ 	debugger/debugtools.o \
+diff --git a/engines/scumm/scumm.cpp b/engines/scumm/scumm.cpp
+index f0bb1a53..8f127eaa 100644
+--- a/engines/scumm/scumm.cpp
++++ b/engines/scumm/scumm.cpp
+@@ -83,6 +83,7 @@
+ #include "scumm/scumm_v0.h"
+ #include "scumm/scumm_v8.h"
+ #include "scumm/sound.h"
++#include "scumm/speedrun/speedrun_bridge.h"
+ #include "scumm/string_v7.h"
+ #include "scumm/imuse/sysex.h"
+ #include "scumm/he/localizer.h"
+@@ -465,6 +466,7 @@ ScummEngine::ScummEngine(OSystem *syst, const DetectorResult &dr)
+ 
+ 
+ ScummEngine::~ScummEngine() {
++	delete _speedrun; _speedrun = nullptr;
+ 	delete _musicEngine;
+ 
+ 	// Delete the sound object earlier than the actors
+@@ -985,6 +987,7 @@ ScummEngine_v8::~ScummEngine_v8() {
+ #pragma mark -
+ 
+ Common::Error ScummEngine::init() {
++	_speedrun = SpeedrunBridge::create(this);
+ 
+ 	const Common::FSNode gameDataDir(ConfMan.getPath("path"));
+ 
+@@ -2738,6 +2741,7 @@ Common::Error ScummEngine::go() {
+ 	}
+ #endif
+ 
++	if (_speedrun) _speedrun->onBoot();
+ 	setTotalPlayTime();
+ 
+ 	_lastWaitTime = _system->getMillis();
+@@ -2913,7 +2917,7 @@ void ScummEngine::waitForTimer(int quarterFrames, bool freezeMacGui) {
+ 	uint32 endTime, cur;
+ 	uint32 msecDelay = getIntegralTime(quarterFrames * (1000 / getTimerFrequency()));
+ 
+-	if (_fastMode & 2)
++	if ((_fastMode & 2) || (_speedrun && _speedrun->skipWaits()))
+ 		msecDelay = 0;
+ 	else if (_fastMode & 1)
+ 		msecDelay = 10;
+@@ -3097,6 +3101,7 @@ void ScummEngine_v0::scummLoop(int delta) {
+ }
+ 
+ void ScummEngine::scummLoop(int delta) {
++	if (_speedrun) _speedrun->onFrameBegin(delta);
+ 	// Notify the script about how much time has passed, in jiffies
+ 	if (VAR_TIMER != 0xFF)
+ 		VAR(VAR_TIMER) = delta;
+@@ -3242,6 +3247,7 @@ load_game:
+ 		} while (_saveLoadFlag != 0);
+ 	}
+ 
++	if (_speedrun) _speedrun->onDecisionPoint();
+ 	checkAndRunSentenceScript();
+ 
+ 	if (shouldQuit())
+diff --git a/engines/scumm/scumm.h b/engines/scumm/scumm.h
+index ae7b4bb7..816bf55d 100644
+--- a/engines/scumm/scumm.h
++++ b/engines/scumm/scumm.h
+@@ -98,6 +98,7 @@ class Player_Towns;
+ class ScummEngine;
+ class ScummDebugger;
+ class Sound;
++class SpeedrunBridge;
+ class Localizer;
+ class GlyphRenderer_v7;
+ 
+@@ -534,6 +535,7 @@ class ScummEngine : public Engine, public Common::Serializable {
+ 	friend class MacV6Gui;
+ 	friend class LogicHEBasketball;
+ 	friend class ScummEditor;
++	friend class SpeedrunBridge;
+ 
+ public:
+ 	/* Put often used variables at the top.
+@@ -1691,6 +1693,7 @@ public:
+ 
+ 	Graphics::Surface *_macScreen = nullptr;
+ 	MacGui *_macGui = nullptr;
++	SpeedrunBridge *_speedrun = nullptr;
+ 	bool _useMacGraphicsSmoothing = true;
+ 	byte _completeScreenBuffer[320 * 200];
+ 
+diff --git a/engines/scumm/speedrun/speedrun_bridge.cpp b/engines/scumm/speedrun/speedrun_bridge.cpp
+new file mode 100644
+index 00000000..32d328b9
+--- /dev/null
++++ b/engines/scumm/speedrun/speedrun_bridge.cpp
+@@ -0,0 +1,457 @@
++/* ScummVM - Graphic Adventure Engine
++ *
++ * ScummVM is the legal property of its developers, whose names
++ * are too numerous to list here. Please refer to the COPYRIGHT
++ * file distributed with this source distribution.
++ *
++ * This program is free software: you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License as published by
++ * the Free Software Foundation, either version 3 of the License, or
++ * (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
++ *
++ */
++
++// The bridge is configured through the environment (contract C1).
++#define FORBIDDEN_SYMBOL_EXCEPTION_getenv
++
++#include "common/config-manager.h"
++#include "common/debug.h"
++#include "common/path.h"
++#include "common/textconsole.h"
++#include "common/util.h"
++
++#include "audio/mixer_intern.h"
++
++#include "scumm/scumm.h"
++#include "scumm/speedrun/speedrun_bridge.h"
++
++namespace Scumm {
++
++// Written into every boot record. The test harness also greps the binary for
++// "speedrun-bridge" to tell a patched build from a stock one.
++static const char kBridgeMarker[] = "speedrun-bridge v1";
++
++static const char kTraceName[] = "trace.jsonl";
++
++// The live bridge, for the error handler (a plain function pointer).
++static SpeedrunBridge *g_speedrunBridge = nullptr;
++
++// Empty counts as unset.
++static const char *envValue(const char *name) {
++	const char *value = getenv(name);
++	return (value && *value) ? value : nullptr;
++}
++
++static bool parseUint64(const char *s, uint64 &out) {
++	if (!s || !*s)
++		return false;
++	const uint64 maxValue = ~(uint64)0;
++	uint64 value = 0;
++	for (; *s; ++s) {
++		if (*s < '0' || *s > '9')
++			return false;
++		const uint64 digit = (uint64)(*s - '0');
++		if (value > (maxValue - digit) / 10)
++			return false;
++		value = value * 10 + digit;
++	}
++	out = value;
++	return true;
++}
++
++#pragma mark - JSON
++
++Common::String jsonString(const char *s) {
++	if (!s)
++		return "null";
++	Common::String out("\"");
++	// Unsigned, so bytes >= 0x80 are not mistaken for control characters.
++	for (const byte *p = (const byte *)s; *p; ++p) {
++		const byte c = *p;
++		switch (c) {
++		case '"':
++			out += "\\\"";
++			break;
++		case '\\':
++			out += "\\\\";
++			break;
++		case '\n':
++			out += "\\n";
++			break;
++		case '\r':
++			out += "\\r";
++			break;
++		case '\t':
++			out += "\\t";
++			break;
++		case '\b':
++			out += "\\b";
++			break;
++		case '\f':
++			out += "\\f";
++			break;
++		default:
++			if (c < 0x20 || c >= 0x7F)
++				out += Common::String::format("\\u%04x", (uint)c);
++			else
++				out += (char)c;
++			break;
++		}
++	}
++	out += '"';
++	return out;
++}
++
++JsonObject &JsonObject::addRaw(const char *key, const Common::String &json) {
++	if (!_members.empty())
++		_members += ',';
++	_members += jsonString(key);
++	_members += ':';
++	_members += json;
++	return *this;
++}
++
++JsonObject &JsonObject::add(const char *key, int value) {
++	return addRaw(key, Common::String::format("%d", value));
++}
++
++JsonObject &JsonObject::add(const char *key, uint value) {
++	return addRaw(key, Common::String::format("%u", value));
++}
++
++JsonObject &JsonObject::add(const char *key, int64 value) {
++	return addRaw(key, Common::String::format("%lld", (long long)value));
++}
++
++JsonObject &JsonObject::add(const char *key, uint64 value) {
++	return addRaw(key, Common::String::format("%llu", (unsigned long long)value));
++}
++
++JsonObject &JsonObject::add(const char *key, bool value) {
++	return addRaw(key, value ? "true" : "false");
++}
++
++JsonObject &JsonObject::add(const char *key, const char *value) {
++	return addRaw(key, jsonString(value));
++}
++
++JsonObject &JsonObject::add(const char *key, const Common::String &value) {
++	return addRaw(key, jsonString(value.c_str()));
++}
++
++JsonObject &JsonObject::addNull(const char *key) {
++	return addRaw(key, "null");
++}
++
++Common::String JsonObject::str() const {
++	return "{" + _members + "}";
++}
++
++#pragma mark - Lifetime
++
++SpeedrunBridge::SpeedrunBridge(ScummEngine *vm) : _vm(vm) {
++	memset(_audioBuf, 0, sizeof(_audioBuf));
++}
++
++SpeedrunBridge *SpeedrunBridge::create(ScummEngine *vm) {
++	const char *outDir = envValue("SPEEDRUN_OUT");
++	if (!outDir)
++		return nullptr;
++
++	SpeedrunBridge *bridge = new SpeedrunBridge(vm);
++	bridge->_outDir = outDir;
++	bridge->readEnv();
++
++	// Replace the engine's default error handler first: it attaches the GUI
++	// debugger, which blocks forever under SDL's dummy video driver.
++	g_speedrunBridge = bridge;
++	Common::setErrorHandler(errorHandler);
++
++	const Common::Path tracePath = Common::Path(bridge->_outDir, Common::Path::kNativeSeparator).appendComponent(kTraceName);
++	if (!bridge->_trace.open(tracePath, true))
++		error("speedrun: cannot open trace file '%s'", tracePath.toString(Common::Path::kNativeSeparator).c_str());
++
++	bridge->validateEnv();
++
++	// --disable-sdl-audio is stored in the transient ConfMan domain. Without
++	// it the backend's audio thread pulls the mixer, and we must not.
++	if (ConfMan.getBool("disable_sdl_audio")) {
++		Audio::Mixer *mixer = vm->_mixer;
++		bridge->_audioRate = mixer ? mixer->getOutputRate() : 0;
++		bridge->_audioFrameBytes = (mixer && mixer->getOutputStereo()) ? 4 : 2;
++		bridge->_pumpAudio = bridge->_audioRate > 0;
++	}
++
++	debug(1, "speedrun: %s active, out='%s' fast=%d audio_pump=%d rate=%u max_ticks=%s",
++	      kBridgeMarker, bridge->_outDir.c_str(), bridge->_skipWaits, bridge->_pumpAudio, bridge->_audioRate,
++	      bridge->_hasMaxTicks ? Common::String::format("%llu", (unsigned long long)bridge->_maxTicks).c_str() : "none");
++	return bridge;
++}
++
++void SpeedrunBridge::readEnv() {
++	// Booleans and integers are validated in validateEnv(), once the trace is
++	// open and an invalid value can be reported there.
++	const char *fast = envValue("SPEEDRUN_FAST");
++	if (fast && !Common::parseBool(fast, _skipWaits) && _envError.empty())
++		_envError = Common::String::format("invalid SPEEDRUN_FAST '%s'", fast);
++
++	const char *maxTicks = envValue("SPEEDRUN_MAX_TICKS");
++	if (maxTicks) {
++		_hasMaxTicks = parseUint64(maxTicks, _maxTicks);
++		if (!_hasMaxTicks && _envError.empty())
++			_envError = Common::String::format("invalid SPEEDRUN_MAX_TICKS '%s'", maxTicks);
++	}
++
++	const char *dumpObjects = envValue("SPEEDRUN_DUMP_OBJECTS");
++	if (dumpObjects && !Common::parseBool(dumpObjects, _dumpObjects) && _envError.empty())
++		_envError = Common::String::format("invalid SPEEDRUN_DUMP_OBJECTS '%s'", dumpObjects);
++
++	const char *stepTimeout = envValue("SPEEDRUN_STEP_TIMEOUT");
++	if (stepTimeout && !parseUint64(stepTimeout, _stepTimeout) && _envError.empty())
++		_envError = Common::String::format("invalid SPEEDRUN_STEP_TIMEOUT '%s'", stepTimeout);
++
++	// Stored raw; parsed by the stages that use them.
++	const char *plan = envValue("SPEEDRUN_PLAN");
++	_planPath = plan ? plan : "";
++	const char *start = envValue("SPEEDRUN_START");
++	_startJson = start ? start : "";
++	const char *goal = envValue("SPEEDRUN_GOAL");
++	_goalJson = goal ? goal : "";
++	const char *inventory = envValue("SPEEDRUN_INVENTORY");
++	_inventoryJson = inventory ? inventory : "";
++}
++
++void SpeedrunBridge::validateEnv() {
++	if (!_envError.empty())
++		raiseError("bad_env", _envError);
++}
++
++SpeedrunBridge::~SpeedrunBridge() {
++	// Still running here means the engine quit by itself (e.g. window closed).
++	endTrace("quit", nullptr, nullptr);
++	// The error handler deliberately stays installed (it returns true without
++	// a live bridge): ScummVM has no way to restore the engine's default
++	// handler, and a headless run must never get a message box or debugger.
++	if (g_speedrunBridge == this)
++		g_speedrunBridge = nullptr;
++}
++
++#pragma mark - Hooks
++
++void SpeedrunBridge::onBoot() {
++	if (_finished)
++		return;
++
++	JsonObject rec = record("boot");
++	rec.add("bridge", kBridgeMarker)
++	   .add("game", _vm->_game.gameid)
++	   .add("variant", _vm->_game.variant)
++	   .add("fast", _skipWaits)
++	   .add("audio_pump", _pumpAudio);
++	// --random-seed is stored in the session domain; Common::RandomSource uses
++	// it when the key exists (common/random.cpp).
++	if (ConfMan.hasKey("random_seed"))
++		rec.add("seed", ConfMan.getInt("random_seed"));
++	else
++		rec.addNull("seed");
++	rec.add("boot_param", _vm->_bootParam);
++	writeRecord(rec);
++
++	// A save slot from the command line makes go() load a game instead of
++	// running the boot script. Runs never load.
++	if (_vm->_saveLoadFlag != 0) {
++		const Common::String msg = Common::String::format("load requested at boot (flag %d, slot %d)", _vm->_saveLoadFlag, _vm->_saveLoadSlot);
++		_vm->_saveLoadFlag = 0;
++		fail("saveload", msg);
++	}
++}
++
++void SpeedrunBridge::onFrameBegin(int delta) {
++	if (_finished)
++		return;
++
++	// 1. Observe the completed previous frame. Records written here carry the
++	//    counters before this frame's delta (C2 stamping rule).
++	observePreviousFrame();
++	if (_finished)
++		return;
++
++	// 2. Advance the run clock to this frame.
++	if (delta > 0)
++		_ticks += (uint64)delta;
++	_frames++;
++
++	// 3. Prepare this frame: pin input, then let delta jiffies of audio play.
++	neutraliseInput();
++	if (_pumpAudio)
++		pumpAudio(delta);
++
++	// 4. Watchdog, stamped after the add.
++	if (_hasMaxTicks && _ticks >= _maxTicks)
++		finish("max_ticks");
++}
++
++void SpeedrunBridge::observePreviousFrame() {
++	// Saving and loading are banned in runs (Alt/Ctrl+digit, autosave). Clear
++	// the request so scummLoop does not perform it on the way out.
++	if (_vm->_saveLoadFlag != 0) {
++		const Common::String msg = Common::String::format("save/load requested (flag %d, slot %d)", _vm->_saveLoadFlag, _vm->_saveLoadSlot);
++		_vm->_saveLoadFlag = 0;
++		fail("saveload", msg);
++		return;
++	}
++
++	// Later stages: goal and segment-start checks, stall diagnostics, state diffs.
++}
++
++void SpeedrunBridge::onDecisionPoint() {
++	if (_finished)
++		return;
++	// Idle detection and plan steps hook in here (later stages).
++}
++
++#pragma mark - Infrastructure
++
++void SpeedrunBridge::neutraliseInput() {
++	// Undo everything parseEvents() may have written since the last frame, so
++	// a visible run is tick-identical to a headless one. processInput()
++	// derives _virtualMouse and _mouseAndKeyboardStat from these.
++	_vm->_mouse.x = 0;
++	_vm->_mouse.y = 0;
++	_vm->_leftBtnPressed = 0;
++	_vm->_rightBtnPressed = 0;
++	_vm->_keyPressed.reset();
++	_vm->_fastMode = 0;
++}
++
++void SpeedrunBridge::pumpAudio(int delta) {
++	if (delta <= 0)
++		return;
++
++	// Frames owed for delta jiffies of 1/60 s, exact over the whole run.
++	const uint64 owed = (uint64)delta * _audioRate + _audioRemainder;
++	_audioPending += owed / 60;
++	_audioRemainder = owed % 60;
++
++	// Fixed-size calls: the stream sees the same buffer sizes whatever the
++	// frame pacing; leftover frames wait for the next frame.
++	// The cast is valid: every backend mixer manager, the null one included,
++	// creates an Audio::MixerImpl.
++	Audio::MixerImpl *mixer = static_cast<Audio::MixerImpl *>(_vm->_mixer);
++	const uint chunkBytes = kAudioChunkFrames * _audioFrameBytes;
++	while (_audioPending >= kAudioChunkFrames) {
++		mixer->mixCallback((byte *)_audioBuf, chunkBytes);
++		_audioPending -= kAudioChunkFrames;
++		_audioPumped += kAudioChunkFrames;
++	}
++}
++
++void SpeedrunBridge::finish(const char *reason) {
++	if (endTrace(reason, nullptr, nullptr))
++		_vm->quitGame();
++}
++
++void SpeedrunBridge::fail(const char *code, const Common::String &message) {
++	if (endTrace("error", code, message.c_str()))
++		_vm->quitGame();
++}
++
++void SpeedrunBridge::raiseError(const char *code, const Common::String &message) {
++	_errorCode = code;
++	error("speedrun: %s", message.c_str());
++}
++
++bool SpeedrunBridge::endTrace(const char *reason, const char *errorCode, const char *errorMessage) {
++	if (_finished)
++		return false;
++	// Set first: nothing is written after the end record, even if writing
++	// it re-enters through error().
++	_finished = true;
++
++	if (errorCode) {
++		JsonObject err = record("error");
++		err.add("code", errorCode).add("message", errorMessage);
++		writeRecord(err);
++	}
++
++	// Fingerprint of the final state; determinism tests compare whole end
++	// records. Vars may not exist yet if error() fires during init().
++	const bool haveVars = _vm->_scummVars != nullptr;
++	JsonObject end = record("end");
++	end.add("reason", reason)
++	   .add("room", (int)_vm->_currentRoom)
++	   .add("audio_frames", _audioPumped);
++	if (haveVars && _vm->VAR_MUSIC_TIMER != 0xFF)
++		end.add("music_timer", (int)_vm->_scummVars[_vm->VAR_MUSIC_TIMER]);
++	else
++		end.addNull("music_timer");
++	if (haveVars)
++		end.add("vars_fnv1a", varsFingerprint());
++	else
++		end.addNull("vars_fnv1a");
++	writeRecord(end);
++	_trace.close();
++
++	debug(1, "speedrun: %s", end.str().c_str());
++	return true;
++}
++
++bool SpeedrunBridge::errorHandler(const char *msg) {
++	// Not synchronised with the main thread. That is fine for runs: with
++	// --disable-sdl-audio the mixer runs on the main thread (pumpAudio), so
++	// error() can only come from the main thread.
++	SpeedrunBridge *bridge = g_speedrunBridge;
++	if (bridge) {
++		// error() appends "!\n"; the newline is noise in a JSON string.
++		Common::String text(msg ? msg : "");
++		while (!text.empty() && (text.lastChar() == '\n' || text.lastChar() == '\r'))
++			text.deleteLastChar();
++		bridge->endTrace("error", bridge->_errorCode, text.c_str());
++	}
++	// Always handled, even after the bridge is gone: the message already went
++	// to the log, and a message box or the debugger would block a headless
++	// run. error() then exits.
++	return true;
++}
++
++#pragma mark - Trace
++
++JsonObject SpeedrunBridge::record(const char *type) const {
++	JsonObject rec;
++	rec.add("type", type).add("tick", _ticks).add("frame", _frames);
++	return rec;
++}
++
++void SpeedrunBridge::writeRecord(const JsonObject &rec) {
++	if (!_trace.isOpen())
++		return;
++	_trace.writeString(rec.str());
++	_trace.writeByte('\n');
++	const bool flushed = _trace.flush();
++	if ((!flushed || _trace.err()) && !_traceWriteFailed) {
++		_traceWriteFailed = true;
++		warning("speedrun: cannot write to %s in '%s'", kTraceName, _outDir.c_str());
++	}
++}
++
++Common::String SpeedrunBridge::varsFingerprint() const {
++	uint32 hash = 2166136261u; // FNV-1a 32 offset basis
++	for (int i = 0; i < _vm->_numVariables; i++) {
++		const uint32 value = (uint32)_vm->_scummVars[i];
++		for (int shift = 0; shift < 32; shift += 8) {
++			hash ^= (value >> shift) & 0xFF;
++			hash *= 16777619u; // FNV prime
++		}
++	}
++	return Common::String::format("%08x", hash);
++}
++
++} // End of namespace Scumm
+diff --git a/engines/scumm/speedrun/speedrun_bridge.h b/engines/scumm/speedrun/speedrun_bridge.h
+new file mode 100644
+index 00000000..6982557b
+--- /dev/null
++++ b/engines/scumm/speedrun/speedrun_bridge.h
+@@ -0,0 +1,178 @@
++/* ScummVM - Graphic Adventure Engine
++ *
++ * ScummVM is the legal property of its developers, whose names
++ * are too numerous to list here. Please refer to the COPYRIGHT
++ * file distributed with this source distribution.
++ *
++ * This program is free software: you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License as published by
++ * the Free Software Foundation, either version 3 of the License, or
++ * (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
++ *
++ */
++
++#ifndef SCUMM_SPEEDRUN_SPEEDRUN_BRIDGE_H
++#define SCUMM_SPEEDRUN_SPEEDRUN_BRIDGE_H
++
++#include "common/scummsys.h"
++#include "common/file.h"
++#include "common/str.h"
++
++namespace Scumm {
++
++class ScummEngine;
++
++/**
++ * JSON string literal, pure ASCII: escapes quotes, backslashes and control
++ * characters; bytes >= 0x80 become \u00XX (the byte read as Latin-1).
++ * nullptr gives null.
++ */
++Common::String jsonString(const char *s);
++
++/** Builds one JSON object; members appear in the order they are added. */
++class JsonObject {
++public:
++	JsonObject &add(const char *key, int value);
++	JsonObject &add(const char *key, uint value);
++	JsonObject &add(const char *key, int64 value);
++	JsonObject &add(const char *key, uint64 value);
++	JsonObject &add(const char *key, bool value);
++	/** nullptr gives null. */
++	JsonObject &add(const char *key, const char *value);
++	JsonObject &add(const char *key, const Common::String &value);
++	JsonObject &addNull(const char *key);
++	/** @p json must already be valid JSON (a nested object or array). */
++	JsonObject &addRaw(const char *key, const Common::String &json);
++	Common::String str() const;
++
++private:
++	Common::String _members; // comma-separated "key":value pairs
++};
++
++/**
++ * Speedrun bridge: lets an external harness run the game headless, on a
++ * deterministic tick clock, and observe it through a JSONL trace.
++ *
++ * Inert unless the SPEEDRUN_OUT environment variable is set: create() then
++ * returns nullptr and every hook in ScummEngine is a null-pointer check.
++ *
++ * Hooks (engines/scumm/scumm.cpp):
++ *  - init(), first statement:                 create()
++ *  - go(), before setTotalPlayTime():         onBoot()
++ *  - scummLoop(), first statement:            onFrameBegin(delta)
++ *  - scummLoop(), before checkAndRunSentenceScript(): onDecisionPoint()
++ *  - waitForTimer():                          skipWaits()
++ *  - ~ScummEngine(), first statement:         delete
++ *
++ * Environment (contract C1; all read once, in create()):
++ *  - SPEEDRUN_OUT=<dir>          output dir; trace.jsonl is written there
++ *  - SPEEDRUN_FAST=1             no real-time waiting between frames
++ *  - SPEEDRUN_MAX_TICKS=<n>      watchdog: end "max_ticks" once ticks >= n
++ *  - SPEEDRUN_DUMP_OBJECTS, SPEEDRUN_PLAN, SPEEDRUN_START, SPEEDRUN_GOAL,
++ *    SPEEDRUN_INVENTORY, SPEEDRUN_STEP_TIMEOUT: parsed and stored for later stages
++ * The RNG seed is ScummVM's own --random-seed (ConfMan "random_seed").
++ *
++ * Record stamping (contract C2): records about the completed previous frame
++ * are written at the top of onFrameBegin() with the counters before this
++ * frame's delta; records about the current frame (decision point, watchdog)
++ * use the counters after it.
++ */
++class SpeedrunBridge {
++public:
++	/** nullptr unless SPEEDRUN_OUT is set. Opens the trace, installs the error handler. */
++	static SpeedrunBridge *create(ScummEngine *vm);
++	/** Writes an end record with reason "quit" unless the run already ended. */
++	~SpeedrunBridge();
++
++	/** go(), before the boot script runs: writes the boot record. */
++	void onBoot();
++	/**
++	 * First statement of scummLoop(): the previous frame has completed and
++	 * processInput() has not run yet. @p delta is the unclamped tick delta
++	 * (jiffies of 1/60 s).
++	 */
++	void onFrameBegin(int delta);
++	/** scummLoop(), right before checkAndRunSentenceScript(). */
++	void onDecisionPoint();
++	/** waitForTimer(): true skips the real-time wait (SPEEDRUN_FAST). */
++	bool skipWaits() const { return _skipWaits; }
++
++private:
++	explicit SpeedrunBridge(ScummEngine *vm);
++	SpeedrunBridge(const SpeedrunBridge &) = delete;
++	SpeedrunBridge &operator=(const SpeedrunBridge &) = delete;
++
++	void readEnv();
++	void validateEnv();
++
++	/** onFrameBegin, step 1: checks on the completed previous frame. */
++	void observePreviousFrame();
++	void neutraliseInput();
++	void pumpAudio(int delta);
++
++	/** End the run: end record, close the trace, quitGame(). Idempotent. */
++	void finish(const char *reason);
++	/** Error record with @p code, then finish("error"). */
++	void fail(const char *code, const Common::String &message);
++	/** Report through ScummVM's error(), which never returns; the error record gets @p code. */
++	void raiseError(const char *code, const Common::String &message);
++	/**
++	 * Write the optional error record and the end record, then close the trace.
++	 * Marks the run finished before writing. Returns false if it already was.
++	 */
++	bool endTrace(const char *reason, const char *errorCode, const char *errorMessage);
++	static bool errorHandler(const char *msg);
++
++	// Trace (contract C5): one JSON object per line, flushed after each
++	/** A record with "type", "tick" and "frame"; callers add the rest. */
++	JsonObject record(const char *type) const;
++	void writeRecord(const JsonObject &rec);
++	/** FNV-1a 32 over _scummVars[0.._numVariables) as little-endian int32s. */
++	Common::String varsFingerprint() const;
++
++	ScummEngine *_vm;
++
++	// Configuration (contract C1)
++	Common::String _outDir;
++	bool _skipWaits = false;
++	bool _pumpAudio = false;
++	bool _hasMaxTicks = false;
++	uint64 _maxTicks = 0;
++	bool _dumpObjects = false;
++	Common::String _planPath;
++	Common::String _startJson;      // raw JSON from SPEEDRUN_START
++	Common::String _goalJson;       // raw JSON from SPEEDRUN_GOAL
++	Common::String _inventoryJson;  // raw JSON from SPEEDRUN_INVENTORY
++	uint64 _stepTimeout = 36000;    // ticks; 10 minutes of game time
++	Common::String _envError;       // first invalid variable, reported once the trace is open
++
++	// Run clock (contract C2): ticks = sum of unclamped deltas since boot
++	uint64 _ticks = 0;
++	uint64 _frames = 0;
++
++	// Tick-locked audio (null mixer, --disable-sdl-audio)
++	static const uint kAudioChunkFrames = 512;
++	uint _audioRate = 0;            // mixer output rate, frames per second
++	uint _audioFrameBytes = 4;      // 16-bit stereo
++	uint64 _audioRemainder = 0;     // sub-frame remainder, in 1/60 frames
++	uint64 _audioPending = 0;       // whole frames owed to the mixer (< one chunk after pumping)
++	uint64 _audioPumped = 0;        // frames mixed so far
++	int16 _audioBuf[kAudioChunkFrames * 2];
++
++	Common::DumpFile _trace;
++	bool _traceWriteFailed = false;
++	const char *_errorCode = "engine_error"; // code for the next error() record
++	bool _finished = false;
++};
++
++} // End of namespace Scumm
++
++#endif

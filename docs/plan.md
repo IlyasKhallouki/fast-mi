@@ -481,7 +481,7 @@ It writes `objects.json` (C6) and quits with `end` reason `dump_done`. Because t
 **Acceptance:**
 - Both integration tests pass.
 - `strings build/scummvm/scummvm | grep speedrun-bridge` hits.
-- With `SPEEDRUN_OUT` unset, the patched binary behaves exactly like stock: `test_stock_boot_headless` still passes.
+- With `SPEEDRUN_OUT` unset, the patched binary behaves exactly like stock: `test_boot_headless_detects_mac_monkey` still passes, and `test_bridge_inert_without_out` proves inertness.
 
 ### Task 1.2: Idle detection, object/verb dump, segment start, state dumps, goal
 
