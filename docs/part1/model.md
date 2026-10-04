@@ -436,3 +436,8 @@ Our plan uses 69 compiled steps in total: 67 actions plus 2 defensive opens. It 
 2. **idol.md §12 (the kitchen-door race)** says local-216 keeps running "during the local-218 walk-in cutscene". In fact local-218 opens with `cutscene([2])` (`room-028-bar/local-218.txt [0000]`), whose start script ends in `freezeScripts(127)` (`global/script-018.txt [0070]`). Local-216 is started without the freeze-resistant flag (`room-028-bar/local-211.txt [0039]`, `local-205.txt [003A]`), so the cook is frozen from the start of the walk-in. The race window is only ego's sentence walk to 316.
 3. **idol.md §12 and §13 Q1** say C3 cannot express actor room or position. Contract C3 now has `actor_room`, `actor_x` and `actor_y`, which `walk-into-kitchen` uses.
 4. **The `room` key in the forest.** `docs/plan.md` C4 suggests the forest is checked as room 58. `_currentRoom` is the pseudo-room number, so forest steps omit `room` (§6). start.md §7 Q7 asked exactly this question.
+
+
+## 12. Corrections found by replay
+
+- **Circus grounds, room 52.** Local 202 cancels a walk with `doSentence(STOP)` while ego is in walkbox 7 at x > 200 (`data/scripts/room-052-circus-gr/local-202.txt [0000]`–`[001C]`). Arriving from the map at (430,130), the first `Walk to circus tent` stops at (210,117). `walk-into-tent-with-pot` therefore pushes the walk twice, as a player would click twice. The PDDL action count is unchanged: one action, two sentences. Found by the first full replay (step 12 `step_timeout` with `awaiting_menu` stalls).

@@ -357,10 +357,17 @@ cite = "data/scripts/room-058-damnfores/obj-0688-path.txt [006B] at 215, path 68
 steps = [{verb = "walk_to", obj = {room = 58, name = "path", id = 688}, until = [{var = 4, eq = 215}]}]
 
 [actions."walk-into-tent-with-pot"]
-cite = "data/scripts/room-052-circus-gr/obj-0621-circus-tent.txt [0014] loadRoom(51); local-207.txt [0213] [08AB] [0B49] the three menus"
+cite = "data/scripts/room-052-circus-gr/obj-0621-circus-tent.txt [0014] loadRoom(51); room-052-circus-gr/local-202.txt [0000] doSentence(STOP) in box 7 at x > 200; local-207.txt [0213] [08AB] [0B49] the three menus"
+# Arriving from the map puts ego at (430,130). Room 52's local 202 cancels the
+# first walk with doSentence(STOP) once ego reaches walkbox 7 at x > 200
+# (local-202 [0000]-[001C]); a player clicks the tent a second time. Found in
+# replay: step 12 stopped at (210,117), box 7.
 # Menu 1: any line works; menu 2: "OK, I'll do it."; menu 3: "Of course I
 # have a helmet..." ("have a helmet" alone would match both lines of menu 3).
-steps = [{verb = "walk_to", obj = {room = 52, name = "circus tent"}, room = 52, until = [{room = 52}], choose = ["ahem", "I'll do it", "Of course"]}]
+steps = [
+  {verb = "walk_to", obj = {room = 52, name = "circus tent"}, room = 52, until = [{room = 52}]},
+  {verb = "walk_to", obj = {room = 52, name = "circus tent"}, room = 52, choose = ["ahem", "I'll do it", "Of course"]},
+]
 
 # The helmet. local-200 is the tent's input script only while var 32 (VAR_VERB_SCRIPT)
 # is 200 (local-207 [0D4C]). Click Use, then the inventory slot just BEFORE the
