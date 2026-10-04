@@ -21,5 +21,6 @@ testpaths = ["tests"]
 markers = [
     "integration: needs real game data and the patched ScummVM build",
     "requires_fd: needs the Fast Downward build",
+    "slow: replays the full route on the real engine (tens of seconds each); deselect with -m 'not slow'",
 ]
 addopts = "-ra"

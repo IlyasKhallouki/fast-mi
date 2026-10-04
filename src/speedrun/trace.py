@@ -225,11 +225,25 @@ def _cell(value: object) -> str:
     return "?" if value is None else str(value)
 
 
+def _goal_closed_step(trace: Trace) -> StepRecord | None:
+    """The last step, if it has no ``step_end`` because the goal fired during it."""
+    if trace.goal is None or not trace.steps:
+        return None
+    last, goal_tick = trace.steps[-1], trace.goal.get("tick")
+    if last.finished or not isinstance(last.start_tick, int) or not isinstance(goal_tick, int):
+        return None
+    return last if goal_tick >= last.start_tick else None
+
+
 def format_table(trace: Trace) -> str:
     """Per-step table: ``#``, ``action``, ``room``, ``start``, ``end``, ``ticks``, ``changes``.
 
     ``start``/``end`` are relative to ``tick0`` (negative before the segment
     start), or absolute from boot if the segment never started.
+
+    A goal that fires during the last step leaves that step without a
+    ``step_end`` (C5 "Goal mid-step"): its row ends at the goal tick, and its
+    changes column reads ``goal``.
     """
     tick0 = trace.tick0
     base = 0 if tick0 is None else tick0
@@ -239,14 +253,19 @@ def format_table(trace: Trace) -> str:
     if not trace.steps:
         return "\n".join([*notes, "(no steps in trace)"])
 
+    goal_step = _goal_closed_step(trace)
     header = ["#", "action", "room", "start", "end", "ticks", "changes"]
     rows = []
     for s in trace.steps:
         start = None if s.start_tick is None else s.start_tick - base
-        end = None if s.end_tick is None else s.end_tick - base
-        changes = format_changes(s.changes) if s.finished else "(no step_end: step did not finish)"
+        if s is goal_step:
+            end_tick, duration, changes = trace.goal["tick"], trace.goal["tick"] - s.start_tick, "goal"
+        else:
+            end_tick, duration = s.end_tick, s.duration
+            changes = format_changes(s.changes) if s.finished else "(no step_end: step did not finish)"
+        end = None if end_tick is None else end_tick - base
         rows.append([str(s.index), _cell(s.action), _cell(s.room_start), _cell(start), _cell(end),
-                     _cell(s.duration), changes])  # fmt: skip
+                     _cell(duration), changes])  # fmt: skip
 
     widths = [max(len(r[i]) for r in [header, *rows]) for i in range(len(header) - 1)]
     left = {1}  # action is left-aligned, numbers right-aligned; changes is last and unpadded

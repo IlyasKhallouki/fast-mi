@@ -1,3 +1,4 @@
+import contextlib
 import os
 from pathlib import Path
 
@@ -111,9 +112,13 @@ def _snapshot(root: Path):
     return entries
 
 
-@pytest.fixture
-def home_scummvm_guard() -> list[Path]:
-    """Fails the test if ScummVM created or modified its dirs in the user's home."""
+@contextlib.contextmanager
+def guard_home_scummvm():
+    """Fails (on exit) if ScummVM created or modified its dirs in the user's home.
+
+    For fixtures wider than function scope, which run ScummVM before any
+    function-scoped ``home_scummvm_guard`` takes its snapshot.
+    """
     dirs = home_scummvm_dirs()
     before = {d: _snapshot(d) for d in dirs}
     yield dirs
@@ -123,3 +128,16 @@ def home_scummvm_guard() -> list[Path]:
             assert after is None, f"ScummVM created {d} in the user's home"
         else:
             assert after == before[d], f"ScummVM modified {d} in the user's home"
+
+
+@pytest.fixture
+def home_scummvm_guard() -> list[Path]:
+    """Fails the test if ScummVM created or modified its dirs in the user's home."""
+    with guard_home_scummvm() as dirs:
+        yield dirs
+
+
+@pytest.fixture(scope="session")
+def home_scummvm_guard_factory():
+    """``guard_home_scummvm`` for fixtures of any scope, e.g. ``with home_scummvm_guard_factory(): ...``."""
+    return guard_home_scummvm

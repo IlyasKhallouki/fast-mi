@@ -337,6 +337,37 @@ def test_format_table_unfinished_step():
     assert "no step_end" in row
 
 
+def test_format_table_goal_mid_step_ends_at_goal(tmp_path):
+    # C5 "Goal mid-step": the goal fires during the last step, so that step has
+    # no step_end; the goal record closes it.
+    records = [
+        BOOT,
+        {"type": "segment_start", "tick": 1000, "frame": 250, "tick0": 1000, "room": 101},
+        {"type": "step_start", "step": 0, "tick": 1010, "frame": 253, "action": "take-widget", "room": 101},
+        {"type": "step_end", "step": 0, "tick": 1250, "frame": 300, "room": 101, "changes": {}},
+        {"type": "step_start", "step": 1, "tick": 1260, "frame": 303, "action": "wind-widget", "room": 101},
+        {"type": "goal", "tick": 1500, "frame": 360, "ticks_from_start": 500},
+        {"type": "end", "tick": 1500, "frame": 360, "reason": "goal", "room": 101},
+    ]
+    t = load_trace(_write(tmp_path, records))
+    assert t.steps[1].end_tick is None  # the record itself stays unfinished
+    row = _rows(format_table(t))["wind-widget"]
+    # start 1260 - 1000, end = goal 1500 - 1000, ticks 1500 - 1260, changes "goal"
+    assert row.split() == ["1", "wind-widget", "101", "260", "500", "240", "goal"]
+
+
+def test_format_table_unfinished_last_step_without_goal_is_unknown(tmp_path):
+    records = [
+        BOOT,
+        {"type": "segment_start", "tick": 1000, "frame": 250, "tick0": 1000, "room": 101},
+        {"type": "step_start", "step": 0, "tick": 1260, "frame": 303, "action": "wind-widget", "room": 101},
+        {"type": "end", "tick": 1500, "frame": 360, "reason": "max_ticks", "room": 101},
+    ]
+    row = _rows(format_table(load_trace(_write(tmp_path, records))))["wind-widget"]
+    assert row.split()[:6] == ["0", "wind-widget", "101", "260", "?", "?"]
+    assert "no step_end" in row
+
+
 def test_format_table_without_segment_start_uses_absolute_ticks(tmp_path):
     records = [
         BOOT,
