@@ -838,6 +838,106 @@ A research agent writes this. It covers:
 
 ---
 
+## Phase 8 — Time-optimal route (v1 scope extension, decided 2026-10-04)
+
+**Decision.** The user moved these into v1:
+
+- **Option 1:** plan on measured time, not action counts.
+- **Option 2:** robustness across seeds. Many runs per candidate, a good average, pick the fastest.
+- **Text and cutscene skipping:** the `.` and Esc keys, as human runners use them.
+- **Maximum talk speed.**
+
+The fixed-seed "look into the future" approach (RNG manipulation) is **not** in scope. Routes are chosen by their mean ticks over many seeds, never by the outcome of one known seed.
+
+**Objective.** The goal is to minimise the expected ticks from segment start to goal. "Expected" means the mean over N seeds (default N = 30), with the standard deviation, minimum and maximum reported. Fast Downward stays the only search. We only change the action costs we feed it.
+
+### Contracts (additions to C1, C4, C5)
+
+**New C1 switches.** Both apply only after segment start, so the intro, where an Esc at the logo is a known speed glitch, is never touched.
+
+| Variable | Meaning |
+|---|---|
+| `SPEEDRUN_SKIP_TEXT=1` | On the first frame an actor line is displayed, inject the `.` key (`VAR_TALKSTOP_KEY`) through the engine's own key path. |
+| `SPEEDRUN_SKIP_CUTSCENES=1` | On the first frame a cutscene with an override point is active, inject Esc (`VAR_CUTSCENEEXIT_KEY`), the same way. |
+
+**C4.** A new optional step key `no_skip: true` disables cutscene skipping while that step is active. It is used only where a script's override branch would break the route, and each use is cited.
+
+**C5.** A new record type:
+
+```json
+{"type":"skip","tick":T,"frame":F,"kind":"text"|"cutscene","step":i}
+```
+
+**Pinned settings change.**
+- `talkspeed` is set to its maximum, verified against the engine source.
+- `rules/glitchless.md` is updated: text skip, cutscene skip and maximum talk speed are allowed player inputs and settings. The logo speed glitch stays banned.
+
+### Task 8.1: Engine and script research (parallel, read-only)
+
+- **Engine:**
+  - how `.` and Esc are handled for v5 MI1 (`input.cpp` `processInput`, `abortCutscene`, `VAR_TALKSTOP_KEY`/`VAR_CUTSCENEEXIT_KEY`);
+  - how the bridge can inject a key before `processInput` without simulating coordinates;
+  - the `talkspeed` range and its effect on var 37;
+  - how the logo speed glitch works, so it can never be triggered.
+- **Scripts:** every cutscene and override on the route.
+  - Does the override branch reach the same state as playing the cutscene through?
+  - Are there skips that would alter the route or soft-lock it?
+  - Output goes to `docs/part1/skips.md`.
+- **Fast Downward:** per-action costs. Can `lmcut` take integer constants per action, plus static `(walk-cost ?from ?to)` functions for the parameterised walk?
+
+### Task 8.2: Bridge — skips (TDD)
+
+- Implement the two switches, the `skip` records and `no_skip`.
+- `engine.py` gains `EngineConfig.skip_text` and `skip_cutscenes`, both defaulting to True, and moves the XDG data and cache dirs into each run dir so parallel runs never share files.
+- Tests:
+  - a text skip shortens a known talking step;
+  - an Esc skip shortens the first bar exit (the LeChuck cutscene, 9,492 ticks unskipped);
+  - skips are deterministic across two runs;
+  - nothing is skipped before `segment_start`.
+
+### Task 8.3: Measurement and costing (Python, TDD)
+
+- `speedrun measure <segment> [--seeds 1-30] [--jobs N] [--plan FILE]`:
+  - runs the compiled plan headless on every seed in parallel;
+  - aggregates per-action and total tick statistics: mean, median, stdev, min, max and the failure count;
+  - writes `out/measure/<ts>/summary.json` and prints a table.
+- `speedrun.costing`:
+  - turns a cost table into a timed copy of the domain and problem;
+  - each 0-ary action gets `(increase (total-cost) <ticks>)`;
+  - `walk` gets `(increase (total-cost) (walk-cost ?from ?to))`, with one `(= (walk-cost a b) <ticks>)` fact per link in the problem's `:init`;
+  - citations are preserved;
+  - the files are written to `out/plans/<segment>-timed/`.
+
+### Task 8.4: Optimiser (Python, TDD)
+
+`speedrun optimize <segment> [--seeds 30] [--candidates 20] [--jobs N]`:
+
+1. **Optimistic measurement loop.** Measured actions carry their mean ticks; unmeasured actions carry a lower bound of 1 tick. Plan, measure the plan on the seed set, fold the results into the cost table, and repeat. Stop when the optimal plan contains only measured actions and is unchanged. With admissible lower bounds, this proves the plan optimal for the mean-cost model.
+2. **Candidate generation.** Re-plan with K cost vectors sampled from each action's measured distribution (Thompson sampling, with a fixed sampler seed), plus the unit-cost plan and the mean-cost plan. Collect the distinct plans.
+3. **Evaluation.** Measure every candidate on the same N seeds and pick the lowest mean total ticks. Report a paired comparison against the runner-up (the same seeds), including the mean difference and its standard error.
+4. **Output.**
+   - `out/plans/<segment>.time.sas_plan` and `.jsonl` (the chosen plan);
+   - `pddl/<segment>/measured-costs.json` (committed: the cost table with sample counts, as derived data);
+   - `docs/optimization.md` (committed: method, iterations, candidates, per-seed statistics, chosen plan).
+5. `speedrun run`/`demo` use the time-optimal plan when it exists and is fresh, and print which objective they use. `--objective actions|time` overrides this.
+
+### Task 8.5: Replay debugging with skips
+
+Run the time-optimal plan on all seeds. Debug any failure that skips introduce, using the stall and error records, and fix it in the model or `steps.toml` with citations, or with a cited `no_skip`.
+
+### Task 8.6: Reports and final demo
+
+- Update `docs/comparison.md` with the time-optimal route and its mean ticks.
+- Run the final visible demo of the time-optimal plan, with seed 1 and identical headless parity.
+- Run the full suite.
+
+**Acceptance:**
+- `speedrun optimize part1` finishes, and `docs/optimization.md` shows the chosen plan's mean ticks over 30 seeds with no failures.
+- `speedrun demo part1` plays that plan with skips, and its ticks equal the headless run.
+- Every new test passes.
+
+---
+
 ## Phase 7 — Stretch: automated extraction (only after 0–6 pass)
 
 - [ ] **Task 7.1:** Extraction subagents, one per chain, read `data/scripts` and emit PDDL action fragments into `out/extract/part1/*.pddl`. Every action needs `; src:` citations.

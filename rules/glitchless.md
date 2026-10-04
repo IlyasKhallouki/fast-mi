@@ -23,6 +23,15 @@ dialogue choice.
    param is identical (on every variable the planning model reads) to one
    taken after a natural boot that reaches the same point. A boot param that
    changes game state is a debug jump and is banned for measured runs.
+5. **Text skip and cutscene skip.** The `.` key (`VAR_TALKSTOP_KEY`) ends the
+   current line, and Esc (`VAR_CUTSCENEEXIT_KEY`) jumps a cutscene to the
+   override point its script defines. They go through the engine's own key
+   handling, exactly as a player's key press, with no coordinates. The bot
+   presses them on the first frame they have an effect, and only after the
+   segment start. A cutscene whose override would break the route is played
+   through, marked `no_skip` with a citation.
+6. **Maximum talk speed.** This is a player setting, like the original game's
+   text-speed keys.
 
 ## Banned
 
@@ -30,7 +39,11 @@ dialogue choice.
    debugger console, editing variables, and boot params that change game
    state (see rule 4 above).
 2. **Engine glitches**, e.g. walking through walls, walkbox exploits, clipping,
-   memory corruption, and timing exploits that depend on engine bugs.
+   memory corruption, and timing exploits that depend on engine bugs. This
+   includes the **logo speed glitch**: Esc at the first sparkle of the Lucasfilm
+   logo makes walking and animation faster for the whole run
+   (`docs/human-route.md` §2.3). Skips are never injected before the segment
+   start, so the bot cannot trigger it.
 3. **Save/load abuse.** Saving and loading are never used inside a run.
 4. **Pixel-level input.** The player never simulates mouse coordinates.
    Every action is a sentence (verb, object, optional second object) pushed
@@ -77,7 +90,7 @@ Every run, headless or demo, uses the same ScummVM settings. `src/speedrun/engin
 | Setting | Value | Why |
 |---|---|---|
 | `enhancements` | `0` | Runtime behaviour must match the original scripts the model is derived from. |
-| `talkspeed` | `60` | ScummVM's default text speed. It is not tuned for speed in v1. |
+| `talkspeed` | maximum | A player setting (the original game has text-speed keys). The value is set in `src/speedrun/engine.py` after checking the engine's range. |
 | `subtitles` | `true` | |
 | `original_gui` | `false` | |
 | `copy_protection` | `false` | |
@@ -87,6 +100,10 @@ Every run, headless or demo, uses the same ScummVM settings. `src/speedrun/engin
 
 A boot param never qualifies under rule 4 for MI1. Any non-zero boot param switches ScummVM into debug mode (var 39), and the boot script's debug starts set trial flags directly. Every measured run starts from a natural boot.
 
+## Route selection
+
+Routes are chosen by **mean ticks over many seeds** (default 30), never by the outcome of one known seed. Picking a route because a fixed seed's random draws happen to favour it is RNG manipulation, which is a TAS technique, and it is out of scope.
+
 ## Timing
 
 A run is timed in engine ticks, from the first frame at which the segment
@@ -95,5 +112,4 @@ Wall-clock time is never used.
 
 ## Out of scope for v1 (not banned, just not modelled yet)
 
-- Text skipping (`.`) and cutscene skipping (Esc).
 - Swordfighting and insult duels.
