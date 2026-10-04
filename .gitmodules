@@ -1,0 +1,13 @@
+[submodule "third_party/scummvm"]
+	path = third_party/scummvm
+	url = https://github.com/scummvm/scummvm.git
+	shallow = true
+	ignore = dirty
+[submodule "third_party/scummvm-tools"]
+	path = third_party/scummvm-tools
+	url = https://github.com/scummvm/scummvm-tools.git
+	shallow = true
+[submodule "third_party/downward"]
+	path = third_party/downward
+	url = https://github.com/aibasel/downward.git
+	shallow = true
