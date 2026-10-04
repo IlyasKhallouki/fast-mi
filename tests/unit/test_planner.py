@@ -23,6 +23,7 @@ from speedrun.planner import (
     Unsolvable,
     fd_available,
     parse_plan,
+    plan_is_complete,
     run_planner,
 )
 
@@ -230,11 +231,39 @@ def test_stale_plan_file_is_not_returned(fake_fd, tmp_path, monkeypatch):
     assert not plan_file.exists()
 
 
-def test_plan_without_cost_trailer_is_incomplete(fake_fd, tmp_path, monkeypatch):
-    monkeypatch.setenv("FAKE_FD_PLAN", "(walk a b)\n(walk b c)\n")
+@pytest.mark.parametrize(
+    ("plan", "rc", "match"),
+    [
+        ("(walk a b)\n(walk b c)\n", 0, "trailer"),  # incomplete: no cost trailer
+        ("(walk a b\n; cost = 1 (unit cost)\n", 0, "malformed"),
+        ("(walk a b)\n; cost = 1 (unit cost)\n", 12, "exit 12"),  # a plan, but FD reports failure
+    ],
+)
+def test_rejected_plan_file_is_removed(fake_fd, tmp_path, monkeypatch, plan, rc, match):
+    # A plan file run_planner rejects must not survive, or `compile` would reuse it as up to date.
+    monkeypatch.setenv("FAKE_FD_PLAN", plan)
+    monkeypatch.setenv("FAKE_FD_RC", str(rc))
     domain, problem = _write_task(tmp_path)
-    with pytest.raises(PlannerCrashed, match="trailer"):
-        run_planner(domain, problem, tmp_path / "seg.plan")
+    plan_file = tmp_path / "seg.plan"
+    with pytest.raises(PlannerCrashed, match=match):
+        run_planner(domain, problem, plan_file)
+    assert not plan_file.exists()
+
+
+@pytest.mark.parametrize(
+    ("text", "complete"),
+    [
+        ("(a)\n; cost = 1 (unit cost)\n", True),
+        ("(a)\n; cost = 7 (general cost)\n\n  \n", True),
+        ("; cost = 0 (unit cost)\n", True),
+        ("(a)\n(b)\n", False),
+        ("; cost = 1 (unit cost)\n(a)\n", False),  # the trailer must come last
+        ("(a)\n; cost = 1\n", False),
+        ("", False),
+    ],
+)
+def test_plan_is_complete(text, complete):
+    assert plan_is_complete(text) is complete
 
 
 def _alive(pid: int) -> bool:
@@ -256,6 +285,7 @@ def _wait_for(path: Path, deadline_s: float = 30.0) -> None:
 def test_whole_process_group_is_killed(fake_fd, tmp_path, monkeypatch, how):
     pidfile = tmp_path / "grandchild.pid"
     monkeypatch.setenv("FAKE_FD_GRANDCHILD", str(pidfile))
+    monkeypatch.setenv("FAKE_FD_PLAN", "(walk a b)\n")  # a partial plan, written before the hang
     domain, problem = _write_task(tmp_path)
     plan_file = tmp_path / "seg.plan"
 
@@ -287,6 +317,7 @@ def test_whole_process_group_is_killed(fake_fd, tmp_path, monkeypatch, how):
     while _alive(grandchild) and time.monotonic() < end:
         time.sleep(0.05)
     assert not _alive(grandchild), "the planner's grandchild survived: process group not killed"
+    assert not plan_file.exists(), "the partial plan file was left behind"
 
 
 def test_fd_available_reflects_build(tmp_path, monkeypatch):

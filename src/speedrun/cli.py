@@ -3,8 +3,9 @@
 The pipeline is ``dump-objects`` -> ``plan`` -> ``compile`` -> ``run``/``demo``.
 Each later command brings its inputs up to date first: ``compile`` dumps the
 objects if ``out/objects.json`` is missing and re-plans if the ``.sas_plan`` is
-older than the model, and ``run``/``demo`` recompile if the ``.jsonl`` is older
-than any of its inputs.
+older than the model or incomplete, and ``run``/``demo`` recompile if the
+``.jsonl`` is older than any of its inputs. An output whose inputs were edited
+while it was being built is back-dated, so the next command rebuilds it.
 
 Every handler reads ``paths.*`` at call time, and calls ``run_engine`` and
 ``run_planner`` through this module's globals, so tests can monkeypatch both
@@ -12,11 +13,15 @@ the directories and the ScummVM/Fast Downward boundaries.
 """
 
 import argparse
+import contextlib
 import dataclasses
 import itertools
 import json
+import os
 import shutil
+import signal
 import sys
+import threading
 from collections.abc import Iterable
 from datetime import UTC, datetime
 from pathlib import Path
@@ -24,7 +29,7 @@ from pathlib import Path
 from speedrun import gamedata, paths
 from speedrun.compiler import CompileError, ObjectIndex, compile_plan, load_steps, write_jsonl
 from speedrun.engine import EngineConfig, EngineResult, run_engine
-from speedrun.planner import Plan, PlannerError, parse_plan, run_planner
+from speedrun.planner import Plan, PlannerError, parse_plan, plan_is_complete, run_planner
 from speedrun.segments import Segment, SegmentError, load_segment
 from speedrun.stats import plan_stats
 from speedrun.trace import Trace, TraceError, format_error, format_table, load_trace, summary
@@ -194,7 +199,67 @@ def _stale(target: Path, inputs: Iterable[Path]) -> bool:
     return any(not p.is_file() or p.stat().st_mtime_ns > built for p in inputs)
 
 
+def _mtime(path: Path) -> int | None:
+    try:
+        return path.stat().st_mtime_ns
+    except FileNotFoundError:
+        return None
+
+
+def _newest(paths: Iterable[Path]) -> int:
+    """The newest mtime (ns) among ``paths`` that exist; 0 if none do."""
+    return max((t for t in map(_mtime, paths) if t is not None), default=0)
+
+
+def _outdate_if_edited(output: Path, inputs: Iterable[Path], before: int) -> None:
+    """Back-date ``output`` if an input changed while it was being built.
+
+    ``before`` is the newest input mtime, recorded before the build read its
+    inputs. An input edited during the build is newer than ``before`` but older
+    than the output just written, so ``_stale`` would take the output as up to
+    date. Setting the output's mtime to ``before`` puts it behind the edit, so
+    the next command rebuilds it.
+    """
+    changed = [p for p in inputs if (t := _mtime(p)) is None or t > before]
+    if not changed:
+        return
+    _warn(
+        f"{', '.join(p.name for p in changed)} changed while {output.name} was being built.",
+        f"{output} may predate that edit, so it is marked out of date and will be rebuilt next time.",
+    )
+    os.utime(output, ns=(output.stat().st_atime_ns, before))
+
+
 # --- dump-objects ------------------------------------------------------------
+
+
+class _BadDump(Exception):
+    """An engine object dump that must not replace ``OUT_DIR/objects.json``."""
+
+
+def _check_dump(path: Path) -> tuple[int, int]:
+    """Validate an engine object dump (C6) and return its (rooms, verbs) counts.
+
+    Raises ``_BadDump`` naming the problem. ``dump_objects`` checks the run
+    dir's dump with this before it replaces ``OUT_DIR/objects.json``, so a bad
+    dump never clobbers a good one.
+    """
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as e:
+        raise _BadDump(f"cannot read it as JSON: {e}") from e
+    if not isinstance(data, dict):
+        raise _BadDump(f"expected a JSON object, got {type(data).__name__}")
+    rooms, verbs = data.get("rooms"), data.get("verbs")
+    if not isinstance(rooms, list) or not rooms:
+        raise _BadDump(f"'rooms' must be a non-empty list, got {rooms!r:.60}")
+    if not isinstance(verbs, list):
+        raise _BadDump(f"'verbs' must be a list, got {verbs!r:.60}")
+    try:
+        ObjectIndex.from_dict(data)  # what `compile` will need from it
+    except CompileError as e:
+        raise _BadDump(str(e)) from e
+    return len(rooms), len(verbs)
 
 
 def dump_objects(max_ticks: int | None = None) -> Path:
@@ -221,17 +286,19 @@ def dump_objects(max_ticks: int | None = None) -> Path:
         raise CommandError("\n".join(lines))
 
     dest = _objects_path()
+    try:
+        rooms, verbs = _check_dump(dumped)
+    except _BadDump as e:
+        raise CommandError(
+            f"{dumped} is not a valid object dump: {e}\n"
+            f"{dest} was left unchanged\nrun dir: {run_dir}\nengine log: {run_dir / 'stdout.log'}"
+        ) from e
     dest.parent.mkdir(parents=True, exist_ok=True)
     # copyfile (not copy2) so the copy is newer than any jsonl compiled from an older dump;
     # write-then-rename so a reader never sees half a file.
     tmp = dest.with_name(dest.name + ".tmp")
     shutil.copyfile(dumped, tmp)
     tmp.replace(dest)
-    try:
-        data = json.loads(dest.read_text(encoding="utf-8"))
-        rooms, verbs = len(data["rooms"]), len(data["verbs"])
-    except (ValueError, KeyError, TypeError) as e:
-        raise CommandError(f"{dest} is not a valid object dump: {e!r}") from e
     print(f"wrote {dest}: {rooms} rooms, {verbs} verbs")
     return dest
 
@@ -259,11 +326,14 @@ def plan_segment(name: str, seg: Segment) -> Plan:
         if not path.is_file():
             raise CommandError(f"segment {name!r}: {path} not found")
     plan_file = _sas_plan_path(name)
+    inputs = _plan_inputs(seg)
+    before = _newest(inputs)
     print(f"planning {name} with Fast Downward ...")
     try:
         plan = run_planner(seg.domain, seg.problem, plan_file)
     except PlannerError as e:
         raise CommandError(f"{e}\nplanner log: {e.log_path}") from e
+    _outdate_if_edited(plan_file, inputs, before)
     _print_plan(plan, plan_file)
     return plan
 
@@ -281,8 +351,15 @@ def _current_plan(name: str, seg: Segment, replan: bool) -> Plan:
     if replan or _stale(plan_file, _plan_inputs(seg)):
         return plan_segment(name, seg)
     try:
-        plan = parse_plan(plan_file.read_text(encoding="utf-8"))
+        text = plan_file.read_text(encoding="utf-8")
     except (OSError, ValueError) as e:
+        raise CommandError(f"cannot read plan {plan_file}: {e}; re-plan with `speedrun plan {name}`") from e
+    if not plan_is_complete(text):
+        print(f"plan {plan_file} is incomplete (no '; cost = N' trailer): re-planning")
+        return plan_segment(name, seg)
+    try:
+        plan = parse_plan(text)
+    except ValueError as e:
         raise CommandError(f"cannot read plan {plan_file}: {e}; re-plan with `speedrun plan {name}`") from e
     print(f"plan {plan_file} is up to date ({len(plan.actions)} actions, cost {plan.cost})")
     return plan
@@ -290,21 +367,33 @@ def _current_plan(name: str, seg: Segment, replan: bool) -> Plan:
 
 def compile_segment(name: str, seg: Segment, replan: bool = False) -> Path:
     """Bring objects.json and the plan up to date, then write ``PLANS_DIR/<name>.jsonl``."""
-    objects_path = _objects_path()
+    objects_path, plan_file = _objects_path(), _sas_plan_path(name)
+    sources = [*_plan_inputs(seg), seg.steps]
+    # Recorded before planning, so an edit made while Fast Downward runs still counts.
+    sources_before = _newest(sources)
     if not objects_path.is_file():
         print(f"{objects_path} is missing: dumping objects first")
         dump_objects()
     plan = _current_plan(name, seg, replan)
     if not seg.steps.is_file():
         raise CommandError(f"segment {name!r}: {seg.steps} not found")
+    # The dump and the plan may have just been written by this build; from here on they must not change.
+    before = max(sources_before, _newest([objects_path, plan_file]))
     try:
-        steps = compile_plan(plan, load_steps(seg.steps), ObjectIndex.from_dump(objects_path))
+        templates = load_steps(seg.steps)
+    except CompileError as e:  # names the steps file
+        raise CommandError(f"cannot load steps: {e}") from e
+    try:
+        objects = ObjectIndex.from_dump(objects_path)
+    except (OSError, ValueError, CompileError) as e:  # unreadable, not JSON, or not an object dump
+        raise CommandError(f"cannot read {objects_path}: {e}; re-dump with `speedrun dump-objects`") from e
+    try:
+        steps = compile_plan(plan, templates, objects)
     except CompileError as e:
         raise CommandError(f"compile failed: {e}") from e
-    except (OSError, ValueError) as e:  # objects.json unreadable or not JSON
-        raise CommandError(f"cannot read {objects_path}: {e}") from e
     out = _jsonl_path(name)
     write_jsonl(steps, out)
+    _outdate_if_edited(out, [*sources, objects_path, plan_file], before)
     print(f"wrote {out}: {len(steps)} steps")
     return out
 
@@ -374,7 +463,8 @@ def _print_randomized_vars(seg: Segment, run_dir: Path) -> None:
 def run_segment(name: str, mode: str, args: argparse.Namespace) -> int:
     """Shared by ``run`` (headless, fast) and ``demo`` (windowed, real time)."""
     seg = _segment(name)
-    boot_param = args.boot_param
+    # ScummVM treats boot param 0 as "no boot param": not passed, not a debug start, a measured run.
+    boot_param = args.boot_param or None
     if boot_param is not None:
         _boot_param_warning(boot_param)
     jsonl = _ensure_compiled(name, seg, args.replan)
@@ -479,17 +569,56 @@ COMMANDS = {
 }
 
 
+_EXIT_SIGNALS = tuple(getattr(signal, name) for name in ("SIGTERM", "SIGHUP") if hasattr(signal, name))
+
+
+def _exit_on_signal(signum: int, frame) -> None:
+    # One shot: a second signal (e.g. SIGHUP, then SIGTERM) must not cut the cleanup short.
+    for sig in _EXIT_SIGNALS:
+        signal.signal(sig, signal.SIG_IGN)
+    sys.exit(128 + signum)
+
+
+@contextlib.contextmanager
+def _signals_exit():
+    """Turn SIGTERM and SIGHUP into ``SystemExit(128 + signum)`` for the duration.
+
+    By default those signals kill the process outright, skipping the cleanup in
+    ``run_planner`` and ``run_engine`` (``except BaseException``): Fast Downward
+    runs in its own session, so its process group would be orphaned, and
+    ScummVM would keep running. As an exception, the cleanup runs. A signal that
+    is already ignored (SIGHUP under nohup) stays ignored. The previous handlers
+    are restored on exit.
+    """
+    if threading.current_thread() is not threading.main_thread():
+        yield  # only the main thread may set handlers
+        return
+    previous = {}
+    for sig in _EXIT_SIGNALS:
+        handler = signal.getsignal(sig)
+        if handler != signal.SIG_IGN:
+            previous[sig] = handler
+            signal.signal(sig, _exit_on_signal)
+    try:
+        yield
+    finally:
+        for sig, handler in previous.items():
+            # None: a handler not installed from Python; the default is the best approximation.
+            signal.signal(sig, signal.SIG_DFL if handler is None else handler)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     if args.command is None:
         parser.print_help()
         return 2
-    try:
-        return COMMANDS[args.command](args)
-    except CommandError as e:
-        print(f"speedrun {args.command}: {e}", file=sys.stderr)
-        return 1
+    with _signals_exit():
+        try:
+            return COMMANDS[args.command](args)
+        except CommandError as e:
+            print(f"speedrun {args.command}: {e}", file=sys.stderr)
+            return 1
 
 
 if __name__ == "__main__":

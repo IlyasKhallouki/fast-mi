@@ -3,7 +3,7 @@
 The fixtures under ``tests/fixtures/traces`` are synthetic and invented: room,
 object and step names match the toy segment, and no text comes from the game.
 They are ASCII JSON, like the bridge's output: bytes >= 0x80 are ``\\u00XX``
-escapes that must be decoded as Mac Roman.
+escapes of the game's cp437-like charset, decoded by ``speedrun.text``.
 """
 
 import json
@@ -144,20 +144,20 @@ def test_missing_end_record_is_reported_not_raised(tmp_path):
     assert "no end record" in first
 
 
-# --- Mac Roman decoding ------------------------------------------------------
+# --- game text decoding -----------------------------------------------------
 
 
-def test_choice_text_is_decoded_as_mac_roman():
+def test_choice_text_is_decoded_as_game_charset():
     t = _load("with-choice-highbytes.jsonl")
-    # 0xD5 is U+2019 RIGHT SINGLE QUOTATION MARK in Mac Roman ("Õ" in Latin-1).
-    assert t.steps[0].choices == ["I’d like the ledger", "yes"]
+    # cp437 layout: 0x88 is "ê" and 0x82 is "é" (Mac Roman would give "à" and "Ç").
+    assert t.steps[0].choices == ["a crêpe and a café", "yes"]
 
 
-def test_error_message_is_decoded_as_mac_roman():
+def test_error_message_is_decoded_as_game_charset():
     t = _load("with-choice-highbytes.jsonl")
-    # 0xD2/0xD3 are Mac Roman curly double quotes.
-    assert t.errors[0]["message"] == "no visible choice matches “goodbye”"
-    assert "“goodbye”" in summary(t)
+    # 0x0F is the game's trademark sign.
+    assert t.errors[0]["message"] == "no visible choice matches 'goodbye' (menu: Widget™, café au lait)"
+    assert "Widget™, café au lait" in summary(t)
 
 
 def test_decoding_falls_back_to_raw_text(tmp_path):
@@ -363,3 +363,21 @@ def test_format_table_no_steps():
 
 def test_summary_total():
     assert summary(_load("ok.jsonl")).splitlines()[0] == "TOTAL: 1360 ticks (0:22.67 at 60 Hz)"
+
+
+def test_summary_goal_without_segment_start(tmp_path):
+    records = [
+        BOOT,
+        {"type": "step_start", "step": 0, "tick": 100, "frame": 1, "action": "take-widget", "room": 1},
+        {"type": "step_end", "step": 0, "tick": 160, "frame": 5, "room": 1, "changes": {}},
+        {"type": "goal", "tick": 170, "frame": 6, "ticks_from_start": 170},
+        {"type": "error", "tick": 171, "frame": 6, "code": "engine_error", "message": "late error"},
+        {"type": "end", "tick": 200, "frame": 9, "reason": "goal"},
+    ]
+    t = load_trace(_write(tmp_path, records))
+    assert t.reached_goal is True
+    assert t.total_ticks is None
+    assert summary(t).splitlines() == [
+        "TOTAL: unknown (goal reached, but the trace has no segment_start record)",
+        "  error engine_error at tick 171: late error",
+    ]

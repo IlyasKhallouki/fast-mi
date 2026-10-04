@@ -618,7 +618,7 @@ coordinates are involved.
   - So after conversion, strip both `FF xx` and `FE xx`: 2 bytes for codes
     1/2/3/8 and other unknown codes, 4 bytes for 9/10/12/13/14
     (`string.cpp:1488-1517`).
-- Treat bytes ≥ 0x80 as Mac Roman for logging. Mac MI1 uses SCUMM charsets
+- Treat bytes ≥ 0x80 as Mac Roman for logging. [Superseded: MI1 text follows a DOS cp437-like layout; see `docs/plan.md` C5.] Mac MI1 uses SCUMM charsets
   from the data files, and its non-ASCII glyph mapping is not verified here.
 - Match the plan's choice against the **visible** set only (rule 3), and
   record the matched `verbid` and text in the trace.

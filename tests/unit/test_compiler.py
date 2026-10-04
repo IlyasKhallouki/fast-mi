@@ -330,6 +330,25 @@ def test_choose_and_until_pass_through(index):
     _assert_c4(out[0])
 
 
+@pytest.mark.parametrize("choice", ["M\u00eal\u00e9e", "M\u0088l\u0082e", "caf\u00e9", "Grog\u2122"])
+def test_non_ascii_choose_is_rejected(index, choice):
+    # The bridge matches choose substrings against the game's raw text bytes,
+    # which are not Unicode (docs/plan.md C5): only ASCII can match reliably.
+    with pytest.raises(TemplateError, match="ASCII substring") as excinfo:
+        _compile_one(index, {"verb": "talk_to", "obj": {"room": 102, "name": "clerk"}, "choose": ["ledger", choice]})
+    assert repr(choice) in str(excinfo.value)
+    assert "do-thing" in str(excinfo.value)
+
+
+def test_object_names_are_compared_raw():
+    # Names stay Latin-1 code points, one per game byte, exactly as the dump has them.
+    dump = {"rooms": [{"room": 30, "objects": [{"id": 441, "name": "Citizen of M\u0088l\u0082e"}]}], "verbs": []}
+    index = ObjectIndex.from_dict(dump)
+    assert index.resolve_object({"room": 30, "name": "citizen of m\u0088l\u0082e"}) == 441
+    with pytest.raises(UnresolvedObject):
+        index.resolve_object({"room": 30, "name": "Citizen of M\u00eal\u00e9e"})
+
+
 def test_invalid_until_is_template_error(index):
     with pytest.raises(TemplateError, match="do-thing") as excinfo:
         _compile_one(index, {"choose": ["x"], "until": [{"var": 250}]})
@@ -523,11 +542,45 @@ def test_write_jsonl_empty(tmp_path):
     assert path.read_text() == ""
 
 
+def test_write_jsonl_failure_keeps_the_previous_file(tmp_path):
+    path = tmp_path / "plan.jsonl"
+    path.write_text('{"action":"previous"}\n')
+    with pytest.raises(TypeError):
+        write_jsonl([{"action": "a"}, {"action": object()}], path)  # the second step is not JSON
+    assert path.read_text() == '{"action":"previous"}\n'
+    assert [p.name for p in tmp_path.iterdir()] == ["plan.jsonl"]
+
+
+def test_write_jsonl_replaces_the_previous_file(tmp_path):
+    path = tmp_path / "plan.jsonl"
+    path.write_text("old\n")
+    write_jsonl([{"action": "a"}], path)
+    assert path.read_text() == '{"action":"a"}\n'
+    assert [p.name for p in tmp_path.iterdir()] == ["plan.jsonl"]
+
+
+def _steps_error(path: Path) -> str:
+    with pytest.raises(TemplateError) as excinfo:
+        load_steps(path)
+    message = str(excinfo.value)
+    assert message.startswith(f"{path}: "), message
+    return message
+
+
 def test_load_steps_rejects_malformed_toml(tmp_path):
     bad = tmp_path / "steps.toml"
     bad.write_text("[actions\n")
-    with pytest.raises(TemplateError):
-        load_steps(bad)
+    _steps_error(bad)
+
+
+def test_load_steps_rejects_non_utf8(tmp_path):
+    bad = tmp_path / "steps.toml"
+    bad.write_bytes(b'[verbs]\nwalk_to = "Walk \xe0"\n')  # Latin-1, not UTF-8
+    assert "utf-8" in _steps_error(bad)
+
+
+def test_load_steps_missing_file(tmp_path):
+    assert "No such file" in _steps_error(tmp_path / "steps.toml")
 
 
 def test_toy_end_to_end(index, tmp_path):

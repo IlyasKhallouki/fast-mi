@@ -12,13 +12,15 @@ segment start's ``tick0``; steps the plan player ran before the segment
 started (e.g. answering an opening dialogue) get negative relative ticks.
 
 The bridge writes ASCII JSON in which every game-text byte >= 0x80 is a
-``\\u00XX`` escape of that byte. Mac MI1 text is Mac Roman, so text fields are
-re-encoded to bytes as Latin-1 and decoded as Mac Roman (C5).
+``\\u00XX`` escape of that byte. Choice texts and error messages are decoded
+with the shared game-text decoder, ``speedrun.text.decode_game_text`` (C5).
 """
 
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
+
+from speedrun.text import decode_game_text
 
 TICKS_PER_SECOND = 60
 
@@ -34,20 +36,6 @@ CHANGES_LEGEND = (
 
 class TraceError(Exception):
     """The trace file is missing, empty or truncated, or a line is not a C5 record."""
-
-
-def decode_text(value: object) -> object:
-    """Undo the bridge's Latin-1 byte escaping and decode the bytes as Mac Roman.
-
-    Anything that cannot have come from the bridge (a non-string, or a code
-    point above 0xFF) is returned unchanged rather than raising.
-    """
-    if not isinstance(value, str):
-        return value
-    try:
-        return value.encode("latin-1").decode("mac_roman")
-    except (UnicodeEncodeError, UnicodeDecodeError):
-        return value
 
 
 @dataclass
@@ -152,7 +140,7 @@ def load_trace(path: Path) -> Trace:
         elif kind == "end":
             trace.end = r
         elif kind == "error":
-            trace.errors.append({**r, "message": decode_text(r.get("message"))})
+            trace.errors.append({**r, "message": decode_game_text(r.get("message"))})
         elif kind == "stall":
             trace.stalls.append(r)
         # Anything else is a record type this reader does not know: ignore it.
@@ -178,7 +166,7 @@ def _apply_step_record(s: StepRecord, kind: str, r: dict) -> None:
             room = pair[1] if isinstance(pair, list) and len(pair) == 2 else None
         s.room_end = room
     elif kind == "choice":
-        s.choices.append(decode_text(r.get("text")))
+        s.choices.append(decode_game_text(r.get("text")))
     else:  # click
         s.clicks.append(r.get("verb_id"))
 

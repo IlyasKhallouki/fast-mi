@@ -112,7 +112,7 @@ def detect_layout(game_dir: Path) -> Detection:
         (Layout.SE_PAK, paks),
     ):
         if found:
-            return Detection(layout, sorted(found)[0])
+            return Detection(layout, min(found))
     return Detection(Layout.NONE, None)
 
 

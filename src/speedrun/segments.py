@@ -93,7 +93,7 @@ def load_segment(name: str, base: Path = paths.PDDL_DIR) -> Segment:
     try:
         with toml_path.open("rb") as f:
             data = tomllib.load(f)
-    except tomllib.TOMLDecodeError as e:
+    except (tomllib.TOMLDecodeError, UnicodeDecodeError, OSError) as e:
         raise SegmentError(f"{toml_path}: {e}") from e
 
     start = _conditions(data, "start", toml_path)

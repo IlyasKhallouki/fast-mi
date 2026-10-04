@@ -62,6 +62,15 @@ def parse_plan(text: str) -> Plan:
     return Plan(actions=actions, cost=len(actions) if cost is None else cost)
 
 
+def plan_is_complete(text: str) -> bool:
+    """True if the last non-blank line is FD's ``; cost = N (...)`` trailer, which it writes last.
+
+    A plan file without it was cut short (the driver treats it as incomplete too).
+    """
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    return bool(lines) and _TRAILER_RE.match(lines[-1]) is not None
+
+
 class PlannerError(Exception):
     """Fast Downward did not produce a plan.
 
@@ -113,8 +122,10 @@ _EXIT_CODES: dict[int, tuple[type[PlannerError], str]] = {
     33: (PlannerInputError, "SEARCH_INPUT_ERROR: bad search options or SAS file, or plan file not writable"),
     34: (
         PlannerInputError,
-        "SEARCH_UNSUPPORTED: the search configuration does not support a feature of the task "
-        "(lmcut: conditional effects or axioms)",
+        (
+            "SEARCH_UNSUPPORTED: the search configuration does not support a feature of the task "
+            "(lmcut: conditional effects or axioms)"
+        ),
     ),
     35: (PlannerCrashed, "DRIVER_CRITICAL_ERROR"),
     36: (PlannerInputError, "DRIVER_INPUT_ERROR: bad driver arguments, missing input files or build"),
@@ -182,10 +193,10 @@ def run_planner(
     own session, so the whole process group can be killed on a wall-clock
     time-out or an interrupt. Its combined output goes to
     ``plan_file.with_suffix(".log")``. Any failure raises a ``PlannerError``
-    subclass carrying the exit code and that log path.
+    subclass carrying the exit code and that log path, and on any failure or
+    interrupt ``plan_file`` is removed: it exists only if it holds the returned plan.
     """
     domain, problem, plan_file = (Path(p).resolve() for p in (domain, problem, plan_file))
-    log_path = plan_file.with_suffix(".log")
     plan_file.parent.mkdir(parents=True, exist_ok=True)
     plan_file.unlink(missing_ok=True)  # FD only clears it once the driver gets going
 
@@ -198,6 +209,18 @@ def run_planner(
         str(domain), str(problem),
         "--search", search,
     ]  # fmt: skip
+    try:
+        return _drive(cmd, plan_file, time_limit_s)
+    except BaseException:
+        # Whatever FD left there (a partial plan, or one it reported as failed) is not a
+        # plan: a later `compile` must not mistake it for an up-to-date one.
+        plan_file.unlink(missing_ok=True)
+        raise
+
+
+def _drive(cmd: list[str], plan_file: Path, time_limit_s: int) -> Plan:
+    """Run the driver command line ``cmd`` and return the plan it wrote to ``plan_file``."""
+    log_path = plan_file.with_suffix(".log")
     env = dict(os.environ, PYTHONDONTWRITEBYTECODE="1")  # no __pycache__ inside the submodule
     wall_timeout = _wall_timeout(time_limit_s)
 
@@ -247,9 +270,11 @@ def run_planner(
 
     if not plan_file.is_file():
         raise crashed(f"no plan file was written at {plan_file}")
-    text = plan_file.read_text(encoding="utf-8")
-    lines = [line.strip() for line in text.splitlines() if line.strip()]
-    if not lines or not _TRAILER_RE.match(lines[-1]):
+    try:
+        text = plan_file.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as e:
+        raise crashed(f"plan file {plan_file} cannot be read: {e}") from e
+    if not plan_is_complete(text):
         raise crashed(f"plan file {plan_file} lacks the final '; cost = N (...)' trailer (incomplete plan)")
     try:
         return parse_plan(text)

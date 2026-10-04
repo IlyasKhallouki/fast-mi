@@ -7,10 +7,15 @@ write (``trace.jsonl``, ``objects.json``, ``state-start.json``, the
 segment is a tmp copy of the synthetic toy segment, never the real ``pddl/part1``.
 """
 
+import contextlib
 import dataclasses
 import json
 import os
 import shutil
+import signal
+import subprocess
+import sys
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -39,6 +44,16 @@ BOOT = {"type": "boot", "tick": 0, "frame": 0, "bridge": "speedrun-bridge v1", "
 
 def _touch(path: Path, t: int) -> None:
     os.utime(path, ns=(t, t))
+
+
+def _edit(path: Path, mtime: int) -> None:
+    """Edit ``path`` with an explicit mtime (newer than every input), whatever the clock's granularity."""
+    comment = "#" if path.suffix == ".toml" else ";"  # TOML or PDDL
+    path.write_text(path.read_text() + f"\n{comment} edited\n")
+    _touch(path, mtime)
+
+
+EDITED = T0 + 5 * 10**9  # inputs start at T0
 
 
 def _write_records(path: Path, records: list[dict]) -> None:
@@ -83,7 +98,11 @@ class FakeEngine:
         self.trace: str | Path | None = "ok.jsonl"  # fixture name or path; None = write no trace
         self.state_vars: list[int] | None = [0] * 800
         self.state_vars[RANDOM_VAR] = RANDOM_VALUE
-        self.dump_ok = True
+        # Dump mode: "ok"; "error" (an error record, end reason error, no objects.json);
+        # "max_ticks" (objects.json written, but the end reason is max_ticks);
+        # "no-file" (end reason dump_done, but no objects.json).
+        self.dump = "ok"
+        self.dump_text: str | None = None  # objects.json content to write instead of the fixture
         self.timed_out = False
         self.raises: Exception | None = None
 
@@ -94,15 +113,20 @@ class FakeEngine:
         out = Path(cfg.out_dir)
         out.mkdir(parents=True, exist_ok=True)
         if cfg.dump_objects:
-            if self.dump_ok:
-                shutil.copyfile(FIXTURES / "objects.json", out / "objects.json")
-                _touch(out / "objects.json", T0)  # older than everything, like a dump from long ago
-                end = {"type": "end", "tick": 5, "frame": 2, "reason": "dump_done"}
-                _write_records(out / "trace.jsonl", [BOOT, end])
-            else:
+            if self.dump == "error":
                 err = {"type": "error", "tick": 3, "frame": 1, "code": "engine_error", "message": "room 0 exploded"}
                 end = {"type": "end", "tick": 3, "frame": 1, "reason": "error"}
                 _write_records(out / "trace.jsonl", [BOOT, err, end])
+            else:
+                if self.dump != "no-file":
+                    if self.dump_text is None:
+                        shutil.copyfile(FIXTURES / "objects.json", out / "objects.json")
+                    else:
+                        (out / "objects.json").write_text(self.dump_text, encoding="utf-8")
+                    _touch(out / "objects.json", T0)  # older than everything, like a dump from long ago
+                reason = "max_ticks" if self.dump == "max_ticks" else "dump_done"
+                end = {"type": "end", "tick": 5, "frame": 2, "reason": reason}
+                _write_records(out / "trace.jsonl", [BOOT, end])
         else:
             if self.trace is not None:
                 shutil.copyfile(TRACES / self.trace, out / "trace.jsonl")
@@ -128,9 +152,12 @@ class FakePlanner:
         self.calls = []
         self.actions = list(TOY_ACTIONS)
         self.error: Exception | None = None
+        self.during = None  # called mid-search, before the plan file is written
 
     def __call__(self, domain, problem, plan_file, **kwargs):
         self.calls.append((Path(domain), Path(problem), Path(plan_file)))
+        if self.during is not None:
+            self.during()
         if self.error is not None:
             raise self.error
         text = _plan_text(self.actions)
@@ -210,13 +237,55 @@ def test_dump_objects_copy_is_fresh(tree, fakes):
 
 
 def test_dump_objects_failure_prints_errors(tree, fakes, capsys):
-    fakes.engine.dump_ok = False
+    fakes.engine.dump = "error"
     assert cli.main(["dump-objects"]) == 1
     assert not tree.objects.exists()
     out = _output(capsys)
     assert "room 0 exploded" in out
     assert "engine_error" in out
     assert str(fakes.engine.calls[0].out_dir) in out
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        '{"rooms": []}',
+        '{"rooms": [], "verbs": []}',  # parses, has both lists, but no rooms
+        '{"rooms": [{"room": 1, "objects": []}]}',  # no verbs list
+        '{"rooms": [{"objects": []}], "verbs": []}',  # a room without a number: the compiler cannot read it
+        "[]",
+        "not json at all",
+    ],
+)
+def test_dump_objects_invalid_dump_keeps_the_existing_file(tree, fakes, objects, capsys, text):
+    before = objects.read_bytes()
+    fakes.engine.dump_text = text
+
+    assert cli.main(["dump-objects"]) == 1
+
+    assert objects.read_bytes() == before
+    assert sorted(p.name for p in tree.out.iterdir() if p.is_file()) == ["objects.json"]  # no .tmp left
+    err = capsys.readouterr().err
+    assert "not a valid object dump" in err
+    assert str(fakes.engine.calls[0].out_dir) in err
+
+
+def test_dump_objects_wrong_end_reason_is_a_failure(tree, fakes, capsys):
+    # The bridge wrote an objects.json, but the dump did not finish (dump_done).
+    fakes.engine.dump = "max_ticks"
+    assert cli.main(["dump-objects"]) == 1
+    assert (fakes.engine.calls[0].out_dir / "objects.json").is_file()
+    assert not tree.objects.exists()
+    assert "object dump failed: end reason max_ticks" in capsys.readouterr().err
+
+
+def test_dump_objects_dump_done_without_file_is_a_failure(tree, fakes, capsys):
+    fakes.engine.dump = "no-file"
+    assert cli.main(["dump-objects"]) == 1
+    assert not tree.objects.exists()
+    err = capsys.readouterr().err
+    assert "object dump failed: end reason dump_done" in err
+    assert "the bridge reported dump_done but wrote no" in err
 
 
 def test_dump_objects_without_trace_returns_1(tree, fakes, capsys, monkeypatch):
@@ -269,6 +338,28 @@ def test_plan_bad_segment_returns_1(tree, fakes, capsys):
     assert cli.main(["plan", "toy"]) == 1
     assert fakes.planner.calls == []
     assert "segment.toml" in _output(capsys)
+
+
+def test_plan_undecodable_segment_returns_1(tree, fakes, capsys):
+    (tree.seg / "segment.toml").write_bytes(b'name = "caf\xe9"\n')  # Latin-1, not UTF-8
+    assert cli.main(["plan", "toy"]) == 1
+    assert fakes.planner.calls == []
+    assert f"{tree.seg / 'segment.toml'}: " in capsys.readouterr().err
+
+
+def test_plan_edited_during_planning_is_left_out_of_date(tree, fakes, objects, capsys):
+    domain = tree.seg / "domain.pddl"
+    fakes.planner.during = lambda: _edit(domain, EDITED)
+
+    assert cli.main(["plan", "toy"]) == 0
+
+    # The plan was made from the old domain, so it must not look newer than the edit.
+    assert tree.sas_plan.stat().st_mtime_ns < domain.stat().st_mtime_ns
+    err = capsys.readouterr().err
+    assert "domain.pddl changed while" in err
+    fakes.planner.during = None
+    assert cli.main(["compile", "toy"]) == 0
+    assert len(fakes.planner.calls) == 2  # re-planned with the edited domain
 
 
 # --- compile -----------------------------------------------------------------
@@ -336,7 +427,7 @@ def test_compile_error_returns_1(tree, fakes, objects, capsys):
 
 
 def test_compile_dump_failure_returns_1(tree, fakes, capsys):
-    fakes.engine.dump_ok = False
+    fakes.engine.dump = "error"
     assert cli.main(["compile", "toy"]) == 1
     assert fakes.planner.calls == []
     assert not tree.jsonl.exists()
@@ -344,10 +435,90 @@ def test_compile_dump_failure_returns_1(tree, fakes, capsys):
 
 def test_compile_malformed_plan_file_returns_1(tree, fakes, objects, capsys):
     tree.sas_plan.parent.mkdir(parents=True)
-    tree.sas_plan.write_text("this is not a plan\n")
+    tree.sas_plan.write_text("this is not a plan\n; cost = 3 (general cost)\n")
     _touch(tree.sas_plan, T0 + 10**9)
     assert cli.main(["compile", "toy"]) == 1
+    assert fakes.planner.calls == []
     assert "toy.sas_plan" in _output(capsys)
+
+
+def test_compile_replans_a_fresh_plan_without_cost_trailer(tree, fakes, objects):
+    # Fast Downward writes the cost line last: a plan without it is incomplete, however new it is.
+    tree.sas_plan.parent.mkdir(parents=True)
+    tree.sas_plan.write_text("(take-widget)\n")
+    _touch(tree.sas_plan, T0 + 10**9)
+
+    assert cli.main(["compile", "toy"]) == 0
+    assert len(fakes.planner.calls) == 1
+    assert _jsonl_actions(tree.jsonl) == ["take-widget", "walk workshop office"]
+
+
+def test_compile_undecodable_steps_is_blamed_on_steps(tree, fakes, objects, capsys):
+    (tree.seg / "steps.toml").write_bytes(b'[verbs]\nwalk_to = "Walk \xff to"\n')
+    assert cli.main(["compile", "toy"]) == 1
+    err = capsys.readouterr().err
+    assert f"{tree.seg / 'steps.toml'}: " in err
+    assert "objects.json" not in err
+    assert not tree.jsonl.exists()
+
+
+@pytest.mark.parametrize("text", ["not json", '{"rooms": "none"}'])
+def test_compile_bad_objects_is_blamed_on_objects(tree, fakes, objects, capsys, text):
+    objects.write_text(text)
+    assert cli.main(["compile", "toy"]) == 1
+    err = capsys.readouterr().err
+    assert str(objects) in err
+    assert "steps.toml" not in err
+    assert not tree.jsonl.exists()
+
+
+def test_compile_input_edited_during_planning_leaves_the_jsonl_out_of_date(tree, fakes, objects, capsys):
+    domain = tree.seg / "domain.pddl"
+    fakes.planner.during = lambda: _edit(domain, EDITED)
+
+    assert cli.main(["compile", "toy"]) == 0
+
+    assert tree.jsonl.stat().st_mtime_ns < domain.stat().st_mtime_ns
+    assert "domain.pddl changed while" in capsys.readouterr().err
+    fakes.planner.during = None
+    assert cli.main(["run", "toy"]) == 0
+    assert len(fakes.planner.calls) == 2  # `run` re-planned with the edited domain
+
+
+def test_compile_steps_edited_during_compile_leaves_the_jsonl_out_of_date(tree, fakes, objects, capsys, monkeypatch):
+    tree.sas_plan.parent.mkdir(parents=True)
+    tree.sas_plan.write_text(_plan_text(TOY_ACTIONS))
+    _touch(tree.sas_plan, T0 + 10**9)  # a fresh plan: compile does not re-plan
+    steps_toml = tree.seg / "steps.toml"
+    real_compile_plan = cli.compile_plan
+
+    def compile_while_editing(plan, steps, index):
+        _edit(steps_toml, EDITED)
+        return real_compile_plan(plan, steps, index)
+
+    monkeypatch.setattr(cli, "compile_plan", compile_while_editing)
+    assert cli.main(["compile", "toy"]) == 0
+    assert tree.jsonl.stat().st_mtime_ns < steps_toml.stat().st_mtime_ns
+    assert "steps.toml changed while" in capsys.readouterr().err
+
+    monkeypatch.setattr(cli, "compile_plan", real_compile_plan)
+    built = tree.jsonl.stat().st_mtime_ns
+    tree.jsonl.write_text(SENTINEL)
+    _touch(tree.jsonl, built)  # same mtime: only a recompile replaces the sentinel
+    assert cli.main(["run", "toy"]) == 0
+    assert tree.jsonl.read_text() != SENTINEL  # recompiled
+    assert fakes.planner.calls == []  # the plan does not depend on steps.toml
+
+
+def test_normal_builds_do_not_warn_about_edits(tree, fakes, capsys):
+    # Dump, plan and compile in one go: the freshly written objects.json and plan are
+    # outputs of this build, not edits made during it.
+    assert cli.main(["compile", "toy"]) == 0
+    assert cli.main(["run", "toy"]) == 0
+    out = _output(capsys)
+    assert "changed while" not in out
+    assert "compiled plan" in out and "is up to date" in out
+    assert len(fakes.planner.calls) == 1 and len(fakes.engine.dumps) == 1
 
 
 def test_compile_planner_error_returns_1(tree, fakes, objects, capsys, tmp_path):
@@ -443,6 +614,30 @@ def test_no_boot_param_is_measured(compiled, fakes, capsys):
     assert "NOT MEASURED" not in out and "debug mode" not in out
 
 
+def test_boot_param_zero_means_no_boot_param(compiled, fakes, capsys):
+    # ScummVM treats boot param 0 as "none", so the run is a normal measured run.
+    assert cli.main(["run", "toy", "--boot-param", "0"]) == 0
+    (cfg,) = fakes.engine.calls
+    assert cfg.boot_param is None
+    out = _output(capsys)
+    assert "TOTAL: 1360 ticks (0:22.67 at 60 Hz)" in out.splitlines()
+    assert "NOT MEASURED" not in out and "debug mode" not in out
+
+
+def test_goal_without_segment_start_reports_unknown_total(compiled, fakes, capsys, tmp_path):
+    trace = tmp_path / "no-segment-start.jsonl"
+    lines = (TRACES / "ok.jsonl").read_text().splitlines(keepends=True)
+    trace.write_text("".join(line for line in lines if '"type":"segment_start"' not in line))
+    fakes.engine.trace = trace
+
+    assert cli.main(["run", "toy", "--boot-param", "3"]) == 0  # the goal was reached
+
+    out = capsys.readouterr().out
+    total = "TOTAL: unknown (goal reached, but the trace has no segment_start record)"
+    assert f"{total} (NOT MEASURED: boot param)" in out.splitlines()
+    assert "absolute ticks from boot" in out
+
+
 def test_audio_pump_off_warns(compiled, fakes, capsys, tmp_path):
     trace = tmp_path / "no-pump.jsonl"
     trace.write_text((TRACES / "ok.jsonl").read_text().replace('"audio_pump":true', '"audio_pump":false'))
@@ -461,7 +656,12 @@ def test_audio_pump_on_does_not_warn(compiled, fakes, capsys):
 def test_run_without_state_start_still_reports(compiled, fakes, capsys):
     fakes.engine.state_vars = None
     assert cli.main(["run", "toy"]) == 0
-    assert "state-start.json" in _output(capsys)
+    lines = capsys.readouterr().out.splitlines()
+    state = fakes.engine.calls[0].out_dir / "state-start.json"
+    assert f"randomized vars: {state} was not written (the segment never started)" in lines
+    assert "TOTAL: 1360 ticks (0:22.67 at 60 Hz)" in lines
+    assert ["#", "action", "room", "start", "end", "ticks", "changes"] in [line.split() for line in lines]
+    assert any(line.split()[:2] == ["1", "take-widget"] for line in lines)
 
 
 def test_run_without_trace_returns_1(compiled, fakes, capsys):
@@ -597,4 +797,142 @@ def test_inventory_is_skipped_with_a_warning_otherwise(compiled, fakes, monkeypa
     assert cli.main(["run", "toy"]) == 0
     (cfg,) = fakes.engine.calls
     assert not hasattr(cfg, "inventory")
-    assert "inventory" in _output(capsys)
+    # stderr only: the changes legend on stdout also says "inventory".
+    err = capsys.readouterr().err
+    assert "EngineConfig has no 'inventory' field, so SPEEDRUN_INVENTORY is not set" in err
+    assert "click_target_missing" in err
+
+
+# --- signals -----------------------------------------------------------------
+
+EXIT_SIGNALS = (signal.SIGTERM, signal.SIGHUP)
+
+# Stands in for fast-downward.py: starts a "search" child in its own process group
+# (run_planner gives the driver a new session), writes a partial plan, records the
+# pids, then sleeps like a long search.
+SLEEPING_DRIVER = """\
+import os, subprocess, sys, time
+
+argv = sys.argv[1:]
+with open(argv[argv.index("--plan-file") + 1], "w") as f:
+    f.write("(take-widget)\\n")  # partial: no cost trailer yet
+search = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"])
+pids = os.environ["FAKE_FD_PIDS"]
+with open(pids + ".tmp", "w") as f:
+    f.write(f"{os.getpid()} {os.getpgrp()} {search.pid}")
+os.replace(pids + ".tmp", pids)
+time.sleep(120)
+"""
+
+# `speedrun plan toy` against tmp paths and the sleeping driver. Signal dispositions
+# are reset first, as for a normally started command (the test runner may ignore SIGHUP).
+CLI_UNDER_TEST = """\
+import signal, sys
+from pathlib import Path
+from speedrun import cli, paths, planner
+
+for sig in (signal.SIGTERM, signal.SIGHUP):
+    signal.signal(sig, signal.SIG_DFL)
+out, pddl, driver = map(Path, sys.argv[1:4])
+paths.OUT_DIR, paths.PLANS_DIR, paths.RUNS_DIR, paths.PDDL_DIR = out, out / "plans", out / "runs", pddl
+planner.FD_DRIVER, planner.FD_BUILD = driver, out / "fake-build"
+sys.exit(cli.main(["plan", "toy"]))
+"""
+
+
+def _group_members(pgid: int) -> list[int]:
+    """Pids of the live (non-zombie) processes in process group ``pgid``."""
+    members = []
+    for stat in Path("/proc").glob("[0-9]*/stat"):
+        try:
+            state, _ppid, pgrp = stat.read_text().rsplit(")", 1)[1].split()[:3]
+        except (OSError, ValueError):
+            continue  # the process exited while we looked
+        if int(pgrp) == pgid and state not in ("Z", "X"):
+            members.append(int(stat.parent.name))
+    return members
+
+
+@pytest.mark.parametrize("signum", EXIT_SIGNALS, ids=lambda s: signal.Signals(s).name)
+def test_signal_kills_the_planner_process_group(tree, tmp_path, signum):
+    driver = tmp_path / "fake-fast-downward.py"
+    driver.write_text(SLEEPING_DRIVER)
+    pids_file = tmp_path / "driver.pids"
+    log = tmp_path / "speedrun.log"
+    env = {**os.environ, "FAKE_FD_PIDS": str(pids_file)}
+    argv = [sys.executable, "-c", CLI_UNDER_TEST, str(tree.out), str(tree.seg.parent), str(driver)]
+    with log.open("wb") as out:
+        proc = subprocess.Popen(argv, env=env, stdin=subprocess.DEVNULL, stdout=out, stderr=subprocess.STDOUT)
+    pgid = None
+    try:
+        deadline = time.monotonic() + 60
+        while not pids_file.exists():  # only then is speedrun inside run_planner
+            assert proc.poll() is None, f"speedrun exited early:\n{log.read_text()}"
+            assert time.monotonic() < deadline, "the fake driver never started"
+            time.sleep(0.05)
+        _driver, pgid, _search = map(int, pids_file.read_text().split())
+
+        proc.send_signal(signum)
+        rc = proc.wait(timeout=60)
+        end = time.monotonic() + 10
+        while _group_members(pgid) and time.monotonic() < end:
+            time.sleep(0.05)
+        assert _group_members(pgid) == [], "speedrun exited but orphaned the Fast Downward process group"
+        assert rc == 128 + signum, log.read_text()
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+            proc.wait()
+        if pgid is not None:
+            with contextlib.suppress(ProcessLookupError):
+                os.killpg(pgid, signal.SIGKILL)
+
+    assert not tree.sas_plan.exists(), "a partial plan was left behind"
+    assert list(tree.sas_plan.parent.glob(".toy-fd-*")) == [], "the planner's working directory was left behind"
+
+
+def _set_handlers(handlers: dict) -> dict:
+    return {sig: signal.signal(sig, signal.SIG_DFL if h is None else h) for sig, h in handlers.items()}
+
+
+def test_main_installs_exit_handlers_and_restores_the_previous_ones(tree, fakes):
+    def previous(signum, frame):
+        pass
+
+    during = {}
+    fakes.planner.during = lambda: during.update({sig: signal.getsignal(sig) for sig in EXIT_SIGNALS})
+    saved = _set_handlers(dict.fromkeys(EXIT_SIGNALS, previous))
+    try:
+        assert cli.main(["plan", "toy"]) == 0
+        after = {sig: signal.getsignal(sig) for sig in EXIT_SIGNALS}
+    finally:
+        _set_handlers(saved)
+
+    for sig in EXIT_SIGNALS:
+        assert callable(during[sig]) and during[sig] is not previous, signal.Signals(sig).name
+    assert after == dict.fromkeys(EXIT_SIGNALS, previous)
+
+
+def test_main_restores_handlers_after_a_failed_command(tree, fakes, tmp_path):
+    fakes.planner.error = Unsolvable("no plan exists", returncode=11, log_path=tmp_path / "fd.log")
+    before = {sig: signal.getsignal(sig) for sig in EXIT_SIGNALS}
+    try:
+        assert cli.main(["plan", "toy"]) == 1
+        after = {sig: signal.getsignal(sig) for sig in EXIT_SIGNALS}
+    finally:
+        _set_handlers(before)
+    assert after == before
+
+
+def test_main_keeps_an_ignored_sighup_ignored(tree, fakes):
+    # Under nohup SIGHUP is ignored on purpose; catching it would end the run when the terminal closes.
+    during = {}
+    fakes.planner.during = lambda: during.update(hup=signal.getsignal(signal.SIGHUP))
+    saved = _set_handlers({signal.SIGHUP: signal.SIG_IGN})
+    try:
+        assert cli.main(["plan", "toy"]) == 0
+        after = signal.getsignal(signal.SIGHUP)
+    finally:
+        _set_handlers(saved)
+    assert during["hup"] == signal.SIG_IGN
+    assert after == signal.SIG_IGN

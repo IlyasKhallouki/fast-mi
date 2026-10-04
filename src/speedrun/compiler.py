@@ -174,11 +174,11 @@ def resolve_verb(keyword: object, verbs: Mapping, objects: ObjectIndex) -> int:
 
 
 def load_steps(path: Path) -> dict:
-    """Read ``steps.toml`` (C8)."""
+    """Read ``steps.toml`` (C8). A missing, unreadable, non-UTF-8 or invalid file is a ``TemplateError``."""
     try:
         with Path(path).open("rb") as f:
             return tomllib.load(f)
-    except tomllib.TOMLDecodeError as e:
+    except (tomllib.TOMLDecodeError, UnicodeDecodeError, OSError) as e:
         raise TemplateError(f"{path}: {e}") from e
 
 
@@ -264,6 +264,13 @@ def _compile_step(action: str, tmpl: object, verbs: Mapping, objects: ObjectInde
     choose = tmpl.get("choose", [])
     if not isinstance(choose, list) or not all(isinstance(c, str) and c for c in choose):
         raise TemplateError(f"choose must be a list of non-empty strings, got {choose!r}")
+    for c in choose:
+        # The bridge matches against the game's raw text bytes, which are not Unicode (C5).
+        if not c.isascii():
+            raise TemplateError(
+                f"choose entry {c!r} is not ASCII; the bridge matches it against the game's raw "
+                "text bytes, so use an ASCII substring of the choice (docs/plan.md C5)"
+            )
     if "verb" not in step and "click" not in step and not choose:
         raise TemplateError("a step without a verb or click must answer a dialogue (non-empty choose)")
     step["choose"] = list(choose)
@@ -307,9 +314,19 @@ def compile_plan(plan: Plan, steps: dict, objects: ObjectIndex) -> list[dict]:
 
 
 def write_jsonl(steps: list[dict], path: Path) -> None:
-    """Write one compact JSON object per line, creating parent directories."""
+    """Write one compact JSON object per line, creating parent directories.
+
+    The file is written beside ``path`` and renamed over it, so a failure (or
+    an interrupt) leaves the previous file intact and a reader never sees half a plan.
+    """
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as f:
-        for step in steps:
-            f.write(json.dumps(step, separators=(",", ":")) + "\n")
+    tmp = path.with_name(path.name + ".tmp")
+    try:
+        with tmp.open("w", encoding="utf-8") as f:
+            for step in steps:
+                f.write(json.dumps(step, separators=(",", ":")) + "\n")
+        tmp.replace(path)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise

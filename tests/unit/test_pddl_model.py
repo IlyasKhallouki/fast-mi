@@ -19,7 +19,6 @@ Model conventions the tests enforce (see ``docs/part1/model.md``):
 import json
 import re
 import tomllib
-from pathlib import Path
 
 import pytest
 
