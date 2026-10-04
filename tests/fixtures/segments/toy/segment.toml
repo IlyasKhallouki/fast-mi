@@ -1,0 +1,10 @@
+# Synthetic toy segment for unit tests. Rooms, objects and flags are invented
+# and match tests/fixtures/objects.json; nothing here is game data.
+name = "toy"
+domain = "domain.pddl"
+problem = "problem.pddl"
+steps = "steps.toml"
+start = [{room = 101}]
+goal = [{bit = 7, eq = 1}, {not = {has = 500}}]
+goal_cite = ["synthetic: toy bit 7 set when the ledger is bought", "synthetic: toy widget handed over"]
+randomized_vars = [{var = 20, cite = "synthetic: toy var 20 randomised at boot"}]

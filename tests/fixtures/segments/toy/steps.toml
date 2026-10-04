@@ -1,0 +1,35 @@
+# Synthetic toy step templates (C8) for unit tests. Every name is invented
+# and resolves against tests/fixtures/objects.json; nothing here is game data.
+
+[verbs]
+walk_to = "Walk to"
+pick_up = "Pick up"
+talk_to = "Talk to"
+give = "Give"
+
+[actions."walk workshop office"]
+cite = "synthetic: workshop door leads to the office"
+steps = [{verb = "walk_to", obj = {room = 101, name = "door"}, room = 101}]
+
+[actions."take-widget"]
+cite = "synthetic: widget can be picked up"
+steps = [{verb = "pick_up", obj = {room = 101, name = "widget"}, room = 101}]
+
+[actions."open-crate"]
+cite = "synthetic: the second crate holds the lever"
+steps = [{verb = "pick_up", obj = {room = 101, name = "crate", id = 503}, room = 101}]
+
+[actions."buy-ledger"]
+cite = "synthetic: clerk sells the ledger"
+steps = [
+  {verb = "pick_up", obj = {room = 102, name = "ledger"}, room = 102},
+  {verb = "talk_to", obj = {room = 102, name = "clerk"}, room = 102, choose = ["ledger", "yes"]},
+]
+
+[actions."answer-clerk"]
+cite = "synthetic: clerk opens a dialogue by himself"
+steps = [{choose = ["goodbye"]}]
+
+[actions."give-widget-clerk"]
+cite = "synthetic: clerk accepts the widget once var 20 is clear"
+steps = [{until = [{var = 20, eq = 0}, {not = {bit = 7, eq = 0}}], verb = "give", obj = {room = 101, name = "widget"}, obj2 = {actor = 3}, room = 102}]

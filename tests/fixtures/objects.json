@@ -1,0 +1,31 @@
+{
+  "game": {"gameid": "toygame", "variant": "Synthetic", "version": 5, "build": "fixture"},
+  "ego": 1,
+  "dump_tick": 812,
+  "verbs": [
+    {"slot": 1, "id": 11, "name": "Walk to", "mode": 1, "key": 119},
+    {"slot": 2, "id": 9, "name": "Pick up@@", "mode": 1, "key": 112},
+    {"slot": 3, "id": 13, "name": "Talk to", "mode": 1, "key": 116},
+    {"slot": 4, "id": 2, "name": "Open", "mode": 1, "key": 111},
+    {"slot": 5, "id": 3, "name": "Give", "mode": 1, "key": 103},
+    {"slot": 6, "id": 0, "name": "", "mode": 0, "key": 0}
+  ],
+  "rooms": [
+    {"room": 101, "name": "workshop", "music": 4,
+     "objects": [
+       {"id": 500, "name": "Widget@@@ ", "owner": 15, "state": 0, "classes": [], "walk": [10, 20], "parent": 0},
+       {"id": 501, "name": "door", "owner": 15, "state": 1, "classes": [22], "walk": [30, 40], "parent": 0},
+       {"id": 502, "name": "crate", "owner": 15, "state": 0, "classes": [], "walk": [50, 60], "parent": 0},
+       {"id": 503, "name": "Crate", "owner": 15, "state": 0, "classes": [], "walk": [70, 80], "parent": 0},
+       {"id": 504, "name": "lever", "owner": 15, "state": 0, "classes": [], "walk": [90, 100], "parent": 0},
+       {"id": 505, "name": "", "owner": 15, "state": 0, "classes": [], "walk": [0, 0], "parent": 0}
+     ]},
+    {"room": 102, "name": "office",
+     "objects": [
+       {"id": 510, "name": "door@@@@", "owner": 15, "state": 0, "classes": [], "walk": [12, 34]},
+       {"id": 511, "name": "clerk", "owner": 15, "state": 0, "classes": [], "walk": [56, 78]},
+       {"id": 512, "name": "ledger", "owner": 15, "state": 0, "classes": [], "walk": [90, 12]}
+     ]},
+    {"room": 103, "name": "yard", "objects": []}
+  ]
+}
