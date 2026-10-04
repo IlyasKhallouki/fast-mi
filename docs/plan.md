@@ -93,7 +93,7 @@ The bridge is inert unless `SPEEDRUN_OUT` is set.
 |---|---|
 | `SPEEDRUN_OUT=<dir>` | Enables the bridge. Directory for `trace.jsonl`, `state-start.json` and `objects.json`. |
 | `SPEEDRUN_DUMP_OBJECTS=1` | At the first frame after boot, write `objects.json` (all rooms, all verbs), then quit. |
-| `SPEEDRUN_PLAN=<file.jsonl>` | Replay this plan (C4) once the segment has started. |
+| `SPEEDRUN_PLAN=<file.jsonl>` | Replay this plan (C4). The player is active from boot; the segment start only stamps `tick0`. |
 | `SPEEDRUN_START=<json>` | Segment start: a JSON array of conditions (C3), evaluated only on sentence-idle frames. Defaults to `[]`, the first sentence-idle frame. |
 | `SPEEDRUN_GOAL=<json>` | A JSON array of conditions. On the first frame after segment start where all hold, write a `goal` record and `state-end.json`, then quit immediately. If unset or empty, there is no goal. A malformed value is `bad_env`. |
 | `SPEEDRUN_FAST=1` | Skip real-time waiting between frames. Ticks are unaffected. |
@@ -247,6 +247,17 @@ Stall `reason` values are:
 - `ego_pos`, which is `null` without an ego.
 
 `owners` and `states` cover all objects.
+
+**Plan-player semantics as implemented (Task 1.3, `speedrun_plan.cpp`):**
+- **Dialogue idle.** A visible dialogue menu (verbs 120–128) can be answered whenever the engine's own click gate allows it: userput is on, there is no cutscene, and the input script is not running. Text, sentence and object scripts, fades and ego walking do not block a menu. For example, circus menu 1 is shown while local 205 keeps the brothers talking (`room-051-circus-te/local-207.txt [01F4]`–`[03A3]`). A guard prevents answering the same menu twice.
+- **One engine action per decision point:** a push, a click or an answer.
+- **Sentence consumption.** A sentence counts as consumed at the first sentence-idle decision point after the push frame.
+- **Untouchable check** (class 32 → `untouchable_target`). Actors and objects in ego's inventory are exempt. Inventory clicks go through slot verbs, and inventory objects can carry class 32 (e.g. the drugged meat).
+- **`objects.json` verb names** are the unexpanded verb text. The rendered sentence line, verb 100, would otherwise duplicate "Walk to".
+- **Timeouts.** The step timeout counts from `step_start`. The post-plan wait counts from the later of the last `step_end` and `tick0`, and is not checked before segment start.
+- **`unexpected_choice`** also covers a menu with no pending step to answer it.
+- **Extra record fields:** `step_end.ticks`; `click` carries `slot`, `inventory` and `offset`; `stall` carries `step`, `ego_pos` and `ego_box`. Stall reasons also include `until`, `awaiting_menu`, `menu_answered` and `dialog`.
+- **Goal mid-step.** If the goal fires during the last step, that step has no `step_end`. The goal record closes it.
 
 **Idle rules as implemented** (`speedrun_state.cpp`):
 - **Text** blocks only while a real actor talks (`VAR_TALK_ACTOR` in 1..0x7F) or a script slot is parked on `WaitForMessage`. The island map reprints a hover label every frame through `print`, which sets `_haveMsg` and `_talkDelay`.
