@@ -27,13 +27,13 @@ FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
 TOY_STEPS = FIXTURES / "segments" / "toy" / "steps.toml"
 
 # C4 key order, written out independently of the implementation.
-C4_KEYS = ["action", "verb", "obj", "obj2", "room", "choose", "until"]
+C4_KEYS = ["action", "verb", "obj", "obj2", "room", "click", "choose", "until"]
 C4_INT_KEYS = {"verb", "obj", "obj2", "room"}
 
-VERBS = {"walk_to": "Walk to", "pick_up": "Pick up", "talk_to": "Talk to", "give": "Give"}
+VERBS = {"walk_to": "Walk to", "pick_up": "Pick up", "talk_to": "Talk to", "give": "Give", "open": "Open"}
 
 # Invented verb ids from the fixture.
-WALK_TO, PICK_UP, TALK_TO, GIVE = 11, 9, 13, 3
+WALK_TO, PICK_UP, TALK_TO, GIVE, OPEN = 11, 9, 13, 3, 2
 
 
 @pytest.fixture(scope="module")
@@ -64,6 +64,12 @@ def _assert_c4(step: dict) -> None:
         assert "obj" in step and "obj2" in step
     else:
         assert "obj" not in step and "obj2" not in step
+    if "click" in step:
+        assert "verb" not in step
+        assert isinstance(step["click"], list) and step["click"]
+        for entry in step["click"]:
+            assert len(entry) == 1 and set(entry) <= {"verb", "inventory"}, entry
+            assert all(type(v) is int for v in entry.values()), entry
     for k in C4_INT_KEYS & set(step):
         assert type(step[k]) is int, (k, step[k])
     assert all(isinstance(c, str) for c in step["choose"])
@@ -363,12 +369,114 @@ def test_output_key_order_and_keys_match_c4(index):
         },
         {"verb": "walk_to", "obj": {"room": 101, "name": "door"}},  # no room -> key omitted
         {"choose": ["b"], "until": [{"has": 500}]},
+        {"until": [{"has": 500}], "choose": ["c"], "click": [{"verb": "open"}], "room": 101},
     )
-    assert list(out[0]) == C4_KEYS
-    assert list(out[1]) == [k for k in C4_KEYS if k != "room"]
+    assert list(out[0]) == [k for k in C4_KEYS if k != "click"]
+    assert list(out[1]) == [k for k in C4_KEYS if k not in ("room", "click")]
     assert list(out[2]) == ["action", "choose", "until"]
+    assert list(out[3]) == ["action", "room", "click", "choose", "until"]
     for step in out:
         _assert_c4(step)
+
+
+# --- click steps -------------------------------------------------------------
+
+
+def test_click_step(index):
+    out = _compile_one(
+        index,
+        {
+            "until": [{"actor_x": 3, "le": 310}],
+            "click": [{"verb": "open"}, {"inventory": {"room": 101, "name": "widget"}}],
+            "room": 101,
+        },
+        action="wind-widget",
+    )
+    assert out == [
+        {
+            "action": "wind-widget",
+            "room": 101,
+            "click": [{"verb": OPEN}, {"inventory": 500}],
+            "choose": [],
+            "until": [{"actor_x": 3, "le": 310}],
+        }
+    ]
+    _assert_c4(out[0])
+
+
+def test_click_alone_is_a_complete_step(index):
+    # No room, choose or until needed: the clicks are the step.
+    out = _compile_one(index, {"click": [{"verb": "pick_up"}]})
+    assert out == [{"action": "do-thing", "click": [{"verb": PICK_UP}], "choose": [], "until": []}]
+    _assert_c4(out[0])
+
+
+def test_click_with_choose(index):
+    out = _compile_one(index, {"click": [{"verb": "talk_to"}], "choose": ["ledger"], "room": 102})
+    assert out[0]["click"] == [{"verb": TALK_TO}]
+    assert out[0]["choose"] == ["ledger"]
+    _assert_c4(out[0])
+
+
+def test_click_inventory_id_disambiguates(index):
+    out = _compile_one(index, {"click": [{"inventory": {"room": 101, "name": "crate", "id": 503}}]})
+    assert out[0]["click"] == [{"inventory": 503}]
+
+
+def test_click_inventory_ambiguous(index):
+    with pytest.raises(AmbiguousObject, match=r"click\[0\]"):
+        _compile_one(index, {"click": [{"inventory": {"room": 101, "name": "crate"}}]})
+
+
+def test_click_inventory_unresolved_names_entry(index):
+    with pytest.raises(UnresolvedObject, match=r"step 0.*click\[1\]"):
+        _compile_one(index, {"click": [{"verb": "open"}, {"inventory": {"room": 101, "name": "gizmo"}}]})
+
+
+def test_click_unknown_verb_keyword(index):
+    with pytest.raises(UnknownVerb, match=r"click\[0\].*jump"):
+        _compile_one(index, {"click": [{"verb": "jump"}]})
+
+
+@pytest.mark.parametrize(
+    "tmpl",
+    [
+        {"click": [{"verb": "open"}], "verb": "pick_up", "obj": {"room": 101, "name": "widget"}},
+        {"click": [{"verb": "open"}], "verb": "pick_up"},
+        {"click": [{"verb": "open"}], "obj": {"room": 101, "name": "widget"}},
+        {"click": [{"verb": "open"}], "obj2": {"actor": 3}},
+    ],
+    ids=repr,
+)
+def test_click_with_sentence_keys_is_template_error(index, tmpl):
+    with pytest.raises(TemplateError, match="click"):
+        _compile_one(index, tmpl)
+
+
+@pytest.mark.parametrize(
+    "click",
+    [
+        [],  # must be non-empty
+        {"verb": "open"},  # must be a list
+        "open",
+        ["open"],
+        [{}],
+        [{"verb": "open", "inventory": {"room": 101, "name": "widget"}}],  # exactly one key per entry
+        [{"verb": "open", "extra": 1}],
+        [{"obj": {"room": 101, "name": "widget"}}],
+        [{"verb": OPEN}],  # verbs are keywords, as in sentences
+        [{"verb": None}],
+        [{"inventory": 500}],  # inventory is an object reference
+        [{"inventory": {"room": 101}}],
+        [{"inventory": {"room": 101, "name": "widget", "extra": 1}}],
+        [{"inventory": {"actor": 3}}],  # actors are never inventory objects
+        [{"verb": "open"}, "widget"],
+    ],
+    ids=repr,
+)
+def test_bad_click_is_template_error(index, click):
+    with pytest.raises(TemplateError, match="click"):
+        _compile_one(index, {"click": click, "room": 101})
 
 
 # --- steps.toml and JSONL ----------------------------------------------------
@@ -409,11 +517,19 @@ def test_load_steps_rejects_malformed_toml(tmp_path):
 def test_toy_end_to_end(index, tmp_path):
     steps = load_steps(TOY_STEPS)
     plan = _plan(
-        "take-widget", "open-crate", "walk workshop office", "buy-ledger", "answer-clerk", "give-widget-clerk"
+        "take-widget",
+        "wind-widget",
+        "open-crate",
+        "walk workshop office",
+        "buy-ledger",
+        "answer-clerk",
+        "give-widget-clerk",
     )
     out = compile_plan(plan, steps, index)
     assert out == [
         {"action": "take-widget", "verb": PICK_UP, "obj": 500, "obj2": 0, "room": 101, "choose": [], "until": []},
+        {"action": "wind-widget", "room": 101, "click": [{"verb": OPEN}, {"inventory": 500}], "choose": [],
+         "until": [{"actor_room": 3, "eq": 101}, {"actor_x": 3, "le": 200}]},
         {"action": "open-crate", "verb": PICK_UP, "obj": 503, "obj2": 0, "room": 101, "choose": [], "until": []},
         {"action": "walk workshop office", "verb": WALK_TO, "obj": 501, "obj2": 0, "room": 101, "choose": [],
          "until": []},

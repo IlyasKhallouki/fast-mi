@@ -6,6 +6,7 @@ walk_to = "Walk to"
 pick_up = "Pick up"
 talk_to = "Talk to"
 give = "Give"
+open = "Open"
 
 [actions."walk workshop office"]
 cite = "synthetic: workshop door leads to the office"
@@ -14,6 +15,10 @@ steps = [{verb = "walk_to", obj = {room = 101, name = "door"}, room = 101}]
 [actions."take-widget"]
 cite = "synthetic: widget can be picked up"
 steps = [{verb = "pick_up", obj = {room = 101, name = "widget"}, room = 101}]
+
+[actions."wind-widget"]
+cite = "synthetic: the workshop's input script winds the widget on Open + inventory widget, clerk at x <= 200"
+steps = [{room = 101, click = [{verb = "open"}, {inventory = {room = 101, name = "widget"}}], until = [{actor_room = 3, eq = 101}, {actor_x = 3, le = 200}]}]
 
 [actions."open-crate"]
 cite = "synthetic: the second crate holds the lever"

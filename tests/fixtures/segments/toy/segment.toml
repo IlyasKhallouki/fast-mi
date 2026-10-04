@@ -8,3 +8,4 @@ start = [{room = 101}]
 goal = [{bit = 7, eq = 1}, {not = {has = 500}}]
 goal_cite = ["synthetic: toy bit 7 set when the ledger is bought", "synthetic: toy widget handed over"]
 randomized_vars = [{var = 20, cite = "synthetic: toy var 20 randomised at boot"}]
+inventory = {verb_first = 300, count = 4, var_first = 60, cite = "synthetic: toy inventory slots are verbs 300..303 showing Var[60..63]"}

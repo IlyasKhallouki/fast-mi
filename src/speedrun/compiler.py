@@ -4,6 +4,11 @@ Each ground action, written as ``" ".join(action)`` (for example
 ``walk lookout island-map``), is looked up in the ``[actions]`` table of
 ``steps.toml`` (C8). Its step templates are expanded in order. Object names
 are resolved to ids only through the engine's ``objects.json`` dump (C6).
+
+A step template is a sentence (``verb`` + ``obj`` [+ ``obj2``]), a ``click``
+list, or neither (a dialogue-only step, which needs ``choose``). Click entries
+are ``{verb = "<keyword>"}`` (resolved like sentence verbs) or
+``{inventory = {room, name[, id]}}`` (resolved like ``obj``).
 """
 
 import json
@@ -12,13 +17,13 @@ import tomllib
 from collections.abc import Iterable, Mapping
 from pathlib import Path
 
-from speedrun.conditions import ConditionError, parse_conditions
+from speedrun.conditions import MAX_ACTOR, ConditionError, parse_conditions
 from speedrun.planner import Plan
 
-C4_KEYS = ("action", "verb", "obj", "obj2", "room", "choose", "until")
-STEP_KEYS = frozenset({"verb", "obj", "obj2", "room", "choose", "until"})
+C4_KEYS = ("action", "verb", "obj", "obj2", "room", "click", "choose", "until")
+STEP_KEYS = frozenset({"verb", "obj", "obj2", "room", "click", "choose", "until"})
+CLICK_KEYS = ("verb", "inventory")  # each click entry has exactly one of these
 ACTION_KEYS = frozenset({"cite", "steps"})
-MAX_ACTOR = 12  # SCUMM v5: object ids below 13 are actors
 
 _PADDING = "@" + string.whitespace
 
@@ -190,12 +195,41 @@ def _action_templates(entry: object) -> list:
     return templates
 
 
+def _compile_click_entry(entry: object, verbs: Mapping, objects: ObjectIndex) -> dict:
+    if not isinstance(entry, Mapping) or len(entry) != 1 or next(iter(entry)) not in CLICK_KEYS:
+        raise TemplateError(f"entry must be exactly {{verb = <keyword>}} or {{inventory = {{room, name[, id]}}}}, "
+                            f"got {entry!r}")
+    if "verb" in entry:
+        return {"verb": resolve_verb(entry["verb"], verbs, objects)}
+    ref = entry["inventory"]
+    if not isinstance(ref, Mapping) or "actor" in ref:
+        raise TemplateError(f"inventory must be an object reference {{room, name[, id]}}, got {ref!r}")
+    return {"inventory": objects.resolve_object(ref)}
+
+
+def _compile_click(click: object, verbs: Mapping, objects: ObjectIndex) -> list[dict]:
+    if not isinstance(click, list) or not click:
+        raise TemplateError(f"click must be a non-empty list of click entries, got {click!r}")
+    out = []
+    for i, entry in enumerate(click):
+        try:
+            out.append(_compile_click_entry(entry, verbs, objects))
+        except CompileError as e:
+            _add_context(e, f"click[{i}]")
+            raise
+    return out
+
+
 def _compile_step(action: str, tmpl: object, verbs: Mapping, objects: ObjectIndex) -> dict:
     if not isinstance(tmpl, Mapping):
         raise TemplateError(f"step must be a table, got {tmpl!r}")
     unknown = set(tmpl) - STEP_KEYS
     if unknown:
         raise TemplateError(f"unknown step key(s) {sorted(unknown)}; allowed: {sorted(STEP_KEYS)}")
+    if "click" in tmpl:
+        sentence = sorted({"verb", "obj", "obj2"} & set(tmpl))
+        if sentence:
+            raise TemplateError(f"a click step has no verb/obj/obj2, got click with {sentence}")
 
     step: dict = {"action": action}
     if "verb" in tmpl:
@@ -212,11 +246,14 @@ def _compile_step(action: str, tmpl: object, verbs: Mapping, objects: ObjectInde
             raise TemplateError(f"room must be an int, got {tmpl['room']!r}")
         step["room"] = tmpl["room"]
 
+    if "click" in tmpl:
+        step["click"] = _compile_click(tmpl["click"], verbs, objects)
+
     choose = tmpl.get("choose", [])
     if not isinstance(choose, list) or not all(isinstance(c, str) and c for c in choose):
         raise TemplateError(f"choose must be a list of non-empty strings, got {choose!r}")
-    if "verb" not in step and not choose:
-        raise TemplateError("a step without a verb must answer a dialogue (non-empty choose)")
+    if "verb" not in step and "click" not in step and not choose:
+        raise TemplateError("a step without a verb or click must answer a dialogue (non-empty choose)")
     step["choose"] = list(choose)
 
     try:

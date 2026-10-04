@@ -41,6 +41,17 @@ def game_ready() -> Path:
 
 
 @pytest.fixture(scope="session")
+def fd_ready() -> Path:
+    """The Fast Downward release build directory (``--build`` argument)."""
+    # Imported here so a broken planner module fails only the tests that use it.
+    from speedrun.planner import FD_BUILD, fd_available
+
+    if not fd_available():
+        pytest.skip("FAST DOWNWARD BUILD MISSING: run scripts/build-downward.sh")
+    return FD_BUILD
+
+
+@pytest.fixture(scope="session")
 def stock_engine(game_ready) -> Path:
     """The ScummVM binary, patched or not. For tests that run unpatched ScummVM."""
     if not paths.SCUMMVM_BIN.exists():

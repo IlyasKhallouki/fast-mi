@@ -37,6 +37,12 @@ def test_loads_toy_fixture():
     assert len(seg.goal_cite) == len(seg.goal) == 2
     assert all(isinstance(c, str) for c in seg.goal_cite)
     assert seg.randomized_vars == [{"var": 20, "cite": "synthetic: toy var 20 randomised at boot"}]
+    assert seg.inventory == {
+        "verb_first": 300,
+        "count": 4,
+        "var_first": 60,
+        "cite": "synthetic: toy inventory slots are verbs 300..303 showing Var[60..63]",
+    }
 
 
 def test_defaults(tmp_path):
@@ -47,6 +53,7 @@ def test_defaults(tmp_path):
     assert seg.steps == seg_dir / "steps.toml"
     assert seg.start == []
     assert seg.randomized_vars == []
+    assert seg.inventory is None
 
 
 def test_paths_resolve_relative_to_segment_dir(tmp_path):
@@ -103,6 +110,41 @@ def test_invalid_condition_raises_segment_error(tmp_path, field, text):
 def test_invalid_randomized_vars_raise(tmp_path, extra):
     _write_segment(tmp_path, VALID_TOML + extra)
     with pytest.raises(SegmentError, match="randomized_vars"):
+        load_segment("seg", base=tmp_path)
+
+
+def test_inventory_round_trips(tmp_path):
+    _write_segment(
+        tmp_path, VALID_TOML + 'inventory = {cite = "c", var_first = 0, count = 1, verb_first = 7}\n'
+    )
+    seg = load_segment("seg", base=tmp_path)
+    assert seg.inventory == {"verb_first": 7, "count": 1, "var_first": 0, "cite": "c"}
+    assert list(seg.inventory) == ["verb_first", "count", "var_first", "cite"]
+
+
+@pytest.mark.parametrize(
+    "inventory",
+    [
+        "{verb_first = 200, count = 6, var_first = 133}",  # cite missing
+        '{count = 6, var_first = 133, cite = "c"}',
+        '{verb_first = 200, var_first = 133, cite = "c"}',
+        '{verb_first = 200, count = 6, cite = "c"}',
+        '{verb_first = 200, count = 6, var_first = 133, cite = "c", slots = 6}',  # extra key
+        '{verb_first = "200", count = 6, var_first = 133, cite = "c"}',  # non-int
+        '{verb_first = 200, count = 6.0, var_first = 133, cite = "c"}',
+        '{verb_first = 200, count = 6, var_first = true, cite = "c"}',
+        "{verb_first = 200, count = 6, var_first = 133, cite = 9}",  # cite not a string
+        '{verb_first = 200, count = 6, var_first = 133, cite = ""}',
+        '{verb_first = 200, count = 0, var_first = 133, cite = "c"}',  # no slots
+        '{verb_first = -1, count = 6, var_first = 133, cite = "c"}',
+        '{verb_first = 200, count = 6, var_first = -1, cite = "c"}',
+        "[200, 6, 133]",
+        "200",
+    ],
+)
+def test_invalid_inventory_raises(tmp_path, inventory):
+    _write_segment(tmp_path, VALID_TOML + f"inventory = {inventory}\n")
+    with pytest.raises(SegmentError, match="inventory"):
         load_segment("seg", base=tmp_path)
 
 

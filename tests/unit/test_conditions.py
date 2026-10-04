@@ -18,6 +18,16 @@ VALID = [
     {"var": 9, "eq": -1},
     {"not": {"bit": 45, "eq": 1}},
     {"not": {"not": {"has": 316}}},
+    {"actor_room": 6, "eq": 28},
+    {"actor_room": 1, "eq": 0},
+    {"actor_room": 12, "eq": 28},
+    {"actor_x": 6, "le": 310},
+    {"actor_x": 1, "ge": 0},
+    {"actor_x": 12, "eq": 160},
+    {"actor_y": 6, "ge": 100},
+    {"actor_y": 3, "le": -8},
+    {"actor_y": 3, "eq": 140},
+    {"not": {"actor_x": 6, "le": 310}},
 ]
 
 
@@ -37,6 +47,23 @@ def test_returns_plain_dict_from_any_mapping():
 def test_parses_toml_tables():
     data = tomllib.loads('until = [{var = 250, eq = 0}, {not = {has = 316}}]\n')
     assert parse_conditions(data["until"]) == [{"var": 250, "eq": 0}, {"not": {"has": 316}}]
+
+
+def test_parses_actor_conditions_from_toml():
+    data = tomllib.loads(
+        "until = [{actor_room = 6, eq = 28}, {actor_x = 6, le = 310}, {not = {actor_y = 6, ge = 100}}]\n"
+    )
+    assert parse_conditions(data["until"]) == [
+        {"actor_room": 6, "eq": 28},
+        {"actor_x": 6, "le": 310},
+        {"not": {"actor_y": 6, "ge": 100}},
+    ]
+
+
+def test_actor_conditions_normalise_key_order():
+    assert list(parse_condition({"le": 310, "actor_x": 6})) == ["actor_x", "le"]
+    assert list(parse_condition({"eq": 28, "actor_room": 6})) == ["actor_room", "eq"]
+    assert to_json([{"ge": 100, "actor_y": 6}]) == '[{"actor_y":6,"ge":100}]'
 
 
 def test_output_is_independent_of_input():
@@ -67,6 +94,38 @@ INVALID = [
     {"not": {}},
     {"not": {"not": {"var": 1}}},  # nested error
     {"not": 3},
+    # actor_room: {actor_room: 1..12, eq: int}
+    {"actor_room": 6},
+    {"actor_room": 6, "le": 28},  # only eq
+    {"actor_room": 6, "eq": 28, "ge": 1},
+    {"actor_room": 6, "eq": 28, "cite": "x"},
+    {"actor_room": 0, "eq": 28},  # actors are 1..12
+    {"actor_room": 13, "eq": 28},
+    {"actor_room": True, "eq": 28},
+    {"actor_room": "6", "eq": 28},
+    {"actor_room": 6, "eq": "28"},
+    {"actor_room": 6, "eq": None},
+    # actor_x / actor_y: {actor_x|actor_y: 1..12, eq|le|ge: int}, exactly one comparison
+    {"actor_x": 6},
+    {"actor_y": 6},
+    {"actor_x": 6, "le": 310, "ge": 100},
+    {"actor_y": 6, "eq": 1, "le": 2},
+    {"actor_x": 6, "eq": 1, "le": 2, "ge": 0},
+    {"actor_x": 6, "lt": 310},
+    {"actor_y": 6, "gt": 100},
+    {"actor_x": 0, "le": 310},
+    {"actor_x": 13, "le": 310},
+    {"actor_y": -1, "ge": 0},
+    {"actor_x": True, "le": 310},
+    {"actor_x": 6, "le": 310.0},
+    {"actor_x": 6, "le": "310"},
+    {"actor_y": 6, "ge": False},
+    {"actor_y": 6, "ge": 100, "extra": 1},
+    {"actor_x": 6, "actor_y": 6, "le": 1},
+    {"actor_x": 6, "actor_room": 6, "eq": 1},
+    {"var": 1, "le": 3},  # le/ge belong to actor_x/actor_y only
+    {"room": 3, "ge": 1},
+    {"not": {"actor_x": 6}},
 ]
 
 

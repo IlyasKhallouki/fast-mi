@@ -23,6 +23,9 @@ class Segment:
     goal: list[dict]  # C3 conjunction, non-empty
     goal_cite: list[str]  # one citation per goal condition
     randomized_vars: list[dict]  # [{"var": N, "cite": "..."}]
+    # {"verb_first", "count", "var_first", "cite"}: inventory slot verb verb_first+k
+    # shows the object in Var[var_first+k]. SPEEDRUN_INVENTORY (C1) is this minus cite.
+    inventory: dict | None = None
 
 
 def _str(data: dict, key: str, default: str, where: Path) -> str:
@@ -60,6 +63,28 @@ def _randomized_vars(value: object, where: Path) -> list[dict]:
     return out
 
 
+_INVENTORY_INTS = ("verb_first", "count", "var_first")
+
+
+def _inventory(value: object, where: Path) -> dict | None:
+    if value is None:
+        return None
+    form = "{verb_first = <int >= 0>, count = <int >= 1>, var_first = <int >= 0>, cite = <string>}"
+    ok = (
+        isinstance(value, dict)
+        and set(value) == {*_INVENTORY_INTS, "cite"}
+        and all(isinstance(value[k], int) and not isinstance(value[k], bool) for k in _INVENTORY_INTS)
+        and value["verb_first"] >= 0
+        and value["count"] >= 1
+        and value["var_first"] >= 0
+        and isinstance(value["cite"], str)
+        and value["cite"]
+    )
+    if not ok:
+        raise SegmentError(f"{where}: inventory must be {form}, got {value!r}")
+    return {**{k: value[k] for k in _INVENTORY_INTS}, "cite": value["cite"]}
+
+
 def load_segment(name: str, base: Path = paths.PDDL_DIR) -> Segment:
     seg_dir = Path(base) / name
     toml_path = seg_dir / "segment.toml"
@@ -95,4 +120,5 @@ def load_segment(name: str, base: Path = paths.PDDL_DIR) -> Segment:
         goal=goal,
         goal_cite=list(goal_cite),
         randomized_vars=_randomized_vars(data.get("randomized_vars", []), toml_path),
+        inventory=_inventory(data.get("inventory"), toml_path),
     )
