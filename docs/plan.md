@@ -98,7 +98,7 @@ The bridge is inert unless `SPEEDRUN_OUT` is set.
 | `SPEEDRUN_GOAL=<json>` | A JSON array of conditions. On the first frame where all hold, write a `goal` record, then quit after a 60-tick grace period. |
 | `SPEEDRUN_FAST=1` | Skip real-time waiting between frames. Ticks are unaffected. |
 | `SPEEDRUN_MAX_TICKS=<int>` | Safety cap, counted from boot. On reaching it, write `end` with reason `max_ticks`, then quit. |
-| `SPEEDRUN_INVENTORY=<json>` | Inventory slot layout for `click` inventory entries: `{"verb_first": 200, "count": 6, "var_first": 133}`, meaning slot verb `verb_first+k` shows the object in `Var[var_first+k]`. It comes from `segment.toml` and is cited. |
+| `SPEEDRUN_INVENTORY=<json>` | Inventory slot layout for `click` inventory entries: `{"verb_first": 200, "count": 8, "var_first": 133}`, meaning slot verb `verb_first+k` shows the object in `Var[var_first+k]`. It comes from `segment.toml` and is cited. |
 | `SPEEDRUN_STEP_TIMEOUT=<int>` | Ticks a step may take before it fails (default 36000 = 10 min of game time). |
 
 Boot params use ScummVM's existing `--boot-param=N` command-line option, passed through by `speedrun run/demo --boot-param N`. Any non-zero boot param forces ScummVM debug mode (`scumm.cpp:272`, var 39), and MI1's boot script then uses debug starts that set trial bits directly (`docs/part1/goal-flags.md`). Boot params are therefore never used for measured runs (rules/glitchless.md, rule 4). The RNG seed is ScummVM's own `--random-seed=N` (default 1).
@@ -140,17 +140,20 @@ There is one step per line. Unknown keys are an error.
 
 ```json
 {"action": "pick-up-pot", "verb": 9, "obj": 316, "obj2": 0, "room": 41, "choose": [], "until": []}
-{"action": "wear-pot-helmet", "room": 51, "click": [{"verb": 7}, {"inventory": 567}], "choose": [], "until": [{"var": 32, "eq": 200}]}
+{"action": "wear-pot-helmet", "room": 51, "click": [{"verb": 7}, {"inventory": 567, "offset": -1}], "choose": [], "until": [{"var": 32, "eq": 200}]}
 ```
 
 - `action` (string): the PDDL ground action this step came from. Echoed in the trace.
 - `verb` (int, optional) / `obj` (int) / `obj2` (int, 0 = none): the sentence pushed into the queue. If `verb` is absent, the step only answers a dialogue that the game opens by itself.
-- `room` (int, optional): ego must be in this room when the step starts. Otherwise the run fails with `room_mismatch`.
+- `room` (int, optional): the engine's `_currentRoom` must equal this when the step starts. Otherwise the run fails with `room_mismatch`. The forest is one engine room (58) whose scripts track the pseudo-room in `VAR_ROOM` (var 4, values 201–220). Steps there use `until: [{"var": 4, "eq": 215}]` for the pseudo-room check.
 - `choose` (list of strings): dialogue choices to pick, in order, each time a dialogue menu is visible during this step. A choice matches when it is a case-insensitive substring of exactly one visible choice. Zero or several matches fails with `choice_not_found`/`choice_ambiguous`. A menu that appears after `choose` is exhausted fails with `unexpected_choice`.
 - `until` (list of C3 conditions): the step waits, while sentence-idle, until all of these hold before it starts. This covers things like waiting for an NPC to leave.
 - `click` (list, optional): coordinate-free verb-slot clicks, performed in order through the game's own input script. Each entry is clicked at its own decision point via `runInputScript(kVerbClickArea, verbid, 1)`, which is exactly what the engine does for a click on that verb, and which dialogue choices already use. A `click` step has no `verb`/`obj`. Entries:
   - `{"verb": 7}` clicks the visible verb slot with verb id 7, e.g. "Use".
   - `{"inventory": 567}` clicks the visible inventory slot that currently shows object 567. The bridge resolves the slot at runtime from the `inventory` description in `segment.toml`, passed as `SPEEDRUN_INVENTORY`.
+  - `{"inventory": 567, "offset": -1}` clicks the slot `offset` positions away from the one showing 567. The resulting slot must exist and be visible; otherwise the step fails with `click_target_missing`.
+    - This reproduces a script quirk. The circus tent's input script reads `Var[134+k]` while the inventory display fills `Var[133+k]` (`room-051-circus-te/local-200.txt [0107]` vs `global/script-009.txt [0092]`).
+    - So "Use pot" there is accepted only when the player clicks the slot just before the pot (`docs/part1/input-scripts.md`).
 
   Clicks exist for puzzles whose effect lives only in a room's input script. The circus helmet is one: `room-051-circus-te/local-200.txt [008B]` is the only setter of bit 103. Scene objects are never clicked, because only sentences reach them.
 
@@ -245,7 +248,7 @@ start = []                  # C3 conditions; [] = first sentence-idle frame of t
 goal = [{bit = 0, eq = 1}]  # replaced in Phase 3 with cited goal flags
 goal_cite = ["global script N line L ...", "..."]
 randomized_vars = []        # var indices randomised at boot, with cites
-inventory = {verb_first = 200, count = 6, var_first = 133, cite = "data/scripts/global/script-009.txt [0092]"}
+inventory = {verb_first = 200, count = 8, var_first = 133, cite = "data/scripts/global/script-009.txt [0092]"}
 ```
 
 ---
