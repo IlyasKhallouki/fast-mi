@@ -72,7 +72,8 @@ The bridge's C++ sources live as new files in `third_party/scummvm/engines/scumm
 Generated artifacts go to `out/` (gitignored):
 
 ```
-out/scummvm/scummvm.ini     # isolated ScummVM config, written by engine.py
+out/scummvm/{saves,xdg}/    # shared isolated savepath and XDG data/cache dirs
+out/runs/<...>/scummvm.ini  # per-run isolated ScummVM config, written by engine.py
 out/scummvm/saves/          # isolated savepath (never used for loading)
 out/objects.json            # object/verb dump
 out/plans/part1.sas_plan    # Fast Downward output
@@ -104,7 +105,13 @@ Boot params use ScummVM's existing `--boot-param=N` command-line option, passed 
 
 ### C2. Ticks
 
-`tick` is the sum of `delta` (1/60 s jiffies) over every `scummLoop(delta)` call. `frame` counts `scummLoop` calls. Both are absolute from boot. Trace records carry absolute `tick`, and the `segment_start` record carries `tick0`. Reported times are `tick - tick0`.
+`tick` is the sum of the unclamped `delta` (1/60 s jiffies) over every `scummLoop(delta)` call. `frame` counts `scummLoop` calls. Both are absolute from boot.
+
+**Stamping rule.** `onFrameBegin(delta)` first observes the completed previous frame and stamps every observation-derived record with the counters *before* adding `delta`. That covers the goal check, `segment_start` (when checked there), `stall`, `saveload` and per-frame diffs. Only then does it add `delta` and increment `frame`.
+
+Records emitted from `onDecisionPoint` describe the current frame and use the counters *after* the add. Those are `step_start`, `choice` and `click`, plus `segment_start` when it is decided at the decision point. `max_ticks` fires once `tick >= max` after the add.
+
+`segment_start` carries `tick0`. Reported times are `tick - tick0`.
 
 ### C3. Condition JSON
 
@@ -159,17 +166,32 @@ The flow for each step:
 ### C5. Trace JSONL (`$SPEEDRUN_OUT/trace.jsonl`)
 
 ```json
-{"type":"boot","tick":0,"frame":0,"seed":1,"fast":true,"boot_param":0,"game":"monkey","variant":"Mac"}
+{"type":"boot","tick":0,"frame":0,"bridge":"speedrun-bridge v1","game":"monkey","variant":"Mac","fast":true,"audio_pump":true,"seed":1,"boot_param":0}
 {"type":"segment_start","tick":812,"frame":203,"tick0":812,"room":33}
-{"type":"step_start","step":0,"tick":830,"frame":207,"action":"walk lookout map","room":33,"sentence":[11,412,0]}
-{"type":"choice","step":0,"tick":990,"verb_id":101,"text":"..."}
-{"type":"step_end","step":0,"tick":1204,"frame":290,"room":85,"changes":{"vars":{"34":[0,1]},"bits":{"512":[0,1]},"inventory":{"added":[],"removed":[]},"room":[33,85]}}
+{"type":"step_start","step":0,"tick":830,"frame":207,"action":"walk dock lookout","room":33,"sentence":[11,426,0]}
+{"type":"click","step":4,"tick":2000,"frame":400,"verb_id":7}
+{"type":"choice","step":0,"tick":990,"frame":250,"verb_id":121,"text":"..."}
+{"type":"step_end","step":0,"tick":1204,"frame":290,"room":38,"changes":{"vars":{"34":[0,1]},"bits":{"512":[0,1]},"inventory":{"added":[],"removed":[]},"room":[33,38]}}
+{"type":"stall","tick":5000,"frame":900,"reason":"sentence_script_running","slot":3}
 {"type":"goal","tick":90210,"frame":21000,"ticks_from_start":89398}
-{"type":"error","tick":5000,"step":3,"code":"room_mismatch","message":"expected room 41, ego in 28"}
-{"type":"end","tick":90270,"reason":"goal"}
+{"type":"error","tick":5000,"frame":901,"step":3,"code":"room_mismatch","message":"expected room 41, ego in 28"}
+{"type":"end","tick":90270,"frame":21010,"reason":"goal","room":33,"audio_frames":33169500,"music_timer":12,"vars_fnv1a":"9f3c1a2b"}
 ```
 
-`reason` is one of `goal`, `plan_exhausted`, `max_ticks`, `error` or `dump_done`. The trace embeds game text through choice texts, so it lives under `out/` and is gitignored.
+- **`end` reasons:** `goal`, `plan_exhausted`, `max_ticks`, `error`, `dump_done`, or `quit`. `quit` means the engine was closed externally, e.g. the window was closed or SIGTERM was sent.
+- **`end` fingerprint:** the record carries `room`, `audio_frames`, `music_timer` and `vars_fnv1a`, an FNV-1a hash over all global vars. Determinism tests compare whole `end` records.
+- **`error` codes:**
+  - `engine_error`, which is ScummVM `error()`;
+  - `saveload`;
+  - `bad_env`;
+  - `room_mismatch`;
+  - `choice_not_found`, `choice_ambiguous`, `unexpected_choice`;
+  - `click_target_missing`;
+  - `untouchable_target`;
+  - `step_timeout`;
+  - `bad_plan`.
+- **String escaping:** the bridge writes ASCII JSON. Bytes ≥ 0x80 in game text become `\u00XX`, the byte value in Latin-1. Python must decode text fields with `s.encode("latin-1").decode("mac_roman")`, because Mac MI1 text is Mac Roman.
+- **Location:** the trace embeds game text through choice texts, so it lives under `out/` and is gitignored.
 
 ### C6. `objects.json` (`SPEEDRUN_DUMP_OBJECTS=1`)
 
@@ -329,7 +351,7 @@ Done during orientation and committed in `c345cac` and `5c14bd6`:
   - `boot_param: int | None`
   - `max_ticks: int | None`
   - `timeout_s: float`
-- [ ] `write_ini(cfg) -> Path` writes `out/scummvm/scummvm.ini` with one target `[monkey-mac]` containing:
+- [ ] `write_ini(cfg) -> Path` writes `<out_dir>/scummvm.ini` (per run) with one target `[monkey-mac]` containing:
   - `gameid=monkey`, `engineid=scumm`, `path=<game_path>`, `platform=macintosh`, `language=en`;
   - `copy_protection=false`, `autosave_period=0`, `subtitles=true`;
   - `music_driver`/`mute` per the audio decision in `engine-bridge.md` §3.
@@ -450,7 +472,7 @@ It writes `objects.json` (C6) and quits with `end` reason `dump_done`. Because t
   - the process exited by itself (not timed out);
   - wall time is under 20 s;
   - no home dirs were touched.
-- [ ] `test_ticks_deterministic_boot` runs the above twice and asserts the `end` records are identical (`tick`, `frame`).
+- [ ] `test_ticks_deterministic_boot` runs the above twice and asserts the whole `end` records, including the fingerprint fields, are identical. The 1800-tick test also asserts `audio_frames > 0` and `music_timer > 0`, which shows the audio pump drives the Mac player.
 - [ ] Implement the skeleton, build with `--no-reset`, export the patch, and make both tests pass.
 
 **Acceptance:**
