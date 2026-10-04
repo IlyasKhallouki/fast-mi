@@ -118,6 +118,14 @@ def test_env_headless_and_speedrun_vars(tmp_path):
     assert env["SDL_AUDIODRIVER"] == "dummy"
 
 
+def test_env_inventory_layout_without_cite(tmp_path):
+    # segment.toml's inventory table carries a citation; the bridge gets only the layout.
+    layout = {"verb_first": 200, "count": 8, "var_first": 133, "cite": "global/script-009.txt [0092]"}
+    env = engine.build_env(_cfg(tmp_path, inventory=layout), base_env={})
+    assert json.loads(env["SPEEDRUN_INVENTORY"]) == {"verb_first": 200, "count": 8, "var_first": 133}
+    assert layout["cite"]  # the caller's dict is not modified
+
+
 def test_env_defaults_omit_optional_vars(tmp_path):
     cfg = _cfg(tmp_path, fast=False)
     env = engine.build_env(cfg, base_env={})
@@ -131,6 +139,7 @@ def test_env_defaults_omit_optional_vars(tmp_path):
         "SPEEDRUN_FAST",
         "SPEEDRUN_MAX_TICKS",
         "SPEEDRUN_STEP_TIMEOUT",
+        "SPEEDRUN_INVENTORY",
     ):
         assert absent not in env
 

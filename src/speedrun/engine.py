@@ -51,6 +51,8 @@ class EngineConfig:
     boot_param: int | None = None
     max_ticks: int | None = None
     step_timeout: int | None = None
+    # Inventory slot layout (segment.toml `inventory`); a `cite` key is dropped.
+    inventory: dict | None = None
     timeout_s: float = 600.0
     extra_args: list[str] = field(default_factory=list)
 
@@ -167,6 +169,9 @@ def build_env(cfg: EngineConfig, base_env: Mapping[str, str] | None = None) -> d
         env["SPEEDRUN_MAX_TICKS"] = str(cfg.max_ticks)
     if cfg.step_timeout is not None:
         env["SPEEDRUN_STEP_TIMEOUT"] = str(cfg.step_timeout)
+    if cfg.inventory is not None:
+        layout = {k: v for k, v in cfg.inventory.items() if k != "cite"}
+        env["SPEEDRUN_INVENTORY"] = json.dumps(layout)
 
     # Keep ScummVM's unconditional data/cache dirs out of $HOME (see module doc).
     env["XDG_DATA_HOME"] = str(_xdg_data_dir())

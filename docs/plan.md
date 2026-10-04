@@ -95,7 +95,7 @@ The bridge is inert unless `SPEEDRUN_OUT` is set.
 | `SPEEDRUN_DUMP_OBJECTS=1` | At the first frame after boot, write `objects.json` (all rooms, all verbs), then quit. |
 | `SPEEDRUN_PLAN=<file.jsonl>` | Replay this plan (C4) once the segment has started. |
 | `SPEEDRUN_START=<json>` | Segment start: a JSON array of conditions (C3), evaluated only on sentence-idle frames. Defaults to `[]`, the first sentence-idle frame. |
-| `SPEEDRUN_GOAL=<json>` | A JSON array of conditions. On the first frame where all hold, write a `goal` record, then quit after a 60-tick grace period. |
+| `SPEEDRUN_GOAL=<json>` | A JSON array of conditions. On the first frame after segment start where all hold, write a `goal` record and `state-end.json`, then quit immediately. If unset or empty, there is no goal. A malformed value is `bad_env`. |
 | `SPEEDRUN_FAST=1` | Skip real-time waiting between frames. Ticks are unaffected. |
 | `SPEEDRUN_MAX_TICKS=<int>` | Safety cap, counted from boot. On reaching it, write `end` with reason `max_ticks`, then quit. |
 | `SPEEDRUN_INVENTORY=<json>` | Inventory slot layout for `click` inventory entries: `{"verb_first": 200, "count": 8, "var_first": 133}`, meaning slot verb `verb_first+k` shows the object in `Var[var_first+k]`. It comes from `segment.toml` and is cited. |
@@ -175,7 +175,7 @@ The flow for each step:
 {"type":"click","step":4,"tick":2000,"frame":400,"verb_id":7}
 {"type":"choice","step":0,"tick":990,"frame":250,"verb_id":121,"text":"..."}
 {"type":"step_end","step":0,"tick":1204,"frame":290,"room":38,"changes":{"vars":{"34":[0,1]},"bits":{"512":[0,1]},"inventory":{"added":[],"removed":[]},"room":[33,38]}}
-{"type":"stall","tick":5000,"frame":900,"reason":"sentence_script_running","slot":3}
+{"type":"stall","tick":5000,"frame":900,"reason":"sentence_script","slot":3,"script":2,"room":28,"not_idle_ticks":3600}
 {"type":"goal","tick":90210,"frame":21000,"ticks_from_start":89398}
 {"type":"error","tick":5000,"frame":901,"step":3,"code":"room_mismatch","message":"expected room 41, ego in 28"}
 {"type":"end","tick":90270,"frame":21010,"reason":"goal","room":33,"audio_frames":33169500,"music_timer":12,"vars_fnv1a":"9f3c1a2b"}
@@ -192,7 +192,8 @@ The flow for each step:
   - `click_target_missing`;
   - `untouchable_target`;
   - `step_timeout`;
-  - `bad_plan`.
+  - `bad_plan`;
+  - `dump_not_reached`: `max_ticks` was hit before the first idle frame in dump mode.
 - **String escaping:** the bridge writes ASCII JSON. Bytes ≥ 0x80 in game text become `\u00XX`, the byte value in Latin-1. Python must decode text fields with `s.encode("latin-1").decode("mac_roman")`, because Mac MI1 text is Mac Roman.
 - **Location:** the trace embeds game text through choice texts, so it lives under `out/` and is gitignored.
 
@@ -212,6 +213,25 @@ The flow for each step:
 
 `owner` 15 (`OF_OWNER_ROOM`) means the object lies in its room. The compiler resolves names only through this file.
 
+As implemented (Task 1.2):
+- The room `name` is `null`, because ScummVM discards v5 room names at load.
+- Image verbs have `name: ""`.
+- Verbs also carry `saveid`, `type`, `key`, `x` and `y`.
+- Objects also carry `x`, `y`, `w`, `h`, `parent`, `parentstate`, `actordir`, and `verbs`: the raw handled-verb list, which may contain duplicates.
+
+Stall `reason` values are:
+- `userput`
+- `cutscene`
+- `sentence_queue`
+- `sentence_script`
+- `input_script`
+- `object_script`
+- `message`
+- `talk_delay`
+- `fade`
+- `ego_moving`
+- `no_verbs`
+
 ### C7. State dump (`$SPEEDRUN_OUT/state-start.json`), written at segment start
 
 ```json
@@ -219,7 +239,19 @@ The flow for each step:
  "vars": [0, 1, ...], "bits_set": [17, 512], "inventory": [], "owners": {"316": 15}, "states": {"316": 0}}
 ```
 
-`vars` holds every global variable, so values randomised at boot are included. `segment.toml` names the randomised ones (Phase 3), and `speedrun run` prints them.
+`vars` holds every global variable, so values randomised at boot are included. The dump also carries:
+- `classes`, non-zero entries only;
+- `room_objects`;
+- the visible `verbs`;
+- `ego_pos`, which is `null` without an ego.
+
+`owners` and `states` cover all objects.
+
+**Idle rules as implemented** (`speedrun_state.cpp`):
+- **Text** blocks only while a real actor talks (`VAR_TALK_ACTOR` in 1..0x7F) or a script slot is parked on `WaitForMessage`. The island map reprints a hover label every frame through `print`, which sets `_haveMsg` and `_talkDelay`.
+- **Hidden verbs:** a frame with no visible standard verbs counts as sentence-idle when `VAR_VERB_SCRIPT` is a room-local input script (≥ 200). The map hides the verb bar (`startScript(17,[1])`).
+- **Dialogue verbs** are ids 120–128 (`global/script-017.txt [00D4]`, `global/script-014.txt [00AA]`).
+- **First idle frame** after boot is on the dock at tick 12865. Input stays off through the logo, credits and lookout opening. `segment.toml` names the randomised ones (Phase 3), and `speedrun run` prints them.
 
 ### C8. `pddl/part1/steps.toml`
 

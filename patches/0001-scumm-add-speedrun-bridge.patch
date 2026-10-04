@@ -1,13 +1,15 @@
 diff --git a/engines/scumm/module.mk b/engines/scumm/module.mk
-index 2cee05ab..c6269ac0 100644
+index 2cee05ab..7977d140 100644
 --- a/engines/scumm/module.mk
 +++ b/engines/scumm/module.mk
-@@ -97,6 +97,9 @@ MODULE_OBJS := \
+@@ -97,6 +97,11 @@ MODULE_OBJS := \
  	vars.o \
  	verbs.o
  
 +MODULE_OBJS += \
-+	speedrun/speedrun_bridge.o
++	speedrun/speedrun_bridge.o \
++	speedrun/speedrun_conditions.o \
++	speedrun/speedrun_state.o
 +
  ifdef USE_IMGUI
  MODULE_OBJS += \
@@ -103,10 +105,10 @@ index ae7b4bb7..816bf55d 100644
  
 diff --git a/engines/scumm/speedrun/speedrun_bridge.cpp b/engines/scumm/speedrun/speedrun_bridge.cpp
 new file mode 100644
-index 00000000..32d328b9
+index 00000000..a7d4ff95
 --- /dev/null
 +++ b/engines/scumm/speedrun/speedrun_bridge.cpp
-@@ -0,0 +1,457 @@
+@@ -0,0 +1,569 @@
 +/* ScummVM - Graphic Adventure Engine
 + *
 + * ScummVM is the legal property of its developers, whose names
@@ -264,6 +266,21 @@ index 00000000..32d328b9
 +	return "{" + _members + "}";
 +}
 +
++JsonArray &JsonArray::addRaw(const Common::String &json) {
++	if (!_elements.empty())
++		_elements += ',';
++	_elements += json;
++	return *this;
++}
++
++JsonArray &JsonArray::add(int value) {
++	return addRaw(Common::String::format("%d", value));
++}
++
++Common::String JsonArray::str() const {
++	return "[" + _elements + "]";
++}
++
 +#pragma mark - Lifetime
 +
 +SpeedrunBridge::SpeedrunBridge(ScummEngine *vm) : _vm(vm) {
@@ -327,13 +344,25 @@ index 00000000..32d328b9
 +	if (stepTimeout && !parseUint64(stepTimeout, _stepTimeout) && _envError.empty())
 +		_envError = Common::String::format("invalid SPEEDRUN_STEP_TIMEOUT '%s'", stepTimeout);
 +
-+	// Stored raw; parsed by the stages that use them.
++	// C3 condition lists; ranges are checked in onBoot(), once the game's
++	// variable and object counts are known.
++	static const struct {
++		const char *name;
++		SpeedrunConditions SpeedrunBridge::*list;
++	} kConditionVars[] = {
++		{"SPEEDRUN_START", &SpeedrunBridge::_start},
++		{"SPEEDRUN_GOAL", &SpeedrunBridge::_goal},
++	};
++	for (const auto &var : kConditionVars) {
++		const char *json = envValue(var.name);
++		Common::String error;
++		if (json && !parseSpeedrunConditions(json, this->*var.list, error) && _envError.empty())
++			_envError = Common::String::format("invalid %s: %s", var.name, error.c_str());
++	}
++
++	// Stored raw; parsed by the plan player.
 +	const char *plan = envValue("SPEEDRUN_PLAN");
 +	_planPath = plan ? plan : "";
-+	const char *start = envValue("SPEEDRUN_START");
-+	_startJson = start ? start : "";
-+	const char *goal = envValue("SPEEDRUN_GOAL");
-+	_goalJson = goal ? goal : "";
 +	const char *inventory = envValue("SPEEDRUN_INVENTORY");
 +	_inventoryJson = inventory ? inventory : "";
 +}
@@ -358,6 +387,9 @@ index 00000000..32d328b9
 +void SpeedrunBridge::onBoot() {
 +	if (_finished)
 +		return;
++
++	checkConditionRanges(_start, "SPEEDRUN_START");
++	checkConditionRanges(_goal, "SPEEDRUN_GOAL");
 +
 +	JsonObject rec = record("boot");
 +	rec.add("bridge", kBridgeMarker)
@@ -404,8 +436,12 @@ index 00000000..32d328b9
 +		pumpAudio(delta);
 +
 +	// 4. Watchdog, stamped after the add.
-+	if (_hasMaxTicks && _ticks >= _maxTicks)
-+		finish("max_ticks");
++	if (_hasMaxTicks && _ticks >= _maxTicks) {
++		if (_dumpObjects)
++			fail("dump_not_reached", "max_ticks reached before the first idle frame; objects.json not written");
++		else
++			finish("max_ticks");
++	}
 +}
 +
 +void SpeedrunBridge::observePreviousFrame() {
@@ -418,13 +454,91 @@ index 00000000..32d328b9
 +		return;
 +	}
 +
-+	// Later stages: goal and segment-start checks, stall diagnostics, state diffs.
++	// The goal is judged on the state after a whole frame: scripts, the
++	// sentence script, walking and room changes have all run.
++	if (_segmentStarted && !_goal.empty() && allHold(_goal)) {
++		reachGoal();
++		return;
++	}
++
++	maybeReportStall();
 +}
 +
 +void SpeedrunBridge::onDecisionPoint() {
 +	if (_finished)
 +		return;
-+	// Idle detection and plan steps hook in here (later stages).
++
++	// Where checkExecVerbs() has just handled this frame's clicks, so idle
++	// here means "a click now would be taken in this frame".
++	_lastIdle = evaluateIdle();
++	if (_lastIdle.kind != kNotIdle) {
++		_idleSeenTick = _ticks;
++		_stallReported = false;
++	}
++
++	if (_dumpObjects) {
++		// The first idle frame of either kind: verbs exist and objects still
++		// have their game-start owners and states.
++		if (_lastIdle.kind != kNotIdle) {
++			writeFile("objects.json", objectsJson());
++			finish("dump_done");
++		}
++		return;
++	}
++
++	if (!_segmentStarted && _lastIdle.kind == kIdleSentence && allHold(_start))
++		startSegment();
++
++	// Plan steps hook in here (task 1.3).
++}
++
++#pragma mark - Run control
++
++void SpeedrunBridge::startSegment() {
++	_segmentStarted = true;
++	_tick0 = _ticks;
++	writeFile("state-start.json", stateJson());
++	writeRecord(record("segment_start").add("tick0", _tick0).add("room", (int)_vm->_currentRoom));
++}
++
++void SpeedrunBridge::reachGoal() {
++	writeFile("state-end.json", stateJson());
++	writeRecord(record("goal").add("ticks_from_start", _ticks - _tick0));
++	finish("goal");
++}
++
++void SpeedrunBridge::maybeReportStall() {
++	// Diagnostic only: name what kept the decision point from being idle once
++	// that has lasted kStallTicks, then again every kStallTicks.
++	static const uint64 kStallTicks = 3600; // one minute of game time
++	if (_lastIdle.kind != kNotIdle || !_lastIdle.blocker)
++		return;
++	const uint64 since = _stallReported ? _stallTick : _idleSeenTick;
++	if (_ticks - since < kStallTicks)
++		return;
++	JsonObject rec = record("stall");
++	rec.add("reason", _lastIdle.blocker);
++	if (_lastIdle.slot >= 0)
++		rec.add("slot", _lastIdle.slot).add("script", _lastIdle.script);
++	rec.add("room", (int)_vm->_currentRoom).add("not_idle_ticks", _ticks - _idleSeenTick);
++	writeRecord(rec);
++	_stallTick = _ticks;
++	_stallReported = true;
++}
++
++bool SpeedrunBridge::writeFile(const char *name, const Common::String &contents) {
++	const Common::Path path = Common::Path(_outDir, Common::Path::kNativeSeparator).appendComponent(name);
++	Common::DumpFile file;
++	bool ok = file.open(path, true);
++	if (ok) {
++		file.writeString(contents);
++		file.writeByte('\n');
++		ok = file.flush() && !file.err();
++		file.close();
++	}
++	if (!ok)
++		raiseError("engine_error", Common::String::format("cannot write %s in '%s'", name, _outDir.c_str()));
++	return ok;
 +}
 +
 +#pragma mark - Infrastructure
@@ -566,10 +680,10 @@ index 00000000..32d328b9
 +} // End of namespace Scumm
 diff --git a/engines/scumm/speedrun/speedrun_bridge.h b/engines/scumm/speedrun/speedrun_bridge.h
 new file mode 100644
-index 00000000..6982557b
+index 00000000..b223e762
 --- /dev/null
 +++ b/engines/scumm/speedrun/speedrun_bridge.h
-@@ -0,0 +1,178 @@
+@@ -0,0 +1,260 @@
 +/* ScummVM - Graphic Adventure Engine
 + *
 + * ScummVM is the legal property of its developers, whose names
@@ -595,6 +709,7 @@ index 00000000..6982557b
 +#define SCUMM_SPEEDRUN_SPEEDRUN_BRIDGE_H
 +
 +#include "common/scummsys.h"
++#include "common/array.h"
 +#include "common/file.h"
 +#include "common/str.h"
 +
@@ -629,6 +744,40 @@ index 00000000..6982557b
 +	Common::String _members; // comma-separated "key":value pairs
 +};
 +
++/** Builds one JSON array; elements appear in the order they are added. */
++class JsonArray {
++public:
++	JsonArray &add(int value);
++	/** @p json must already be valid JSON. */
++	JsonArray &addRaw(const Common::String &json);
++	JsonArray &add(const JsonObject &value) { return addRaw(value.str()); }
++	bool empty() const { return _elements.empty(); }
++	Common::String str() const;
++
++private:
++	Common::String _elements;
++};
++
++/** One C3 condition (docs/plan.md, contract C3). */
++struct SpeedrunCondition {
++	enum Kind { kVar, kBit, kRoom, kOwner, kState, kHas, kActorRoom, kActorX, kActorY };
++	enum Op { kEq, kLe, kGe };
++
++	Kind kind;
++	int32 subject; // var or bit index, room, object or actor
++	Op op;
++	int32 value;   // unused for kRoom and kHas
++	bool negate;
++};
++
++typedef Common::Array<SpeedrunCondition> SpeedrunConditions;
++
++/**
++ * Parse a JSON array of C3 conditions, accepting exactly the forms of
++ * src/speedrun/conditions.py. On failure returns false and sets @p error.
++ */
++bool parseSpeedrunConditions(const Common::String &json, SpeedrunConditions &out, Common::String &error);
++
 +/**
 + * Speedrun bridge: lets an external harness run the game headless, on a
 + * deterministic tick clock, and observe it through a JSONL trace.
@@ -645,17 +794,20 @@ index 00000000..6982557b
 + *  - ~ScummEngine(), first statement:         delete
 + *
 + * Environment (contract C1; all read once, in create()):
-+ *  - SPEEDRUN_OUT=<dir>          output dir; trace.jsonl is written there
++ *  - SPEEDRUN_OUT=<dir>          output dir: trace.jsonl, objects.json, state-*.json
 + *  - SPEEDRUN_FAST=1             no real-time waiting between frames
 + *  - SPEEDRUN_MAX_TICKS=<n>      watchdog: end "max_ticks" once ticks >= n
-+ *  - SPEEDRUN_DUMP_OBJECTS, SPEEDRUN_PLAN, SPEEDRUN_START, SPEEDRUN_GOAL,
-+ *    SPEEDRUN_INVENTORY, SPEEDRUN_STEP_TIMEOUT: parsed and stored for later stages
++ *  - SPEEDRUN_DUMP_OBJECTS=1     objects.json at the first idle frame, then end "dump_done"
++ *  - SPEEDRUN_START=<json>       segment start conditions, checked on sentence-idle frames
++ *  - SPEEDRUN_GOAL=<json>        goal conditions, checked once the segment has started;
++ *                                unset or [] means no goal
++ *  - SPEEDRUN_PLAN, SPEEDRUN_INVENTORY, SPEEDRUN_STEP_TIMEOUT: stored for the plan player
 + * The RNG seed is ScummVM's own --random-seed (ConfMan "random_seed").
 + *
 + * Record stamping (contract C2): records about the completed previous frame
-+ * are written at the top of onFrameBegin() with the counters before this
-+ * frame's delta; records about the current frame (decision point, watchdog)
-+ * use the counters after it.
++ * (saveload, goal, stall) are written at the top of onFrameBegin() with the
++ * counters before this frame's delta; records decided at the decision point
++ * (segment_start) and the watchdog use the counters after it.
 + */
 +class SpeedrunBridge {
 +public:
@@ -678,6 +830,16 @@ index 00000000..6982557b
 +	bool skipWaits() const { return _skipWaits; }
 +
 +private:
++	enum IdleKind { kNotIdle, kIdleSentence, kIdleDialog };
++
++	/** What the decision point saw: an idle kind, or what blocks idle. */
++	struct IdleState {
++		IdleKind kind = kNotIdle;
++		const char *blocker = nullptr; // stall reason when not idle
++		int slot = -1;                 // script slot behind the blocker, if any
++		int script = -1;               // script number in that slot
++	};
++
 +	explicit SpeedrunBridge(ScummEngine *vm);
 +	SpeedrunBridge(const SpeedrunBridge &) = delete;
 +	SpeedrunBridge &operator=(const SpeedrunBridge &) = delete;
@@ -689,6 +851,32 @@ index 00000000..6982557b
 +	void observePreviousFrame();
 +	void neutraliseInput();
 +	void pumpAudio(int delta);
++
++	// Idle detection (speedrun_state.cpp)
++	static IdleState blocked(const char *reason, int slot = -1, int script = -1);
++	IdleState evaluateIdle() const;
++	bool verbVisible(int slot) const;
++	bool anyVisibleVerb(int firstId, int lastId) const;
++	bool slotWaitsForMessage(int slot) const;
++
++	// Conditions (speedrun_conditions.cpp)
++	bool conditionHolds(const SpeedrunCondition &cond) const;
++	bool allHold(const SpeedrunConditions &conds) const;
++	/** bad_env unless every index, object and actor exists in this game. */
++	void checkConditionRanges(const SpeedrunConditions &conds, const char *envName);
++
++	// Dumps (speedrun_state.cpp)
++	/** Verb slot text as rendered: escapes expanded or stripped, raw bytes. Null if none. */
++	bool verbText(int slot, Common::String &out) const;
++	Common::String verbJson(int slot) const;
++	Common::String stateJson() const;
++	Common::String objectsJson();
++	bool writeFile(const char *name, const Common::String &contents);
++
++	// Run control
++	void startSegment();
++	void reachGoal();
++	void maybeReportStall();
 +
 +	/** End the run: end record, close the trace, quitGame(). Idempotent. */
 +	void finish(const char *reason);
@@ -720,8 +908,8 @@ index 00000000..6982557b
 +	uint64 _maxTicks = 0;
 +	bool _dumpObjects = false;
 +	Common::String _planPath;
-+	Common::String _startJson;      // raw JSON from SPEEDRUN_START
-+	Common::String _goalJson;       // raw JSON from SPEEDRUN_GOAL
++	SpeedrunConditions _start;      // SPEEDRUN_START; empty = first sentence-idle frame
++	SpeedrunConditions _goal;       // SPEEDRUN_GOAL; empty = no goal
 +	Common::String _inventoryJson;  // raw JSON from SPEEDRUN_INVENTORY
 +	uint64 _stepTimeout = 36000;    // ticks; 10 minutes of game time
 +	Common::String _envError;       // first invalid variable, reported once the trace is open
@@ -729,6 +917,14 @@ index 00000000..6982557b
 +	// Run clock (contract C2): ticks = sum of unclamped deltas since boot
 +	uint64 _ticks = 0;
 +	uint64 _frames = 0;
++
++	// Segment and idle tracking
++	bool _segmentStarted = false;
++	uint64 _tick0 = 0;
++	IdleState _lastIdle;            // from the latest decision point
++	uint64 _idleSeenTick = 0;       // tick of the latest idle decision point (0 = boot)
++	uint64 _stallTick = 0;          // tick of the latest stall record in this streak
++	bool _stallReported = false;
 +
 +	// Tick-locked audio (null mixer, --disable-sdl-audio)
 +	static const uint kAudioChunkFrames = 512;
@@ -748,3 +944,764 @@ index 00000000..6982557b
 +} // End of namespace Scumm
 +
 +#endif
+diff --git a/engines/scumm/speedrun/speedrun_conditions.cpp b/engines/scumm/speedrun/speedrun_conditions.cpp
+new file mode 100644
+index 00000000..cdb317e9
+--- /dev/null
++++ b/engines/scumm/speedrun/speedrun_conditions.cpp
+@@ -0,0 +1,286 @@
++/* ScummVM - Graphic Adventure Engine
++ *
++ * ScummVM is the legal property of its developers, whose names
++ * are too numerous to list here. Please refer to the COPYRIGHT
++ * file distributed with this source distribution.
++ *
++ * This program is free software: you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License as published by
++ * the Free Software Foundation, either version 3 of the License, or
++ * (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
++ *
++ */
++
++// C3 conditions (docs/plan.md): parsing, range checks and evaluation.
++
++#include "common/formats/json.h"
++
++#include "scumm/actor.h"
++#include "scumm/scumm.h"
++#include "scumm/speedrun/speedrun_bridge.h"
++
++namespace Scumm {
++
++namespace {
++
++// SCUMM v5 MI1: object ids 1..12 are actors (src/speedrun/conditions.py MAX_ACTOR).
++const int kMaxActor = 12;
++
++bool readInt(const Common::JSONValue *value, int32 &out) {
++	if (!value || !value->isIntegerNumber())
++		return false; // rejects bools, strings and 1.5 alike
++	const long long v = value->asIntegerNumber();
++	if (v < -2147483647LL - 1 || v > 2147483647LL)
++		return false;
++	out = (int32)v;
++	return true;
++}
++
++bool hasExactKeys(const Common::JSONObject &obj, const char *a, const char *b = nullptr) {
++	if (obj.size() != (b ? 2u : 1u))
++		return false;
++	return obj.contains(a) && (!b || obj.contains(b));
++}
++
++bool parseCondition(const Common::JSONValue *value, SpeedrunCondition &cond, Common::String &error) {
++	if (!value || !value->isObject()) {
++		error = "a condition must be a JSON object";
++		return false;
++	}
++	const Common::JSONObject &obj = value->asObject();
++
++	if (hasExactKeys(obj, "not")) {
++		if (!parseCondition(obj.getVal("not"), cond, error)) {
++			error = "in 'not': " + error;
++			return false;
++		}
++		cond.negate = !cond.negate;
++		return true;
++	}
++
++	cond.negate = false;
++	cond.op = SpeedrunCondition::kEq;
++	cond.value = 0;
++
++	static const struct {
++		const char *key;
++		SpeedrunCondition::Kind kind;
++	} kCompare[] = {
++		{"var", SpeedrunCondition::kVar},
++		{"bit", SpeedrunCondition::kBit},
++		{"owner", SpeedrunCondition::kOwner},
++		{"state", SpeedrunCondition::kState},
++		{"actor_room", SpeedrunCondition::kActorRoom},
++	};
++	for (const auto &form : kCompare) {
++		if (hasExactKeys(obj, form.key, "eq")) {
++			cond.kind = form.kind;
++			if (!readInt(obj.getVal(form.key), cond.subject) || !readInt(obj.getVal("eq"), cond.value)) {
++				error = Common::String::format("'%s' and 'eq' must be integers", form.key);
++				return false;
++			}
++			if (cond.kind == SpeedrunCondition::kActorRoom && (cond.subject < 1 || cond.subject > kMaxActor)) {
++				error = Common::String::format("'actor_room' must be an actor id 1..%d", kMaxActor);
++				return false;
++			}
++			return true;
++		}
++	}
++
++	static const struct {
++		const char *key;
++		SpeedrunCondition::Kind kind;
++	} kUnary[] = {
++		{"room", SpeedrunCondition::kRoom},
++		{"has", SpeedrunCondition::kHas},
++	};
++	for (const auto &form : kUnary) {
++		if (hasExactKeys(obj, form.key)) {
++			cond.kind = form.kind;
++			if (!readInt(obj.getVal(form.key), cond.subject)) {
++				error = Common::String::format("'%s' must be an integer", form.key);
++				return false;
++			}
++			return true;
++		}
++	}
++
++	static const struct {
++		const char *key;
++		SpeedrunCondition::Kind kind;
++	} kPosition[] = {
++		{"actor_x", SpeedrunCondition::kActorX},
++		{"actor_y", SpeedrunCondition::kActorY},
++	};
++	static const struct {
++		const char *key;
++		SpeedrunCondition::Op op;
++	} kOps[] = {
++		{"eq", SpeedrunCondition::kEq},
++		{"le", SpeedrunCondition::kLe},
++		{"ge", SpeedrunCondition::kGe},
++	};
++	for (const auto &form : kPosition) {
++		for (const auto &op : kOps) {
++			if (hasExactKeys(obj, form.key, op.key)) {
++				cond.kind = form.kind;
++				cond.op = op.op;
++				if (!readInt(obj.getVal(form.key), cond.subject) || !readInt(obj.getVal(op.key), cond.value)) {
++					error = Common::String::format("'%s' and '%s' must be integers", form.key, op.key);
++					return false;
++				}
++				if (cond.subject < 1 || cond.subject > kMaxActor) {
++					error = Common::String::format("'%s' must be an actor id 1..%d", form.key, kMaxActor);
++					return false;
++				}
++				return true;
++			}
++		}
++	}
++
++	error = "unknown condition; expected {var|bit|owner|state: int, eq: int}, {room: int}, {has: int}, "
++	        "{actor_room: actor, eq: int}, {actor_x|actor_y: actor, eq|le|ge: int} or {not: condition}";
++	return false;
++}
++
++} // End of anonymous namespace
++
++bool parseSpeedrunConditions(const Common::String &json, SpeedrunConditions &out, Common::String &error) {
++	out.clear();
++	Common::JSONValue *root = Common::JSON::parse(json);
++	if (!root) {
++		error = "not valid JSON";
++		return false;
++	}
++	bool ok = true;
++	if (!root->isArray()) {
++		error = "expected a JSON array of conditions";
++		ok = false;
++	} else {
++		const Common::JSONArray &items = root->asArray();
++		for (uint i = 0; ok && i < items.size(); i++) {
++			SpeedrunCondition cond;
++			if (!parseCondition(items[i], cond, error)) {
++				error = Common::String::format("condition %u: %s", i, error.c_str());
++				ok = false;
++			} else {
++				out.push_back(cond);
++			}
++		}
++	}
++	delete root;
++	if (!ok)
++		out.clear();
++	return ok;
++}
++
++void SpeedrunBridge::checkConditionRanges(const SpeedrunConditions &conds, const char *envName) {
++	for (uint i = 0; i < conds.size(); i++) {
++		const SpeedrunCondition &c = conds[i];
++		int limit = -1;
++		const char *what = nullptr;
++		switch (c.kind) {
++		case SpeedrunCondition::kVar:
++			limit = _vm->_numVariables;
++			what = "variable";
++			break;
++		case SpeedrunCondition::kBit:
++			limit = _vm->_numBitVariables;
++			what = "bit variable";
++			break;
++		case SpeedrunCondition::kOwner:
++		case SpeedrunCondition::kState:
++		case SpeedrunCondition::kHas:
++			limit = _vm->_numGlobalObjects;
++			what = "object";
++			break;
++		case SpeedrunCondition::kActorRoom:
++		case SpeedrunCondition::kActorX:
++		case SpeedrunCondition::kActorY:
++			limit = _vm->_numActors;
++			what = "actor";
++			break;
++		case SpeedrunCondition::kRoom:
++			break;
++		}
++		if (what && (c.subject < 0 || c.subject >= limit))
++			raiseError("bad_env", Common::String::format("%s condition %u: %s %d out of range 0..%d", envName, i, what, c.subject, limit - 1));
++	}
++}
++
++bool SpeedrunBridge::conditionHolds(const SpeedrunCondition &c) const {
++	const ScummEngine &e = *_vm;
++	int32 actual = 0;
++	bool result = false;
++
++	switch (c.kind) {
++	case SpeedrunCondition::kVar:
++		actual = e._scummVars[c.subject];
++		break;
++	case SpeedrunCondition::kBit:
++		// readVar(0x8000 | n): bit n is _bitVars[n >> 3] & (1 << (n & 7)) (script.cpp)
++		actual = (e._bitVars[c.subject >> 3] & (1 << (c.subject & 7))) ? 1 : 0;
++		break;
++	case SpeedrunCondition::kRoom:
++		actual = e._currentRoom;
++		break;
++	case SpeedrunCondition::kOwner:
++		actual = e._objectOwnerTable[c.subject];
++		break;
++	case SpeedrunCondition::kState:
++		actual = e._objectStateTable[c.subject];
++		break;
++	case SpeedrunCondition::kHas: {
++		// Ego's inventory, as findInventory()/getInventoryCount() see it.
++		const int ego = e._scummVars[e.VAR_EGO];
++		for (int i = 0; i < e._numInventory && !result; i++)
++			result = e._inventory[i] == c.subject && ego > 0 && e._objectOwnerTable[c.subject] == ego;
++		return result != c.negate;
++	}
++	case SpeedrunCondition::kActorRoom:
++	case SpeedrunCondition::kActorX:
++	case SpeedrunCondition::kActorY: {
++		const Actor *a = e._actors[c.subject];
++		if (c.kind == SpeedrunCondition::kActorRoom)
++			actual = a->_room;
++		else if (c.kind == SpeedrunCondition::kActorX)
++			actual = a->getRealPos().x;
++		else
++			actual = a->getRealPos().y;
++		break;
++	}
++	}
++
++	switch (c.kind) {
++	case SpeedrunCondition::kRoom:
++		result = actual == c.subject;
++		break;
++	default:
++		if (c.op == SpeedrunCondition::kLe)
++			result = actual <= c.value;
++		else if (c.op == SpeedrunCondition::kGe)
++			result = actual >= c.value;
++		else
++			result = actual == c.value;
++		break;
++	}
++	return result != c.negate;
++}
++
++bool SpeedrunBridge::allHold(const SpeedrunConditions &conds) const {
++	for (uint i = 0; i < conds.size(); i++) {
++		if (!conditionHolds(conds[i]))
++			return false;
++	}
++	return true;
++}
++
++} // End of namespace Scumm
+diff --git a/engines/scumm/speedrun/speedrun_state.cpp b/engines/scumm/speedrun/speedrun_state.cpp
+new file mode 100644
+index 00000000..dfab7dcc
+--- /dev/null
++++ b/engines/scumm/speedrun/speedrun_state.cpp
+@@ -0,0 +1,463 @@
++/* ScummVM - Graphic Adventure Engine
++ *
++ * ScummVM is the legal property of its developers, whose names
++ * are too numerous to list here. Please refer to the COPYRIGHT
++ * file distributed with this source distribution.
++ *
++ * This program is free software: you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License as published by
++ * the Free Software Foundation, either version 3 of the License, or
++ * (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
++ *
++ */
++
++// Observation: the idle predicate, verb text, and the state and object dumps
++// (docs/plan.md contracts C6, C7; docs/research/engine-bridge.md §5-§9).
++
++#include "common/config-manager.h"
++#include "common/endian.h"
++
++#include "scumm/actor.h"
++#include "scumm/object.h"
++#include "scumm/resource.h"
++#include "scumm/scumm.h"
++#include "scumm/verbs.h"
++#include "scumm/speedrun/speedrun_bridge.h"
++
++namespace Scumm {
++
++namespace {
++
++// MI1 verb ids, from the decompiled scripts (data/scripts):
++// - Action verbs 2..10 (Open, Close, Give, Push, Pull, Use, Look at, Pick up,
++//   Talk to) are created On() by global/script-022.txt [002F]-[00D0]. "Walk to"
++//   (11) is the implicit default verb, created Off() at [001F], so it never
++//   shows in the verb bar.
++// - Dialogue choices are verbs 120..128: global/script-017.txt creates them at
++//   [00D4]-[014C] (keys '1'..'9') and [0286]-[02EE]; menus fill them through
++//   VerbOps(Var[100] = 120 + k) (e.g. room-038-lookout/local-202.txt [013E]),
++//   and the dialogue input script global/script-014.txt maps a click on 120+k
++//   back to Var[250 + k] and turns 120..128 off again ([0013]-[0078],
++//   [00AA]-[00B7]). Not yet confirmed against live verb slots in a menu: no
++//   menu is reachable before the plan player (task 1.3).
++// - Not used here: prepositions 129..132 (script-022 [01C8]-[01E5]), the
++//   sentence line 100, inventory arrows 109/110, inventory slots 200..207.
++const int kActionVerbFirst = 2, kActionVerbLast = 10;
++const int kDialogVerbFirst = 120, kDialogVerbLast = 128;
++
++// o5_wait and its SO_WAIT_FOR_MESSAGE sub-opcode (script_v5.cpp).
++const byte kOpWait = 0xAE, kWaitForMessage = 2;
++
++// Bytes of a script string as drawn: '@' padding dropped and 0xFF/0xFE escape
++// sequences removed. drawString() treats both as escape introducers in v<=6
++// (string.cpp); codes 9, 10, 12, 13 and 14 carry a 16-bit argument.
++Common::String stripEscapes(const byte *s, uint32 maxLen) {
++	Common::String out;
++	for (uint32 i = 0; i < maxLen && s[i]; i++) {
++		const byte c = s[i];
++		if (c == 0xFF || c == 0xFE) {
++			if (i + 1 >= maxLen || !s[i + 1])
++				break;
++			const byte code = s[i + 1];
++			const uint32 len = (code == 9 || code == 10 || code == 12 || code == 13 || code == 14) ? 4 : 2;
++			i += len - 1;
++			continue;
++		}
++		if (c != '@')
++			out += (char)c;
++	}
++	return out;
++}
++
++Common::String withoutAt(const byte *s) {
++	Common::String out;
++	for (; s && *s; ++s) {
++		if (*s != '@')
++			out += (char)*s;
++	}
++	return out;
++}
++
++Common::String pointJson(int x, int y) {
++	return JsonArray().add(x).add(y).str();
++}
++
++Common::String classesJson(uint32 bits) {
++	JsonArray classes;
++	for (int bit = 0; bit < 32; bit++) {
++		if (bits & (1u << bit))
++			classes.add(bit + 1); // getClass(obj, cls) tests bit cls-1 (object.cpp)
++	}
++	return classes.str();
++}
++
++} // End of anonymous namespace
++
++#pragma mark - Idle
++
++SpeedrunBridge::IdleState SpeedrunBridge::blocked(const char *reason, int slot, int script) {
++	IdleState s;
++	s.blocker = reason;
++	s.slot = slot;
++	s.script = script;
++	return s;
++}
++
++bool SpeedrunBridge::verbVisible(int slot) const {
++	// The engine's own hit and key tests (verbs.cpp findVerbAtPos/checkExecVerbs).
++	const VerbSlot &v = _vm->_verbs[slot];
++	return v.verbid != 0 && v.saveid == 0 && v.curmode == 1;
++}
++
++bool SpeedrunBridge::anyVisibleVerb(int firstId, int lastId) const {
++	for (int slot = 1; slot < _vm->_numVerbs; slot++) {
++		const int id = _vm->_verbs[slot].verbid;
++		if (id >= firstId && id <= lastId && verbVisible(slot))
++			return true;
++	}
++	return false;
++}
++
++bool SpeedrunBridge::slotWaitsForMessage(int i) const {
++	// A script blocked in WaitForMessage() re-executes o5_wait every frame:
++	// o5_wait rewinds _scriptPointer to its own opcode before breakHere()
++	// (script_v5.cpp), so the slot's offs points at "AE 02". Read the code
++	// through the raw resource pointers: getResourceAddress() would update
++	// LRU counters and so change what expireResources() evicts later.
++	const ScummEngine &e = *_vm;
++	const ScriptSlot &ss = e.vm.slot[i];
++	ResType type = rtInvalid;
++	int idx = -1;
++	switch (ss.where) {
++	case WIO_GLOBAL:
++		type = rtScript;
++		idx = ss.number;
++		break;
++	case WIO_LOCAL:
++	case WIO_ROOM:
++		type = rtRoom; // local, object, entry and exit code all live in the room (script.cpp getScriptBaseAddress)
++		idx = e._roomResource;
++		break;
++	case WIO_INVENTORY:
++		type = rtInventory;
++		for (int k = 0; k < e._numInventory; k++) {
++			if (e._inventory[k] == ss.number)
++				idx = k;
++		}
++		break;
++	case WIO_FLOBJECT: {
++		const int obj = e.getObjectIndex(ss.number);
++		if (obj >= 0) {
++			type = rtFlObject;
++			idx = e._objs[obj].fl_object_index;
++		}
++		break;
++	}
++	default:
++		break;
++	}
++	if (type == rtInvalid || idx < 0 || idx >= (int)e._res->_types[type].size())
++		return false;
++	const ResourceManager::Resource &res = e._res->_types[type][idx];
++	if (!res._address || ss.offs + 1 >= res._size)
++		return false;
++	return res._address[ss.offs] == kOpWait && (res._address[ss.offs + 1] & 0x1F) == kWaitForMessage;
++}
++
++SpeedrunBridge::IdleState SpeedrunBridge::evaluateIdle() const {
++	// "The player could click now" (docs/research/engine-bridge.md §5),
++	// evaluated where checkExecVerbs() has just run.
++	const ScummEngine &e = *_vm;
++
++	if (e._saveLoadFlag)
++		return blocked("saveload");
++	if (e._messageBannerActive)
++		return blocked("banner");
++	if (e._userPut <= 0) // the engine's click gate (verbs.cpp checkExecVerbs)
++		return blocked("userput");
++	if (e.vm.cutSceneStackPointer > 0)
++		return blocked("cutscene");
++	if (e._sentenceNum > 0)
++		return blocked("sentence_queue");
++
++	const int sentenceScript = e._scummVars[e.VAR_SENTENCE_SCRIPT];
++	const int verbScript = e._scummVars[e.VAR_VERB_SCRIPT];
++	for (int i = 0; i < NUM_SCRIPT_SLOT; i++) {
++		const ScriptSlot &ss = e.vm.slot[i];
++		if (ss.status == ssDead)
++			continue;
++		// Same test as checkAndRunSentenceScript() (script.cpp): a frozen
++		// sentence script does not block a new sentence.
++		if (ss.number == sentenceScript && ss.freezeCount == 0)
++			return blocked("sentence_script", i, ss.number);
++		if (ss.number == verbScript)
++			return blocked("input_script", i, ss.number);
++		// Verb scripts of objects can outlive the sentence script.
++		if ((ss.where == WIO_ROOM || ss.where == WIO_INVENTORY || ss.where == WIO_FLOBJECT) &&
++		    ss.number != kScriptNumENCD && ss.number != kScriptNumEXCD)
++			return blocked("object_script", i, ss.number);
++	}
++
++	// Text. Every print goes through actorTalk(), which sets _haveMsg, and
++	// displayDialog() then sets _talkDelay = 60 + VAR_CHARINC per character
++	// (actor.cpp, string.cpp). A blanket "_haveMsg == 0 && _talkDelay <= 0"
++	// would never hold on the island map: global script 24 re-prints a hover
++	// label with print(255, ...) every frame (data/scripts/global/script-024.txt
++	// [0057], [0069]). So text blocks only when something waits for it:
++	// - actor speech: the talking actor (VAR_TALK_ACTOR) is a real actor, which
++	//   print(255) never sets (actorTalk() sets 0xFF);
++	// - a script parked in WaitForMessage(), which also covers non-actor speech
++	//   such as the bar dog (room-028-bar/local-222.txt [001B]-[00B9]) and
++	//   Elaine's close-up lines (global/script-119.txt).
++	// Hover labels and fire-and-forget captions do not block; the engine's own
++	// click gate ignores text as well.
++	const int talker = e._scummVars[e.VAR_TALK_ACTOR];
++	if (talker > 0 && talker < 0x80) {
++		if (e._haveMsg)
++			return blocked("message");
++		if (e._talkDelay > 0)
++			return blocked("talk_delay");
++	}
++	for (int i = 0; i < NUM_SCRIPT_SLOT; i++) {
++		if (e.vm.slot[i].status != ssDead && slotWaitsForMessage(i))
++			return blocked("message", i, e.vm.slot[i].number);
++	}
++
++	// Room transition: _doEffect means the fade-in is still pending this
++	// frame; !_screenEffectFlag means the screen is blanked (gfx.cpp).
++	if (e._doEffect || !e._screenEffectFlag)
++		return blocked("fade");
++
++	const int ego = e._scummVars[e.VAR_EGO];
++	if (ego > 0 && ego < e._numActors) {
++		const Actor *a = e._actors[ego];
++		if (a->isInCurrentRoom() && a->_moving) // o5_wait SO_WAIT_FOR_ACTOR's test
++			return blocked("ego_moving");
++	}
++
++	IdleState s;
++	if (anyVisibleVerb(kDialogVerbFirst, kDialogVerbLast)) {
++		s.kind = kIdleDialog;
++	} else if (anyVisibleVerb(kActionVerbFirst, kActionVerbLast)) {
++		s.kind = kIdleSentence;
++	} else if (verbScript >= e._numGlobalScripts) {
++		// The room handles clicks with its own local input script and shows
++		// no verb bar: the island map hides the verbs (startScript(17,[1]))
++		// and installs local 201 (room-085-melee/entry.txt [0006], [0055]).
++		s.kind = kIdleSentence;
++	} else {
++		return blocked("no_verbs");
++	}
++	return s;
++}
++
++#pragma mark - Text
++
++bool SpeedrunBridge::verbText(int slot, Common::String &out) const {
++	// What drawVerb() renders (verbs.cpp): the rtVerb resource, expanded by
++	// convertMessageToString(). rtVerb, rtString, rtObjectName and
++	// rtInventory are dynamic resources that are never expired, so reading
++	// them does not perturb a run. An image verb's rtVerb resource holds the
++	// object image instead (setVerbObject(), verbs.cpp), so it has no text.
++	const ResourceManager::Resource &res = _vm->_res->_types[rtVerb][slot];
++	if (!res._address || _vm->_verbs[slot].type == kImageVerbType)
++		return false;
++	byte buf[1024];
++	const int len = _vm->convertMessageToString(res._address, buf, sizeof(buf));
++	out = stripEscapes(buf, (uint32)MAX(len, 0));
++	return true;
++}
++
++Common::String SpeedrunBridge::verbJson(int slot) const {
++	const VerbSlot &v = _vm->_verbs[slot];
++	JsonObject j;
++	j.add("slot", slot).add("id", (int)v.verbid);
++	Common::String text; // stays "" for image verbs and empty slots (C6: name is a string)
++	verbText(slot, text);
++	j.add("name", text)
++	 .add("mode", (int)v.curmode)
++	 .add("saveid", (int)v.saveid)
++	 .add("type", (int)v.type)
++	 .add("key", (int)v.key)
++	 .add("x", (int)v.curRect.left)
++	 .add("y", (int)v.curRect.top);
++	return j.str();
++}
++
++#pragma mark - State dump (C7)
++
++Common::String SpeedrunBridge::stateJson() const {
++	ScummEngine &e = *_vm;
++	const int ego = e._scummVars[e.VAR_EGO];
++	const Actor *egoActor = (ego > 0 && ego < e._numActors) ? e._actors[ego] : nullptr;
++
++	JsonObject s;
++	s.add("tick", _ticks).add("frame", _frames).add("room", (int)e._currentRoom).add("ego", ego);
++	if (egoActor)
++		s.addRaw("ego_pos", pointJson(egoActor->getRealPos().x, egoActor->getRealPos().y));
++	else
++		s.addNull("ego_pos");
++	if (ConfMan.hasKey("random_seed"))
++		s.add("seed", ConfMan.getInt("random_seed"));
++	else
++		s.addNull("seed");
++	s.add("boot_param", e._bootParam);
++
++	JsonArray vars;
++	for (int i = 0; i < e._numVariables; i++)
++		vars.add(e._scummVars[i]);
++	s.addRaw("vars", vars.str());
++
++	JsonArray bits;
++	for (int n = 0; n < e._numBitVariables; n++) {
++		if (e._bitVars[n >> 3] & (1 << (n & 7)))
++			bits.add(n);
++	}
++	s.addRaw("bits_set", bits.str());
++
++	JsonArray inventory; // display order: findInventory() is 1-based (object.cpp)
++	if (ego > 0) {
++		const int count = e.getInventoryCount(ego);
++		for (int i = 1; i <= count; i++)
++			inventory.add(e.findInventory(ego, i));
++	}
++	s.addRaw("inventory", inventory.str());
++
++	JsonObject owners, states, classes;
++	for (int obj = 1; obj < e._numGlobalObjects; obj++) {
++		const Common::String key = Common::String::format("%d", obj);
++		owners.add(key.c_str(), (int)e._objectOwnerTable[obj]);
++		states.add(key.c_str(), (int)e._objectStateTable[obj]);
++		if (e._classData[obj])
++			classes.addRaw(key.c_str(), classesJson(e._classData[obj]));
++	}
++	s.addRaw("owners", owners.str()).addRaw("states", states.str()).addRaw("classes", classes.str());
++
++	// Objects of the current room (_objs, index 0 unused: object.cpp getObjectIndex).
++	JsonArray roomObjects;
++	for (int i = 1; i < e._numLocalObjects; i++) {
++		const ObjectData &od = e._objs[i];
++		if (!od.obj_nr)
++			continue;
++		JsonObject o;
++		o.add("id", (int)od.obj_nr)
++		 .add("name", withoutAt(e.getObjOrActorName(od.obj_nr)))
++		 .add("state", (int)od.state)
++		 .add("parent", (int)od.parent)
++		 .add("x", (int)od.x_pos)
++		 .add("y", (int)od.y_pos)
++		 .add("w", (int)od.width)
++		 .add("h", (int)od.height)
++		 .addRaw("walk", pointJson(od.walk_x, od.walk_y));
++		roomObjects.add(o);
++	}
++	s.addRaw("room_objects", roomObjects.str());
++
++	JsonArray verbs;
++	for (int slot = 1; slot < e._numVerbs; slot++) {
++		if (verbVisible(slot))
++			verbs.addRaw(verbJson(slot));
++	}
++	s.addRaw("verbs", verbs.str());
++	return s.str();
++}
++
++#pragma mark - Object dump (C6)
++
++Common::String SpeedrunBridge::objectsJson() {
++	// Every valid room's objects, read from the room data like
++	// resetRoomObjects()/resetRoomObject() do for v5 (object.cpp). Loading
++	// rooms evicts cached resources, so this runs only in the dump-only mode,
++	// which quits right after (docs/research/engine-bridge.md §8).
++	ScummEngine &e = *_vm;
++
++	JsonObject game;
++	game.add("gameid", e._game.gameid).add("variant", e._game.variant).add("version", (int)e._game.version);
++
++	JsonArray verbs;
++	for (int slot = 1; slot < e._numVerbs; slot++) {
++		if (e._verbs[slot].verbid)
++			verbs.addRaw(verbJson(slot));
++	}
++
++	JsonArray rooms;
++	for (int r = 1; r < e._numRooms; r++) {
++		const ResourceManager::Resource &res = e._res->_types[rtRoom][r];
++		// Rooms outside the disk's LOFF table would make openRoom() fall back
++		// to askForDisk() and its modal dialog.
++		if (res._roomno == 0 || res._roomoffs == 0 || res._roomoffs == RES_INVALID_OFFSET)
++			continue;
++		const byte *room = e.getResourceAddress(rtRoom, r);
++		if (!room)
++			continue;
++
++		// The pointer is only valid until the next room loads: finish this
++		// room before moving on.
++		const RoomHeader *rmhd = (const RoomHeader *)e.findResourceData(MKTAG('R','M','H','D'), room);
++		const int numObjects = rmhd ? READ_LE_UINT16(&rmhd->old.numObjects) : 0;
++		JsonArray objects;
++		ResourceIterator obcds(room, false);
++		for (int i = 0; i < numObjects; i++) {
++			const byte *obcd = obcds.findNext(MKTAG('O','B','C','D'));
++			if (!obcd)
++				break;
++			const CodeHeader *cdhd = (const CodeHeader *)e.findResourceData(MKTAG('C','D','H','D'), obcd);
++			if (!cdhd)
++				continue;
++			const int id = READ_LE_UINT16(&cdhd->v5.obj_id);
++			const byte *obna = e.findResourceData(MKTAG('O','B','N','A'), obcd);
++			const bool known = id > 0 && id < e._numGlobalObjects;
++
++			JsonArray handled; // VERB block: {byte verb, uint16 offset}..., 0
++			const byte *verb = e.findResource(MKTAG('V','E','R','B'), obcd);
++			if (verb) {
++				const byte *end = verb + READ_BE_UINT32(verb + 4);
++				for (const byte *p = verb + 8; p < end && *p; p += 3)
++					handled.add(*p);
++			}
++
++			JsonObject o;
++			o.add("id", id).add("name", withoutAt(obna));
++			if (known) {
++				o.add("owner", (int)e._objectOwnerTable[id])
++				 .add("state", (int)e._objectStateTable[id])
++				 .addRaw("classes", classesJson(e._classData[id]));
++			} else {
++				o.addNull("owner").addNull("state").addRaw("classes", "[]");
++			}
++			const byte flags = cdhd->v5.flags;
++			o.addRaw("walk", pointJson((int16)READ_LE_UINT16(&cdhd->v5.walk_x), (int16)READ_LE_UINT16(&cdhd->v5.walk_y)))
++			 .add("x", cdhd->v5.x * 8)
++			 .add("y", cdhd->v5.y * 8)
++			 .add("w", cdhd->v5.w * 8)
++			 .add("h", cdhd->v5.h * 8)
++			 .add("parent", (int)cdhd->v5.parent)
++			 .add("parentstate", (flags == 0x80) ? 1 : (int)(flags & 0xF))
++			 .add("actordir", (int)cdhd->v5.actordir)
++			 .addRaw("verbs", handled.str());
++			objects.add(o);
++		}
++
++		JsonObject entry;
++		// ScummVM does not keep v5 room names (RNAM is only logged, resource.cpp).
++		entry.add("room", r).addNull("name").addRaw("objects", objects.str());
++		rooms.add(entry);
++	}
++
++	JsonObject dump;
++	dump.addRaw("game", game.str())
++	    .add("ego", (int)e._scummVars[e.VAR_EGO])
++	    .addRaw("verbs", verbs.str())
++	    .addRaw("rooms", rooms.str());
++	return dump.str();
++}
++
++} // End of namespace Scumm
