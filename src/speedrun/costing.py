@@ -16,6 +16,26 @@ measured tick samples, pooled from one or more ``speedrun measure`` summaries
 
 ``cost`` is the integer the planner gets: ``integer_cost(mean)``.
 
+**Pooling keys.** Samples pool only with samples measured under the same skip
+settings, engine pins *and bridge*: a rebuilt bridge can change timing, so a
+summary whose runs report another bridge than the table's is refused
+(``CostingError``), as is a summary whose runs report two.
+
+**Position contexts** (the keyed surrogate, ``speedrun.positions``). Given
+the context of every plan action, ``add_summary`` also pools the samples per
+``(action, context)``; the table saves them under an optional ``"contexts"``
+key, ``{action: {context: {n, mean, ..., samples}}}``, one action per line.
+``keyed_cost(action, context)`` is what the keyed surrogate charges:
+
+- the mean of that context's samples, if it has any;
+- else the action's **minimum** measured duration over all its contexts: an
+  *optimistic* guess, deliberately low so the optimiser tries (and then
+  measures) the context. Durations are not monotone in anything we know, so
+  this is a heuristic, not a proven lower bound;
+- with no context (an action the keyed model does not key) or the shared
+  ``any`` context, the pooled mean of all samples;
+- None if the action was never measured (the caller charges 1).
+
 **Timed copies.** ``apply_costs`` rewrites the domain and problem text so
 Fast Downward minimises measured ticks instead of the action count:
 
@@ -53,6 +73,7 @@ from pathlib import Path
 from speedrun.measure import describe
 
 TABLE_VERSION = 1
+ANY = "any"  # the one context shared by every unkeyed room (speedrun.keyed)
 
 _TOKEN = re.compile(r";[^\n]*|\(|\)|[^\s();]+")
 _INT = re.compile(r"^\d+$")
@@ -534,6 +555,7 @@ class CostTable:
 
     def __init__(self) -> None:
         self._samples: dict[str, list[int]] = {}
+        self._contexts: dict[str, dict[str, list[int]]] = {}  # action -> context -> samples
         self.skips: dict | None = None
         self.engine: dict | None = None
         self.bridges: set[str] = set()
@@ -545,8 +567,12 @@ class CostTable:
             table.add_summary(summary)
         return table
 
-    def add_summary(self, summary: dict) -> None:
-        """Pool the instances of every run that reached the goal."""
+    def add_summary(self, summary: dict, contexts: list[str] | None = None) -> None:
+        """Pool the instances of every run that reached the goal.
+
+        ``contexts`` (one per plan action, ``speedrun.positions``) also pools them
+        per (action, context). A refused summary pools nothing.
+        """
         skips, engine = summary.get("skips"), summary.get("engine")
         if self.skips is not None and skips != self.skips:
             raise CostingError(
@@ -556,14 +582,29 @@ class CostTable:
             raise CostingError(
                 f"cannot pool samples measured with engine settings {engine} into a table measured with {self.engine}"
             )
+        runs = [run for run in summary.get("runs", []) if run.get("ok")]
+        bridges = {run["bridge"] for run in runs if run.get("bridge")}
+        if len(bridges | self.bridges) > 1:
+            theirs = ", ".join(sorted(bridges)) or "none"
+            ours = ", ".join(sorted(self.bridges)) or "none"
+            raise CostingError(
+                f"cannot pool samples measured with bridge(s) {theirs} into a table measured with bridge(s) {ours}"
+            )
+        if contexts is not None:
+            plan = summary.get("actions")
+            n = len(plan) if isinstance(plan, list) else None
+            indices = [i["index"] for run in runs for i in run.get("instances", [])]
+            if (n is not None and len(contexts) != n) or any(not 0 <= k < len(contexts) for k in indices):
+                raise CostingError(f"{len(contexts)} contexts do not cover the summary's plan of {n} actions")
         self.skips, self.engine = skips, engine
-        for run in summary.get("runs", []):
-            if not run.get("ok"):
-                continue
-            if run.get("bridge"):
-                self.bridges.add(run["bridge"])
+        self.bridges |= bridges
+        for run in runs:
             for instance in run.get("instances", []):
-                self._samples.setdefault(instance["action"], []).append(int(instance["ticks"]))
+                action, ticks = instance["action"], int(instance["ticks"])
+                self._samples.setdefault(action, []).append(ticks)
+                if contexts is not None:
+                    ctx = contexts[instance["index"]]
+                    self._contexts.setdefault(action, {}).setdefault(ctx, []).append(ticks)
 
     def actions(self) -> list[str]:
         return sorted(self._samples)
@@ -582,13 +623,39 @@ class CostTable:
 
     def entry(self, action: str) -> dict:
         """n, mean, median, stdev, min, max (floats rounded to 3 places), the planner's cost, and the samples."""
-        stats = describe(self._samples.get(action, []))
-        cost = None if stats["mean"] is None else integer_cost(stats["mean"])
-        rounded = {k: round(v, 3) if isinstance(v, float) else v for k, v in stats.items()}
-        return {**rounded, "cost": cost, "samples": self.samples(action)}
+        return _entry(self._samples.get(action, []))
+
+    # --- per position context ---
+
+    def contexts_of(self, action: str) -> list[str]:
+        return sorted(self._contexts.get(action, {}))
+
+    def context_samples(self, action: str) -> dict[str, list[int]]:
+        return {c: list(xs) for c, xs in sorted(self._contexts.get(action, {}).items())}
+
+    def context_mean(self, action: str, context: str) -> float | None:
+        return describe(self._contexts.get(action, {}).get(context, []))["mean"]
+
+    def context_entry(self, action: str, context: str) -> dict:
+        return _entry(self._contexts.get(action, {}).get(context, []))
+
+    def pair_measured(self, action: str, context: str | None) -> bool:
+        """Whether ``keyed_cost(action, context)`` rests on samples of exactly that pair."""
+        if context is None or context == ANY:
+            return self.measured(action)
+        return bool(self._contexts.get(action, {}).get(context))
+
+    def keyed_cost(self, action: str, context: str | None) -> float | None:
+        """The keyed surrogate's ticks for ``action`` in ``context``; see the module doc."""
+        if context is None or context == ANY:
+            return self.mean(action)
+        if self.pair_measured(action, context):
+            return self.context_mean(action, context)
+        samples = self._samples.get(action)
+        return float(min(samples)) if samples else None
 
     def to_json(self) -> dict:
-        return {
+        data = {
             "version": TABLE_VERSION,
             "unit": "ticks",
             "skips": self.skips,
@@ -596,14 +663,25 @@ class CostTable:
             "bridges": sorted(self.bridges),
             "actions": {a: self.entry(a) for a in self.actions()},
         }
+        contexts = {
+            a: {c: self.context_entry(a, c) for c in self.contexts_of(a)} for a in self.actions() if self.contexts_of(a)
+        }
+        if contexts:
+            data["contexts"] = contexts
+        return data
 
     def save(self, path: Path) -> None:
         """Write the table as JSON, one action per line, via a temporary file."""
         data = self.to_json()
-        head = {k: v for k, v in data.items() if k != "actions"}
+        blocks = [k for k in ("actions", "contexts") if k in data]
+        head = {k: v for k, v in data.items() if k not in blocks}
         lines = ["{"] + [f"  {json.dumps(k)}: {json.dumps(v)}," for k, v in head.items()]
-        entries = [f"    {json.dumps(a)}: {json.dumps(e)}" for a, e in data["actions"].items()]
-        lines += ['  "actions": {', ",\n".join(entries), "  }", "}"] if entries else ['  "actions": {}', "}"]
+        for n, key in enumerate(blocks):
+            comma = "," if n < len(blocks) - 1 else ""
+            entries = [f"    {json.dumps(a)}: {json.dumps(e)}" for a, e in data[key].items()]
+            lines += [f"  {json.dumps(key)}: {{", ",\n".join(entries), f"  }}{comma}"] if entries else [
+                f"  {json.dumps(key)}: {{}}{comma}"]  # fmt: skip
+        lines.append("}")
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
         tmp = path.with_name(path.name + ".tmp")
@@ -623,8 +701,25 @@ class CostTable:
         table.engine = data.get("engine")
         table.bridges = set(data.get("bridges") or [])
         for action, entry in (data.get("actions") or {}).items():
-            samples = entry.get("samples") if isinstance(entry, dict) else None
-            if not isinstance(samples, list) or not all(isinstance(s, int) for s in samples):
-                raise CostingError(f"{path}: action {action!r} has no integer 'samples' list")
-            table._samples[action] = list(samples)
+            table._samples[action] = _load_samples(entry, f"{path}: action {action!r}")
+        for action, by_context in (data.get("contexts") or {}).items():
+            if not isinstance(by_context, dict):
+                raise CostingError(f"{path}: contexts of {action!r} are not a table")
+            for context, entry in by_context.items():
+                samples = _load_samples(entry, f"{path}: action {action!r} in context {context!r}")
+                table._contexts.setdefault(action, {})[context] = samples
         return table
+
+
+def _load_samples(entry: object, what: str) -> list[int]:
+    samples = entry.get("samples") if isinstance(entry, dict) else None
+    if not isinstance(samples, list) or not all(isinstance(s, int) for s in samples):
+        raise CostingError(f"{what} has no integer 'samples' list")
+    return list(samples)
+
+
+def _entry(samples: list[int]) -> dict:
+    stats = describe(samples)
+    cost = None if stats["mean"] is None else integer_cost(stats["mean"])
+    rounded = {k: round(v, 3) if isinstance(v, float) else v for k, v in stats.items()}
+    return {**rounded, "cost": cost, "samples": list(samples)}

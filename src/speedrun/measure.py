@@ -47,6 +47,8 @@ measurement instead.
       "engine": {"talkspeed": 255},          # speedrun.engine.timing_settings()
       "actions": ["open-bar-door", ...],      # one per plan action, in plan order
       "steps_per_action": [1, 1, 2, ...],
+      "contexts": ["start", ...],             # position context per plan action, or null
+      "contexts_error": null,                 # why the contexts could not be derived
       "runs": [                               # one per seed, by seed
         {"seed": 1, "ok": true, "run_dir": "...", "total_ticks": 107660,
          "end_reason": "goal", "timed_out": false, "bridge": "speedrun-bridge v1",
@@ -57,7 +59,8 @@ measurement instead.
             "wait_before": null,              # previous step_end -> this step_start
             "prev": null,                     # the previous plan action
             "room": 33,                       # ego's room at the first step_start
-            "entered_from": null}],           # the room ego entered that room from
+            "entered_from": null,             # the room ego entered that room from
+            "context": "start"}],             # ego's position token before it (below), or null
          "failure": null},
         {"seed": 2, "ok": false, ..., "instances": [],
          "failure": {"reason": "error", "message": "...", "step": 4, "plan_index": 3,
@@ -75,6 +78,14 @@ measurement instead.
 
 ``stdev`` is the sample standard deviation, ``null`` with fewer than two
 values; ``mean``/``median``/``min``/``max`` are ``null`` with none.
+
+**Position contexts.** Given ``positions`` (``speedrun.positions.Positions``),
+each instance's ``context`` is ego's position token just before the action
+(``start``, ``entry:<from>:<to>``, ``obj:<room>:<id>``), derived in Python
+from the plan's actions and the model's anchors, never from the engine, so
+it is the same on every seed. A plan the positions cannot place (an action
+outside the model, or in the wrong room) is still measured, with null
+contexts and the reason in ``contexts_error``.
 ``failures`` counts failed runs whose failing step belongs to that action.
 
 ``run_engine`` is called through this module's global, so tests can replace it.
@@ -272,7 +283,7 @@ class _RunFailed(Exception):
         self.reason, self.message, self.step = reason, message, step
 
 
-def _instances(trace: Trace, plan: PlanSteps, seed: int) -> list[dict]:
+def _instances(trace: Trace, plan: PlanSteps, seed: int, contexts: list[str] | None = None) -> list[dict]:
     """Per-action instances of a goal run; raises ``_RunFailed`` if the trace does not cover the plan."""
     tick0, goal = trace.tick0, trace.goal["tick"]
     by_index = {s.index: s for s in trace.steps}
@@ -318,6 +329,7 @@ def _instances(trace: Trace, plan: PlanSteps, seed: int) -> list[dict]:
             "prev": plan.actions[i - 1] if i else None,
             "room": first.room_start,
             "entered_from": entered_from.get(k),
+            "context": None if contexts is None else contexts[i],
         })  # fmt: skip
     total = sum(x["ticks"] for x in instances)
     if total != trace.total_ticks or any(x["ticks"] < 0 for x in instances):
@@ -328,7 +340,8 @@ def _instances(trace: Trace, plan: PlanSteps, seed: int) -> list[dict]:
     return instances
 
 
-def analyse_run(trace: Trace, plan: PlanSteps, seed: int, run_dir: Path, timed_out: bool = False) -> RunResult:
+def analyse_run(trace: Trace, plan: PlanSteps, seed: int, run_dir: Path, timed_out: bool = False,
+                contexts: list[str] | None = None) -> RunResult:  # fmt: skip
     """Turn one run's trace into per-action instances, or a failure."""
     result = RunResult(
         seed=seed,
@@ -355,7 +368,7 @@ def analyse_run(trace: Trace, plan: PlanSteps, seed: int, run_dir: Path, timed_o
         result.failure = _failure("no_segment_start", "goal reached, but no segment_start record", plan, trace)
         return result
     try:
-        instances = _instances(trace, plan, seed)
+        instances = _instances(trace, plan, seed, contexts)
     except _RunFailed as e:
         result.failure = _failure(e.reason, e.message, plan, trace, step=e.step)
         return result
@@ -384,7 +397,8 @@ def run_config(seg: Segment, plan: Path, out_dir: Path, seed: int, skips: bool =
     )
 
 
-def _run_seed(seg: Segment, plan_path: Path, plan: PlanSteps, out_dir: Path, seed: int, skips: bool) -> RunResult:
+def _run_seed(seg: Segment, plan_path: Path, plan: PlanSteps, out_dir: Path, seed: int, skips: bool,
+              contexts: list[str] | None = None) -> RunResult:  # fmt: skip
     run_dir = out_dir / f"seed-{seed:03d}"
     result = run_engine(run_config(seg, plan_path, run_dir, seed, skips))  # FileNotFoundError aborts
     try:
@@ -392,7 +406,7 @@ def _run_seed(seg: Segment, plan_path: Path, plan: PlanSteps, out_dir: Path, see
     except TraceError as e:
         failure = _failure("no_trace", str(e), plan, None)
         return RunResult(seed=seed, run_dir=run_dir, ok=False, timed_out=result.timed_out, failure=failure)
-    return analyse_run(trace, plan, seed, run_dir, timed_out=result.timed_out)
+    return analyse_run(trace, plan, seed, run_dir, timed_out=result.timed_out, contexts=contexts)
 
 
 # --- aggregation -----------------------------------------------------------------
@@ -458,18 +472,30 @@ def measure_plan(
     jobs: int,
     skips: bool = True,
     progress: Callable[[RunResult], None] | None = None,
+    positions=None,
 ) -> dict:
-    """Run ``plan_path`` on every seed (``jobs`` at a time), write ``out_dir/summary.json`` and return it."""
+    """Run ``plan_path`` on every seed (``jobs`` at a time), write ``out_dir/summary.json`` and return it.
+
+    ``positions`` (``speedrun.positions.Positions``) adds each instance's position context.
+    """
     if not seeds:
         raise MeasureError("no seeds to measure")
     plan = load_plan_steps(plan_path)
+    contexts, contexts_error = None, None
+    if positions is not None:
+        from speedrun.positions import PositionError
+
+        try:
+            contexts = list(positions.contexts(plan.actions))
+        except PositionError as e:
+            contexts_error = str(e)
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
     results: list[RunResult] = []
     pool = ThreadPoolExecutor(max_workers=max(1, jobs), thread_name_prefix="measure")
     try:
-        futures = [pool.submit(_run_seed, seg, Path(plan_path), plan, out_dir, s, skips) for s in seeds]
+        futures = [pool.submit(_run_seed, seg, Path(plan_path), plan, out_dir, s, skips, contexts) for s in seeds]
         for future in as_completed(futures):
             result = future.result()
             results.append(result)
@@ -492,6 +518,8 @@ def measure_plan(
         "engine": timing_settings(),
         "actions": plan.actions,
         "steps_per_action": plan.steps_per_action,
+        "contexts": contexts,
+        "contexts_error": contexts_error,
         "runs": [r.to_json() for r in results],
         **aggregate(results, plan),
     }

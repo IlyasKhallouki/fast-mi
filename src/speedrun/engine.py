@@ -28,6 +28,7 @@ by default.
 
 import json
 import os
+import re
 import subprocess
 from collections.abc import Mapping
 from dataclasses import dataclass, field
@@ -52,6 +53,32 @@ def timing_settings() -> dict:
     """The pinned settings that change tick counts. Measurements record them, and
     measurements taken under different values are never pooled or reused."""
     return {"talkspeed": TALKSPEED}
+
+
+# The bridge sources embed this marker; every trace's boot record carries it as "bridge".
+_BRIDGE_MARKER = re.compile(rb"speedrun-bridge v\d+")
+
+
+class EngineError(Exception):
+    """The ScummVM build is unusable (e.g. it carries two bridge markers)."""
+
+
+def bridge_version(binary: Path | None = None) -> str | None:
+    """The bridge identity compiled into the ScummVM binary (``"speedrun-bridge v2"``), or None.
+
+    None when the binary is missing or unpatched. Measurements are only pooled with
+    measurements of the same bridge (``speedrun.costing.CostTable``): a rebuilt
+    bridge can change timing, and bumps this marker when it does.
+    """
+    path = paths.SCUMMVM_BIN if binary is None else Path(binary)
+    try:
+        data = path.read_bytes()
+    except OSError:
+        return None
+    found = sorted({m.decode("ascii") for m in _BRIDGE_MARKER.findall(data)})
+    if len(found) > 1:
+        raise EngineError(f"{path} carries several bridge markers: {', '.join(found)}")
+    return found[0] if found else None
 
 
 @dataclass

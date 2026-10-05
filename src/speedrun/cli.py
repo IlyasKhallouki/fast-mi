@@ -82,6 +82,16 @@ def _non_negative_int(text: str) -> int:
     return value
 
 
+def _fraction(text: str) -> float:
+    try:
+        value = float(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"must be a number in [0, 1), got {text!r}") from None
+    if not 0 <= value < 1:
+        raise argparse.ArgumentTypeError(f"must be in [0, 1), got {value}")
+    return value
+
+
 def _seed_spec(text: str) -> list[int]:
     try:
         return measure.parse_seeds(text)
@@ -177,6 +187,18 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--jobs", type=_positive_int, metavar="N", help="parallel runs (default: CPUs - 2)")
     p.add_argument("--max-iterations", type=_positive_int, default=40, metavar="N",
                    help="cap on the optimistic measure-and-replan loop (default 40)")  # fmt: skip
+    p.add_argument("--keyed", action=argparse.BooleanOptionalAction, default=True,
+                   help="cost actions by ego's position before them, not by one pooled mean "
+                        "(default: keyed)")  # fmt: skip
+    p.add_argument("--key-rooms", choices=("flagged", "all"), default="flagged",
+                   help="keyed: track the position only in rooms whose actions vary with it (flagged, default), "
+                        "or everywhere (all: slower planning)")  # fmt: skip
+    p.add_argument("--perturb", type=_fraction, default=0.1, metavar="P",
+                   help="also plan K candidates from mean costs each multiplied by U[1-P, 1+P] (default 0.1; "
+                        "0: none)")  # fmt: skip
+    p.add_argument("--reuse", action=argparse.BooleanOptionalAction, default=True,
+                   help="pool earlier out/measure and out/optimize summaries of the same bridge, skips and "
+                        "engine pins before the first iteration (default: reuse)")  # fmt: skip
 
     # The top-level help lists every command with its options, not just the names.
     usages = [
@@ -732,16 +754,31 @@ def _print_progress(result: measure.RunResult) -> None:
 
 
 def run_measure(name: str, seg: Segment, plan: Path, seeds: list[int], out_dir: Path, jobs: int,
-                skips: bool = True) -> dict:  # fmt: skip
-    """``measure.measure_plan`` with progress lines, mapping its errors to ``CommandError``."""
+                skips: bool = True, positions=None) -> dict:  # fmt: skip
+    """``measure.measure_plan`` with progress lines, mapping its errors to ``CommandError``.
+
+    ``positions`` (``speedrun.positions.Positions``) adds each instance's position context.
+    """
     print(f"measuring {plan} on seeds {measure.format_seeds(seeds)} ({len(seeds)} runs, {jobs} at a time, "
           f"skips {'on' if skips else 'off'}) in {out_dir} ...", flush=True)  # fmt: skip
     try:
-        return measure.measure_plan(plan, seg, seeds, out_dir, jobs=jobs, skips=skips, progress=_print_progress)
+        return measure.measure_plan(plan, seg, seeds, out_dir, jobs=jobs, skips=skips, progress=_print_progress,
+                                    positions=positions)  # fmt: skip
     except FileNotFoundError as e:  # no ScummVM build
         raise CommandError(str(e)) from e
     except measure.MeasureError as e:
         raise CommandError(str(e)) from e
+
+
+def _positions_or_none(seg: Segment):
+    """The segment's position anchors for the instances' ``context`` field, or None (with a note)."""
+    from speedrun.positions import PositionError, load_positions
+
+    try:
+        return load_positions(seg.domain, seg.problem, seg.steps, _objects_path())
+    except PositionError as e:
+        print(f"note: no position contexts ({e})")
+        return None
 
 
 def _cmd_measure(args: argparse.Namespace) -> int:
@@ -757,7 +794,8 @@ def _cmd_measure(args: argparse.Namespace) -> int:
     out_dir = new_dir(paths.OUT_DIR / "measure", _utc_stamp())
     if plan.suffix != ".jsonl":
         plan = compile_plan_file(plan, seg, out_dir / "plan.jsonl")
-    summary = run_measure(name, seg, plan, args.seeds, out_dir, jobs, skips=not args.no_skips)
+    summary = run_measure(name, seg, plan, args.seeds, out_dir, jobs, skips=not args.no_skips,
+                          positions=_positions_or_none(seg))  # fmt: skip
     print()
     print(measure.format_summary(summary))
     print(f"summary: {out_dir / 'summary.json'}")
@@ -785,6 +823,10 @@ def _cmd_optimize(args: argparse.Namespace) -> int:
         candidates=args.candidates,
         jobs=args.jobs or default_jobs(),
         max_iterations=args.max_iterations,
+        keyed=args.keyed,
+        key_rooms=args.key_rooms,
+        perturb=args.perturb,
+        reuse=args.reuse,
     )
     for path in (seg.domain, seg.problem, seg.steps):
         if not path.is_file():

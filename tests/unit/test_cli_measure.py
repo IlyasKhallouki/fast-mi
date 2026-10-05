@@ -70,6 +70,9 @@ def test_measure_runs_the_compiled_plan_on_every_seed(tree, engine, capsys):
     assert sorted(p.name for p in run_dir.iterdir()) == ["seed-001", "seed-002", "seed-003", "summary.json"]
     summary = json.loads((run_dir / "summary.json").read_text())
     assert [s["total_ticks"] for s in summary["per_seed_totals"]] == [_total(TOY_PLAN_ACTIONS, s) for s in (1, 2, 3)]
+    # Position contexts come from the segment's model (take-widget leaves ego at the widget, 500).
+    assert summary["contexts"] == ["start", "obj:workshop:500"] and summary["contexts_error"] is None
+    assert [i["context"] for i in summary["runs"][0]["instances"]] == ["start", "obj:workshop:500"]
     out = _output(capsys)
     assert "objective: actions" in out
     assert "take-widget" in out and "n_ok 3, n_fail 0" in out

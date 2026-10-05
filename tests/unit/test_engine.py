@@ -368,3 +368,26 @@ def test_run_engine_interrupt_terminates_and_reraises(tmp_path, monkeypatch):
         engine.run_engine(_cfg(tmp_path, timeout_s=30))
     assert len(procs) == 1
     assert procs[0].returncode == -signal.SIGTERM
+
+
+# --- bridge identity -------------------------------------------------------------
+
+
+def test_bridge_version_reads_the_marker_from_the_binary(tmp_path):
+    binary = tmp_path / "scummvm"
+    binary.write_bytes(b"\x7fELF junk\x00speedrun-bridge v2\x00more junk")
+    assert engine.bridge_version(binary) == "speedrun-bridge v2"
+
+
+def test_bridge_version_without_a_binary_or_marker_is_none(tmp_path):
+    assert engine.bridge_version(tmp_path / "missing") is None
+    stock = tmp_path / "stock"
+    stock.write_bytes(b"\x7fELF plain scummvm")
+    assert engine.bridge_version(stock) is None
+
+
+def test_bridge_version_with_two_markers_fails_loudly(tmp_path):
+    binary = tmp_path / "scummvm"
+    binary.write_bytes(b"speedrun-bridge v1\x00speedrun-bridge v2")
+    with pytest.raises(engine.EngineError, match="v1.*v2"):
+        engine.bridge_version(binary)

@@ -248,15 +248,16 @@ def test_write_timed(tmp_path):
 # --- cost table --------------------------------------------------------------------
 
 
-def _summary(runs: list[list[tuple[str, int]]], skips: bool = True, failed: int = 0, talkspeed: int = 255) -> dict:
+def _summary(runs: list[list[tuple[str, int]]], skips: bool = True, failed: int = 0, talkspeed: int = 255,
+             bridge: str = "speedrun-bridge v1") -> dict:  # fmt: skip
     out = []
     for seed, instances in enumerate(runs, 1):
-        out.append({"seed": seed, "ok": True, "bridge": "speedrun-bridge v1",
+        out.append({"seed": seed, "ok": True, "bridge": bridge,
                     "instances": [{"action": a, "ticks": t, "index": i} for i, (a, t) in enumerate(instances)]})  # fmt: skip
     for k in range(failed):
         out.append({"seed": 100 + k, "ok": False, "instances": [], "bridge": None})
     return {"version": 1, "skips": {"text": skips, "cutscenes": skips}, "engine": {"talkspeed": talkspeed},
-            "runs": out}
+            "actions": [a for a, _ in runs[0]] if runs else [], "runs": out}
 
 
 def test_cost_table_pools_samples_from_several_summaries():
@@ -304,6 +305,98 @@ def test_cost_table_feeds_apply_costs():
     costs = costing.ground_costs(*costing.apply_costs(DOMAIN, PROBLEM, table.means()))
     assert costs["open-door"] == 10 and costs["walk dock bar"] == 41 and costs["walk bar dock"] == 1
 
+
+
+# --- cost table: bridges and position contexts ----------------------------------------
+
+
+def test_cost_table_refuses_to_mix_bridges():
+    # A rebuilt bridge can change timing: its samples never pool with an older bridge's.
+    table = costing.CostTable.from_summaries([_summary([[("open-door", 10)]], bridge="speedrun-bridge v1")])
+    with pytest.raises(costing.CostingError, match="bridge"):
+        table.add_summary(_summary([[("open-door", 99)]], bridge="speedrun-bridge v2"))
+    assert table.bridges == {"speedrun-bridge v1"}
+    assert table.samples("open-door") == [10]  # nothing from the refused summary
+
+
+def test_a_summary_with_two_bridges_is_refused_whole():
+    mixed = _summary([[("open-door", 10)], [("open-door", 11)]])
+    mixed["runs"][1]["bridge"] = "speedrun-bridge v2"
+    table = costing.CostTable()
+    with pytest.raises(costing.CostingError, match="bridge"):
+        table.add_summary(mixed)
+    assert table.actions() == [] and table.bridges == set()
+
+
+def _ctx_table() -> costing.CostTable:
+    table = costing.CostTable()
+    runs = [[("open-door", 10), ("walk dock bar", 40)], [("open-door", 12), ("walk dock bar", 44)]]
+    table.add_summary(_summary(runs), contexts=["start", "obj:dock:428"])
+    table.add_summary(_summary([[("open-door", 20), ("walk dock bar", 90)]]), contexts=["entry:bar:dock", "start"])
+    return table
+
+
+def test_cost_table_pools_samples_per_context():
+    table = _ctx_table()
+    assert table.samples("walk dock bar") == [40, 44, 90]
+    assert table.context_samples("walk dock bar") == {"obj:dock:428": [40, 44], "start": [90]}
+    assert table.contexts_of("open-door") == ["entry:bar:dock", "start"]
+    assert table.context_mean("walk dock bar", "obj:dock:428") == 42.0
+    assert table.context_mean("walk dock bar", "entry:lookout:dock") is None
+    entry = table.context_entry("walk dock bar", "obj:dock:428")
+    assert (entry["n"], entry["mean"], entry["min"], entry["max"], entry["samples"]) == (2, 42.0, 40, 44, [40, 44])
+
+
+def test_contexts_must_cover_the_plan():
+    table = costing.CostTable()
+    with pytest.raises(costing.CostingError, match="context"):
+        table.add_summary(_summary([[("open-door", 10), ("walk dock bar", 40)]]), contexts=["start"])
+    assert table.actions() == []
+
+
+def test_keyed_cost_uses_the_context_mean_else_an_optimistic_minimum():
+    table = _ctx_table()
+    assert table.keyed_cost("walk dock bar", "obj:dock:428") == 42.0
+    assert table.keyed_cost("walk dock bar", "start") == 90.0
+    # Never measured in this context: the action's minimum measured duration. Optimistic
+    # (a guess that invites measurement), not a proven lower bound.
+    assert table.keyed_cost("walk dock bar", "entry:lookout:dock") == 40
+    # No context (an unkeyed action) or the shared "any" context: the pooled mean.
+    assert table.keyed_cost("walk dock bar", None) == pytest.approx(58.0)
+    assert table.keyed_cost("walk dock bar", "any") == pytest.approx(58.0)
+    assert table.keyed_cost("dig", "start") is None  # never measured at all
+    assert table.pair_measured("walk dock bar", "start")
+    assert not table.pair_measured("walk dock bar", "entry:lookout:dock")
+    assert table.pair_measured("walk dock bar", None) and table.pair_measured("walk dock bar", "any")
+    assert not table.pair_measured("dig", None)
+
+
+def test_samples_without_contexts_only_feed_the_pooled_mean():
+    table = costing.CostTable.from_summaries([_summary([[("open-door", 10)], [("open-door", 14)]])])
+    assert table.context_samples("open-door") == {}
+    assert table.keyed_cost("open-door", None) == 12.0
+    assert table.keyed_cost("open-door", "start") == 10  # optimistic minimum
+
+
+def test_cost_table_contexts_round_trip(tmp_path):
+    table = _ctx_table()
+    path = tmp_path / "measured-costs.json"
+    table.save(path)
+    data = json.loads(path.read_text())
+    assert data["version"] == costing.TABLE_VERSION
+    assert data["contexts"]["walk dock bar"]["start"]["samples"] == [90]
+    assert data["contexts"]["walk dock bar"]["obj:dock:428"]["n"] == 2
+    loaded = costing.CostTable.load(path)
+    assert loaded.to_json() == table.to_json()
+    assert loaded.context_samples("walk dock bar") == table.context_samples("walk dock bar")
+
+
+def test_a_table_saved_without_contexts_still_loads(tmp_path):
+    path = tmp_path / "measured-costs.json"
+    path.write_text(json.dumps({"version": 1, "unit": "ticks", "skips": None, "engine": None, "bridges": [],
+                                "actions": {"open-door": {"samples": [3, 5]}}}))  # fmt: skip
+    table = costing.CostTable.load(path)
+    assert table.mean("open-door") == 4.0 and table.context_samples("open-door") == {}
 
 # --- Fast Downward ---------------------------------------------------------------------
 

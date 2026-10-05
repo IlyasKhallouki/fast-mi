@@ -188,6 +188,42 @@ def test_instance_context(plan, seg, engine, tmp_path):
     assert all(i["seed"] == 1 for i in run["instances"])
 
 
+class _Positions:
+    """A ``speedrun.positions.Positions`` stand-in: the token before each action."""
+
+    def __init__(self, fail: bool = False):
+        self.fail = fail
+        self.calls: list[list[str]] = []
+
+    def contexts(self, actions):
+        from speedrun.positions import PositionError
+
+        self.calls.append(list(actions))
+        if self.fail:
+            raise PositionError("open-door runs in dock, but ego is in bar")
+        return [f"pos-before-{a}" for a in actions]
+
+
+def test_instances_carry_the_position_context_derived_from_the_plan(plan, seg, engine, tmp_path):
+    positions = _Positions()
+    summary = _measure(plan, seg, tmp_path, seeds=[1, 2], positions=positions)
+    assert positions.calls == [ACTIONS]  # derived once, from the plan, never from the engine
+    for run in summary["runs"]:
+        assert [i["context"] for i in run["instances"]] == [f"pos-before-{a}" for a in ACTIONS]
+
+
+def test_without_positions_the_context_is_none(plan, seg, engine, tmp_path):
+    run = _measure(plan, seg, tmp_path, seeds=[1])["runs"][0]
+    assert {i["context"] for i in run["instances"]} == {None}
+
+
+def test_a_plan_the_positions_cannot_place_measures_without_contexts(plan, seg, engine, tmp_path):
+    summary = _measure(plan, seg, tmp_path, seeds=[1], positions=_Positions(fail=True))
+    assert summary["runs"][0]["ok"]
+    assert {i["context"] for i in summary["runs"][0]["instances"]} == {None}
+    assert "ego is in bar" in summary["contexts_error"]
+
+
 # --- failures ------------------------------------------------------------------
 
 

@@ -129,8 +129,10 @@ def engine(monkeypatch) -> SyntheticEngine:
     return fake
 
 
+# The race toy is a pooled-mean (--no-keyed) regression: its routes ignore rooms, and the fake
+# planner reads unkeyed costs. Keyed runs are in test_optimize_keyed.py.
 ARGS = ["--explore-seeds", "1-2", "--select-seeds", "1-6", "--report-seeds", "7-10", "--candidates", "4",
-        "--jobs", "2", "--max-iterations", "10"]  # fmt: skip
+        "--jobs", "2", "--max-iterations", "10", "--no-keyed", "--perturb", "0", "--no-reuse"]  # fmt: skip
 
 
 def _optimize(*extra: str) -> int:
