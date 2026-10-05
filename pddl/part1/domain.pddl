@@ -875,7 +875,7 @@
   ; src: data/scripts/room-031-jail/obj-0405-prisoner.txt [006F] — Give to 405 runs local-203 with the item
   ; src: data/scripts/room-031-jail/local-203.txt [00BF] — mints: setClass(405,[6]) clears the bad breath; the mints are kept
   ; src: data/scripts/room-031-jail/local-203.txt [0112] — chainScript(202): the dialogue opens
-  ; src: data/scripts/room-031-jail/local-202.txt [0546] — choice 127 "Well, keep a stiff upper lip.  I've gotta go."
+  ; src: data/scripts/room-031-jail/local-202.txt [0546] — choice 127 "...stiff upper lip..."
   ; src: data/scripts/room-031-jail/local-202.txt [1381] — choice 127: "Thanks a lot.", then [13A9] goto [19C4]: the dialogue ends
   (:action give-mints-to-prisoner
     :parameters ()

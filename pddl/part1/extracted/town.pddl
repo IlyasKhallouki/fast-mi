@@ -481,7 +481,7 @@
 ; src: data/scripts/room-031-jail/local-202.txt [005C] — no class 6 and Bit[476] clear
 ; src: data/scripts/room-031-jail/local-202.txt [0061] — Bit[476] = 1
 ; src: data/scripts/room-031-jail/local-202.txt [006B] — "So, have you come to release me?" then the menu at [0148]
-; src: data/scripts/room-031-jail/local-202.txt [0546] — choice 127 "Well, keep a stiff upper lip.  I've gotta go." is always added
+; src: data/scripts/room-031-jail/local-202.txt [0546] — choice 127 "...stiff upper lip..." is always added
 ; src: data/scripts/room-031-jail/local-202.txt [1381] — Var[194] == 127: "Thanks a lot."
 ; src: data/scripts/room-031-jail/local-202.txt [13A9] — goto 19C4: conversation over
 ; sentence: 4 395 405
