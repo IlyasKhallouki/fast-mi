@@ -23,7 +23,8 @@ bridge pumps on game ticks) and ``--random-seed=<seed>``; the config pins
 The patched engine's bridge is configured through ``SPEEDRUN_*`` env vars
 (contract C1) and is inert unless ``SPEEDRUN_OUT`` is set. Text and cutscene
 skips (``SPEEDRUN_SKIP_TEXT`` / ``SPEEDRUN_SKIP_CUTSCENES``, Phase 8) are on
-by default.
+by default. ``fast`` (``SPEEDRUN_FAST``) and ``fast_boot`` (``SPEEDRUN_FAST_BOOT``,
+fast only until the segment start: the demo) change wall-clock pacing, never ticks.
 """
 
 import json
@@ -87,6 +88,9 @@ class EngineConfig:
     game_path: Path = paths.CLASSIC_DIR
     headless: bool = True
     fast: bool = True
+    # SPEEDRUN_FAST_BOOT (C1): no real-time waiting until the segment start, then `fast`
+    # decides. Only wall-clock pacing changes, never ticks. For the demo, which is not `fast`.
+    fast_boot: bool = False
     plan: Path | None = None
     start: list[dict] = field(default_factory=list)
     goal: list[dict] = field(default_factory=list)
@@ -220,6 +224,8 @@ def build_env(cfg: EngineConfig, base_env: Mapping[str, str] | None = None) -> d
         env["SPEEDRUN_DUMP_OBJECTS"] = "1"
     if cfg.fast:
         env["SPEEDRUN_FAST"] = "1"
+    if cfg.fast_boot:
+        env["SPEEDRUN_FAST_BOOT"] = "1"
     if cfg.max_ticks is not None:
         env["SPEEDRUN_MAX_TICKS"] = str(cfg.max_ticks)
     if cfg.step_timeout is not None:

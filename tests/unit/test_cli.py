@@ -36,6 +36,30 @@ def test_run_demo_options_parse(command):
     assert (defaults.seed, defaults.max_ticks, defaults.replan, defaults.boot_param) == (1, None, False, None)
 
 
+def test_demo_fast_boot_option():
+    from speedrun.cli import build_parser
+
+    assert build_parser().parse_args(["demo", "part1"]).fast_boot is True
+    assert build_parser().parse_args(["demo", "part1", "--no-fast-boot"]).fast_boot is False
+    assert build_parser().parse_args(["demo", "part1", "--fast-boot"]).fast_boot is True
+
+
+@pytest.mark.parametrize("command", ["run", "measure"])
+def test_fast_runs_have_no_fast_boot_option(command):
+    # run and measure are fast from boot to end already.
+    from speedrun.cli import build_parser
+
+    assert not hasattr(build_parser().parse_args([command, "part1"]), "fast_boot")
+    with pytest.raises(SystemExit):
+        build_parser().parse_args([command, "part1", "--no-fast-boot"])
+
+
+def test_help_lists_no_fast_boot(capsys):
+    with pytest.raises(SystemExit):
+        main(["--help"])
+    assert "--no-fast-boot" in capsys.readouterr().out
+
+
 def test_compile_defaults_to_part1():
     from speedrun.cli import build_parser
 

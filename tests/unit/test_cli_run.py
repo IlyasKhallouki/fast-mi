@@ -563,6 +563,7 @@ def test_run_engine_config(compiled, fakes):
     assert cfg.max_ticks is None
     assert cfg.boot_param is None
     assert cfg.headless is True and cfg.fast is True
+    assert cfg.fast_boot is False  # already fully fast
     assert cfg.dump_objects is False
     assert cfg.timeout_s == 1800
     assert cfg.out_dir.parent == compiled.runs and cfg.out_dir.name.endswith("-run")
@@ -588,9 +589,25 @@ def test_demo_is_windowed_and_real_time(compiled, fakes, capsys):
     (cfg,) = fakes.engine.calls
     assert cfg.headless is False
     assert cfg.fast is False
+    assert cfg.fast_boot is True  # the boot is fast-forwarded to the segment start
     assert cfg.timeout_s == 3600
     assert cfg.out_dir.name.endswith("-demo")
     assert "TOTAL: 1360 ticks" in _output(capsys)
+
+
+def test_demo_no_fast_boot_plays_the_boot_in_real_time(compiled, fakes):
+    assert cli.main(["demo", "toy", "--no-fast-boot"]) == 0
+    (cfg,) = fakes.engine.calls
+    assert cfg.headless is False
+    assert cfg.fast is False and cfg.fast_boot is False
+
+
+def test_run_has_no_fast_boot_option(compiled, fakes, capsys):
+    with pytest.raises(SystemExit) as excinfo:
+        cli.main(["run", "toy", "--no-fast-boot"])
+    assert excinfo.value.code != 0
+    assert "--no-fast-boot" in capsys.readouterr().err
+    assert fakes.engine.calls == []
 
 
 @pytest.mark.parametrize("command", ["run", "demo"])
@@ -782,6 +799,7 @@ class ConfigWithoutInventory:
     max_ticks: int | None = None
     timeout_s: float = 600.0
     interrupts: list = dataclasses.field(default_factory=list)
+    fast_boot: bool = False
 
 
 @dataclasses.dataclass

@@ -149,7 +149,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     for mode, text in (
         ("run", "replay the segment headless and print ticks"),
-        ("demo", "replay the segment in a visible window, in real time, and print ticks"),
+        ("demo", "replay the segment in a visible window, in real time from the segment start, and print ticks"),
     ):
         p = sub.add_parser(mode, help=text)
         p.add_argument("segment", help="segment name, e.g. part1")
@@ -165,6 +165,12 @@ def build_parser() -> argparse.ArgumentParser:
             "--objective", choices=OBJECTIVES,
             help="replay the action-count or the time plan (default: time if its plan is fresh, else actions)",
         )  # fmt: skip
+        if mode == "demo":  # run is fast from boot to end already
+            p.add_argument(
+                "--fast-boot", action=argparse.BooleanOptionalAction, default=True,
+                help="fast-forward the boot (logo, credits, opening) to the segment start, then play in "
+                     "real time; ticks are unaffected (default: on)",
+            )  # fmt: skip
 
     p = sub.add_parser("measure", help="replay a plan headless on many seeds and report per-action ticks")
     p.add_argument("segment", help="segment name, e.g. part1")
@@ -687,7 +693,11 @@ def _print_randomized_vars(seg: Segment, run_dir: Path) -> None:
 
 
 def run_segment(name: str, mode: str, args: argparse.Namespace) -> int:
-    """Shared by ``run`` (headless, fast) and ``demo`` (windowed, real time)."""
+    """Shared by ``run`` (headless, fast) and ``demo`` (windowed, real time).
+
+    The demo fast-forwards the boot to the segment start unless ``--no-fast-boot``
+    (``EngineConfig.fast_boot``); only wall-clock pacing changes, so ticks match ``run``.
+    """
     seg = _segment(name)
     # ScummVM treats boot param 0 as "no boot param": not passed, not a debug start, a measured run.
     boot_param = args.boot_param or None
@@ -706,6 +716,7 @@ def run_segment(name: str, mode: str, args: argparse.Namespace) -> int:
         "boot_param": boot_param,
         "headless": mode == "run",
         "fast": mode == "run",
+        "fast_boot": getattr(args, "fast_boot", False),  # demo only
         "timeout_s": RUN_TIMEOUT_S[mode],
     }
     if seg.interrupts:

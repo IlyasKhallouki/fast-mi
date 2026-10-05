@@ -97,6 +97,7 @@ The bridge is inert unless `SPEEDRUN_OUT` is set.
 | `SPEEDRUN_START=<json>` | Segment start: a JSON array of conditions (C3), evaluated only on sentence-idle frames. Defaults to `[]`, the first sentence-idle frame. |
 | `SPEEDRUN_GOAL=<json>` | A JSON array of conditions. On the first frame after segment start where all hold, write a `goal` record and `state-end.json`, then quit immediately. If unset or empty, there is no goal. A malformed value is `bad_env`. |
 | `SPEEDRUN_FAST=1` | Skip real-time waiting between frames. Ticks are unaffected. |
+| `SPEEDRUN_FAST_BOOT=1` | Skip real-time waiting until the segment start. From the frame `segment_start` is recorded in onward, `SPEEDRUN_FAST` decides: `go()` waits before each `scummLoop()`, so that frame is the first shown for its real-time length. Like `SPEEDRUN_FAST`, it changes only wall-clock pacing, never ticks or game logic, so it does not bump the bridge marker and measured costs stay valid. `speedrun demo` sets it, unless `--no-fast-boot` is given; `run` and `measure` are fully fast already. |
 | `SPEEDRUN_MAX_TICKS=<int>` | Safety cap, counted from boot. On reaching it, write `end` with reason `max_ticks`, then quit. |
 | `SPEEDRUN_INVENTORY=<json>` | Inventory slot layout for `click` inventory entries: `{"verb_first": 200, "count": 8, "var_first": 133}`, meaning slot verb `verb_first+k` shows the object in `Var[var_first+k]`. It comes from `segment.toml` and is cited. |
 | `SPEEDRUN_STEP_TIMEOUT=<int>` | Ticks a step may take before it fails (default 36000 = 10 min of game time). |
@@ -181,7 +182,7 @@ A menu the plan does not answer may be an interrupt (C1 `SPEEDRUN_INTERRUPTS`). 
 ### C5. Trace JSONL (`$SPEEDRUN_OUT/trace.jsonl`)
 
 ```json
-{"type":"boot","tick":0,"frame":0,"bridge":"speedrun-bridge v2","game":"monkey","variant":"Mac","fast":true,"audio_pump":true,"seed":1,"boot_param":0}
+{"type":"boot","tick":0,"frame":0,"bridge":"speedrun-bridge v2","game":"monkey","variant":"Mac","fast":true,"fast_boot":false,"audio_pump":true,"seed":1,"boot_param":0}
 {"type":"segment_start","tick":812,"frame":203,"tick0":812,"room":33}
 {"type":"step_start","step":0,"tick":830,"frame":207,"action":"walk dock lookout","room":33,"sentence":[11,426,0]}
 {"type":"click","step":4,"tick":2000,"frame":400,"verb_id":7}
@@ -200,6 +201,7 @@ A menu the plan does not answer may be an interrupt (C1 `SPEEDRUN_INTERRUPTS`). 
 ```
 
 - **Durability:** the trace is written in place and flushed after every record, so a run that crashes or is killed without a chance to quit (SIGKILL) keeps every record so far; such a trace has no `end` record. `state-start.json`, `state-end.json` and `objects.json` are written whole: a temporary file is renamed into place.
+- **`boot` pacing:** `fast` is `SPEEDRUN_FAST` and `fast_boot` is `SPEEDRUN_FAST_BOOT` (C1). Neither changes any tick, so two runs that differ only in them have identical records after `boot` (`tests/integration/test_fast_boot.py`).
 - **`end` reasons:** `goal`, `plan_exhausted`, `max_ticks`, `error`, `dump_done`, or `quit`. `quit` means the engine was closed externally, e.g. the window was closed or SIGTERM was sent.
 - **`end` fingerprint:** the record carries `room`, `audio_frames`, `music_timer` and `vars_fnv1a`, an FNV-1a hash over all global vars. Determinism tests compare whole `end` records.
 - **`error` codes:**
@@ -509,7 +511,7 @@ The engine facts behind this phase are in `docs/research/engine-bridge.md`, and 
 
 **Audio is tick-locked.** Every run uses `--disable-sdl-audio`. The bridge pumps the null mixer (`MixerImpl::mixCallback`) by `delta * 22050 / 60` sample frames per engine frame, in fixed 512-frame chunks, carrying the remainder. Sound-end and the music timer (var 14) then advance in game ticks rather than wall-clock time, so headless and demo give identical ticks. The consequence is that the visible demo is silent.
 
-**Fast mode.** `skipWaits()` returns true when `SPEEDRUN_FAST=1`. Never use `_fastMode`, which also suppresses walk sounds (`actor.cpp:2266`). The bridge forces `_fastMode = 0` every frame.
+**Fast mode.** `skipWaits()` returns true when `SPEEDRUN_FAST=1`, or before the segment start when `SPEEDRUN_FAST_BOOT=1` (C1). Never use `_fastMode`, which also suppresses walk sounds (`actor.cpp:2266`). The bridge forces `_fastMode = 0` every frame.
 
 **Ticks.** `onFrameBegin(delta)` adds the unclamped `delta` to `_ticks` and increments `_frames`.
 
@@ -826,7 +828,7 @@ The Fast Downward facts behind this phase are in `docs/research/fast-downward.md
   5. Load the trace and print the per-step table, then `TOTAL: N ticks (M:SS.ss at 60 Hz)`.
   6. Print the randomised vars read from `state-start.json`.
   7. Exit 0 if the goal was reached, else 1, printing the error records.
-- [ ] `run` is headless with fast mode. `demo` is windowed, real-time and fast-off, with the same audio config, so ticks are comparable.
+- [ ] `run` is headless with fast mode. `demo` is windowed, real-time and fast-off, with the same audio config, so ticks are comparable. The demo fast-forwards the boot to the segment start (`SPEEDRUN_FAST_BOOT`, C1; `--no-fast-boot` turns that off).
 - [ ] Options: `--seed N` (default 1), `--boot-param N`, `--max-ticks N`, `--replan`.
 
 ### Task 5.3: Integration tests on the real engine

@@ -130,10 +130,10 @@ index ae7b4bb7..816bf55d 100644
  
 diff --git a/engines/scumm/speedrun/speedrun_bridge.cpp b/engines/scumm/speedrun/speedrun_bridge.cpp
 new file mode 100644
-index 00000000..117af1c5
+index 00000000..b335d0fd
 --- /dev/null
 +++ b/engines/scumm/speedrun/speedrun_bridge.cpp
-@@ -0,0 +1,602 @@
+@@ -0,0 +1,606 @@
 +/* ScummVM - Graphic Adventure Engine
 + *
 + * ScummVM is the legal property of its developers, whose names
@@ -243,8 +243,8 @@ index 00000000..117af1c5
 +		bridge->_pumpAudio = bridge->_audioRate > 0;
 +	}
 +
-+	debug(1, "speedrun: %s active, out='%s' fast=%d audio_pump=%d rate=%u max_ticks=%s",
-+	      kBridgeMarker, bridge->_outDir.c_str(), bridge->_skipWaits, bridge->_pumpAudio, bridge->_audioRate,
++	debug(1, "speedrun: %s active, out='%s' fast=%d fast_boot=%d audio_pump=%d rate=%u max_ticks=%s",
++	      kBridgeMarker, bridge->_outDir.c_str(), bridge->_skipWaits, bridge->_fastBoot, bridge->_pumpAudio, bridge->_audioRate,
 +	      bridge->_hasMaxTicks ? Common::String::format("%llu", (unsigned long long)bridge->_maxTicks).c_str() : "none");
 +	return bridge;
 +}
@@ -267,6 +267,9 @@ index 00000000..117af1c5
 +		const char *name;
 +		bool SpeedrunBridge::*flag;
 +	} kBoolVars[] = {
++		// Pacing only (skipWaits()): ticks and game logic are the same either way,
++		// so it does not bump kBridgeMarker.
++		{"SPEEDRUN_FAST_BOOT", &SpeedrunBridge::_fastBoot},
 +		{"SPEEDRUN_DUMP_OBJECTS", &SpeedrunBridge::_dumpObjects},
 +		{"SPEEDRUN_SKIP_TEXT", &SpeedrunBridge::_skipText},
 +		{"SPEEDRUN_SKIP_CUTSCENES", &SpeedrunBridge::_skipCutscenes},
@@ -367,6 +370,7 @@ index 00000000..117af1c5
 +	   .add("game", _vm->_game.gameid)
 +	   .add("variant", _vm->_game.variant)
 +	   .add("fast", _skipWaits)
++	   .add("fast_boot", _fastBoot)
 +	   .add("audio_pump", _pumpAudio);
 +	// --random-seed is stored in the session domain; Common::RandomSource uses
 +	// it when the key exists (common/random.cpp).
@@ -738,10 +742,10 @@ index 00000000..117af1c5
 +} // End of namespace Scumm
 diff --git a/engines/scumm/speedrun/speedrun_bridge.h b/engines/scumm/speedrun/speedrun_bridge.h
 new file mode 100644
-index 00000000..7cce6b1e
+index 00000000..804a77b5
 --- /dev/null
 +++ b/engines/scumm/speedrun/speedrun_bridge.h
-@@ -0,0 +1,407 @@
+@@ -0,0 +1,415 @@
 +/* ScummVM - Graphic Adventure Engine
 + *
 + * ScummVM is the legal property of its developers, whose names
@@ -861,6 +865,8 @@ index 00000000..7cce6b1e
 + * Environment (contract C1; all read once, in create()):
 + *  - SPEEDRUN_OUT=<dir>          output dir: trace.jsonl, objects.json, state-*.json
 + *  - SPEEDRUN_FAST=1             no real-time waiting between frames
++ *  - SPEEDRUN_FAST_BOOT=1        no real-time waiting until the segment start; from the
++ *                                frame segment_start is recorded in, SPEEDRUN_FAST decides
 + *  - SPEEDRUN_MAX_TICKS=<n>      watchdog: end "max_ticks" once ticks >= n
 + *  - SPEEDRUN_DUMP_OBJECTS=1     objects.json at the first idle frame, then end "dump_done"
 + *  - SPEEDRUN_START=<json>       segment start conditions, checked on sentence-idle frames
@@ -897,8 +903,13 @@ index 00000000..7cce6b1e
 +	void onFrameBegin(int delta);
 +	/** scummLoop(), right before checkAndRunSentenceScript(). */
 +	void onDecisionPoint();
-+	/** waitForTimer(): true skips the real-time wait (SPEEDRUN_FAST). */
-+	bool skipWaits() const { return _skipWaits; }
++	/**
++	 * waitForTimer(): true skips the real-time wait. SPEEDRUN_FAST, or
++	 * SPEEDRUN_FAST_BOOT before the segment start. go() waits before each
++	 * scummLoop(), so the frame segment_start is recorded in is the first one
++	 * shown for its real-time length. Only wall-clock pacing changes, never ticks.
++	 */
++	bool skipWaits() const { return _skipWaits || (_fastBoot && !_segmentStarted); }
 +	/**
 +	 * First statement of clearClickedStatus(). Counts the calls that wipe a
 +	 * click a player made this frame (speedrun_bridge.cpp).
@@ -1056,7 +1067,8 @@ index 00000000..7cce6b1e
 +
 +	// Configuration (contract C1)
 +	Common::String _outDir;
-+	bool _skipWaits = false;
++	bool _skipWaits = false;        // SPEEDRUN_FAST
++	bool _fastBoot = false;         // SPEEDRUN_FAST_BOOT
 +	bool _pumpAudio = false;
 +	bool _hasMaxTicks = false;
 +	uint64 _maxTicks = 0;

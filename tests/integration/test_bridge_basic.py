@@ -55,6 +55,7 @@ def test_bridge_boots_and_stops_at_max_ticks(engine_ready, tmp_path, home_scummv
     assert boot["game"] == "monkey"
     assert boot["variant"] == "Mac"
     assert boot["fast"] is True
+    assert boot["fast_boot"] is False  # SPEEDRUN_FAST_BOOT unset (C1, C5)
     # Proves the bridge sees --disable-sdl-audio (transient ConfMan domain) ...
     assert boot["audio_pump"] is True
     # ... and --random-seed (session domain).

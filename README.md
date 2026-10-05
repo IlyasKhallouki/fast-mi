@@ -45,7 +45,7 @@ uv run speedrun demo part1              # watch Guybrush play the route hands-fr
 | `speedrun plan part1` | Runs Fast Downward on `pddl/part1/` and prints cost, actions and transitions. |
 | `speedrun compile [part1]` | Turns the plan into the player's JSONL steps, using the object dump for ids. |
 | `speedrun run part1` | Replays headless (about 15 s) and prints the per-step table and total ticks. |
-| `speedrun demo part1` | Replays in a visible window at real speed. The ticks are identical to `run`. |
+| `speedrun demo part1` | Replays in a visible window. It fast-forwards the boot (logo, credits, opening; about 2.6 minutes at real speed) to the dock, then plays the segment at real speed. `--no-fast-boot` plays the boot at real speed too. The ticks are identical to `run`. |
 | `speedrun measure part1` | Replays the plan headless on many seeds in parallel (`--seeds 1-30`) and reports per-action and total ticks. |
 | `speedrun optimize part1` | Searches for the plan with the lowest mean ticks over many seeds and installs it as the time plan. |
 

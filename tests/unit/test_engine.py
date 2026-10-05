@@ -118,6 +118,25 @@ def test_env_headless_and_speedrun_vars(tmp_path):
     assert env["SDL_AUDIODRIVER"] == "dummy"
 
 
+def test_env_fast_boot_is_off_by_default(tmp_path):
+    cfg = _cfg(tmp_path)
+    assert cfg.fast_boot is False
+    assert "SPEEDRUN_FAST_BOOT" not in engine.build_env(cfg, base_env={})
+
+
+@pytest.mark.parametrize("fast", [False, True])
+def test_env_fast_boot_is_independent_of_fast(tmp_path, fast):
+    # The demo: real time (no SPEEDRUN_FAST) from the segment start, fast before it (C1).
+    env = engine.build_env(_cfg(tmp_path, fast=fast, fast_boot=True, headless=False), base_env={})
+    assert env["SPEEDRUN_FAST_BOOT"] == "1"
+    assert ("SPEEDRUN_FAST" in env) is fast
+
+
+def test_argv_does_not_depend_on_fast_boot(tmp_path):
+    # Fast boot is a bridge switch (env only); ScummVM's own command line is unchanged.
+    assert engine.build_argv(_cfg(tmp_path, fast_boot=True)) == engine.build_argv(_cfg(tmp_path))
+
+
 def test_env_inventory_layout_without_cite(tmp_path):
     # segment.toml's inventory table carries a citation; the bridge gets only the layout.
     layout = {"verb_first": 200, "count": 8, "var_first": 133, "cite": "global/script-009.txt [0092]"}
@@ -137,6 +156,7 @@ def test_env_defaults_omit_optional_vars(tmp_path):
         "SPEEDRUN_PLAN",
         "SPEEDRUN_DUMP_OBJECTS",
         "SPEEDRUN_FAST",
+        "SPEEDRUN_FAST_BOOT",
         "SPEEDRUN_MAX_TICKS",
         "SPEEDRUN_STEP_TIMEOUT",
         "SPEEDRUN_INVENTORY",
