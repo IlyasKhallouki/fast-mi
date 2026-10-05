@@ -97,6 +97,7 @@ FOLLOW_ACTIONS = {
     "walk-follow-guide-to-map",
     "walk-follow-guide-to-f218",
     "walk-follow-guide-to-f215",
+    "walk-follow-guide-to-f215-via-686",
     "walk-forest-gate-215-203-with-guide",
     # Instant or nearly so (6-78 ticks), far inside the 1800-jiffy limit.
     "pick-up-petal",
@@ -112,6 +113,9 @@ ALT_EXITS = [
     # 218 and 220 draw it next to 685 (entry.txt [08E5]/[08ED], [09B9]/[09C1]).
     ("walk-f218-f215-via-686", "walk f218 f215", 686),
     ("walk-f220-f210-via-686", "walk f220 f210", 686),
+    # Following the storekeeper: global 67 waits only for VAR_ROOM, whichever path ego takes
+    # (global/script-067.txt [00D6], [02E3]-[0353]).
+    ("walk-follow-guide-to-f215-via-686", "walk-follow-guide-to-f215", 686),
     # Dock 905 does what 904 does while !Bit[453], landing at x 566 instead of 308
     # (room-083-cu-dock/obj-0905-dock.txt [0010]-[0020]; obj-0904-dock.txt [0019]).
     ("walk-cu-dock-dock-via-905", "walk cu-dock dock", 905),
@@ -617,18 +621,21 @@ def test_pirate_leaders_talk_is_the_first_meeting():
 
 
 def test_alternative_exits_mirror_their_twins():
-    """Each alternative exit is its twin link with another object: same guards, same effects, same step shape.
+    """Each alternative exit is its twin with another object: same guards, same effects, same step shape.
 
-    The generic walk's guards (store door, provoke, storekeeper) carry over, so the
-    alternative is applicable exactly where its twin is, and it moves ego the same way.
+    The twin's guards (for a link, the generic walk's: store door, provoke, storekeeper)
+    carry over, so the alternative is applicable exactly where its twin is, and it moves
+    ego the same way.
     """
     ground = _ground_actions()
     steps = _steps()["actions"]
     for alt, twin, oid in ALT_EXITS:
         assert alt in ground, f"{alt} is not a domain action"
-        _, a, b = twin.split()
         pre, neg, add, dele = ground[twin]
-        assert ground[alt] == (pre - {("link", a, b)}, neg, add, dele), f"{alt} must mirror {twin}"
+        if twin.startswith("walk "):
+            _, a, b = twin.split()
+            pre = pre - {("link", a, b)}
+        assert ground[alt] == (pre, neg, add, dele), f"{alt} must mirror {twin}"
         assert alt in steps, f"steps.toml has no template for {alt}"
         (alt_step,) = steps[alt]["steps"]
         (twin_step,) = steps[twin]["steps"]

@@ -1,9 +1,9 @@
 """Unit tests for ``speedrun.positions``: where each action leaves ego, and the context of each plan action.
 
 A position token names where ego stands: ``start`` (the segment start),
-``entry:<from>:<to>`` (he arrived in ``<to>`` through the exit from
-``<from>``) or ``obj:<room>:<id>`` (he walked to object ``<id>`` in PDDL room
-``<room>``). The toy ``town`` model below exercises every derivation rule; the
+``entry:<from>:<to>:<id>`` (he arrived in ``<to>`` through exit object
+``<id>`` of ``<from>``; ``entry:<from>:<to>`` when no sentence names the exit)
+or ``obj:<room>:<id>`` (he walked to object ``<id>`` in PDDL room ``<room>``). The toy ``town`` model below exercises every derivation rule; the
 last tests run the derivation on the real Part I model.
 """
 
@@ -87,7 +87,7 @@ TOWN_OBJECTS = {
               {"id": 3, "name": "Give"}, {"id": 7, "name": "Use"}, {"id": 9, "name": "Pick up"}],
     "rooms": [
         {"room": 101, "objects": [{"id": 501, "name": "door"}, {"id": 503, "name": "coin"},
-                                  {"id": 504, "name": "gate"}]},
+                                  {"id": 504, "name": "gate"}, {"id": 505, "name": "hatch"}]},
         {"room": 102, "objects": [{"id": 511, "name": "clerk"}, {"id": 512, "name": "lock"},
                                   {"id": 513, "name": "key"}, {"id": 515, "name": "door"}]},
         {"room": 58, "objects": [{"id": 685, "name": "path"}, {"id": 678, "name": "flower"}]},
@@ -150,14 +150,47 @@ def _derive(objects, domain=TOWN_DOMAIN, problem=TOWN_PROBLEM, steps=None):
 
 def test_walks_leave_ego_at_the_entry_of_the_destination(objects):
     pos = _derive(objects)
-    for a, b in (("street", "yard"), ("yard", "street"), ("shop", "street")):
+    for a, b, exit_id in (("street", "yard", 504), ("yard", "street", 685), ("shop", "street", 515)):
         anchor = pos.anchor(f"walk {a} {b}")
-        assert (anchor.room, anchor.to, anchor.token) == (a, b, f"entry:{a}:{b}")
+        assert (anchor.room, anchor.to, anchor.token) == (a, b, f"entry:{a}:{b}:{exit_id}")
 
 
 def test_a_guarded_room_change_is_an_entry_too(objects):
     anchor = _derive(objects).anchor("walk-into-shop")
-    assert (anchor.room, anchor.to, anchor.token) == ("street", "shop", "entry:street:shop")
+    assert (anchor.room, anchor.to, anchor.token) == ("street", "shop", "entry:street:shop:501")
+
+
+def test_two_exits_between_the_same_rooms_leave_different_tokens(objects):
+    # A second exit object lands ego elsewhere (dock 905 against 904), so the next action's
+    # context must tell them apart.
+    domain = _add_action(TOWN_DOMAIN, """
+  (:action walk-in-through-hatch
+    :parameters ()
+    :precondition (and (at street))
+    :effect (and (not (at street)) (at shop) (increase (total-cost) 1)))
+""")
+    steps = town_steps()
+    steps["actions"]["walk-in-through-hatch"] = {"steps": [_step("walk_to", _ref(101, "hatch"), room=101)]}
+    pos = _derive(objects, domain=domain, steps=steps)
+    assert pos.anchor("walk-in-through-hatch").token == "entry:street:shop:505"
+    assert pos.anchor("walk-into-shop").token == "entry:street:shop:501"
+    assert {"entry:street:shop:501", "entry:street:shop:505"} <= set(pos.tokens_in("shop"))
+    plan = ["walk-in-through-hatch", "buy-key"]
+    assert pos.contexts(plan) == [START, "entry:street:shop:505"]
+
+
+def test_a_room_change_with_no_sentence_has_no_exit_object(objects):
+    # The circus helmet: a click-only step whose script walks ego out.
+    domain = _add_action(TOWN_DOMAIN, """
+  (:action walk-out-on-cue
+    :parameters ()
+    :precondition (and (at shop))
+    :effect (and (not (at shop)) (at street) (increase (total-cost) 1)))
+""")
+    steps = town_steps()
+    steps["actions"]["walk-out-on-cue"] = {"steps": [{"room": 102, "click": [{"verb": "use"}]}]}
+    anchor = _derive(objects, domain=domain, steps=steps).anchor("walk-out-on-cue")
+    assert (anchor.room, anchor.to, anchor.token) == ("shop", "street", "entry:shop:street")
 
 
 def test_a_sentence_leaves_ego_at_its_object(objects):
@@ -195,10 +228,10 @@ def test_tokens_know_their_room(objects):
     pos = _derive(objects)
     assert pos.initial_room == "street"
     assert pos.room_of(START) == "street"
-    assert pos.room_of("entry:street:shop") == "shop"
+    assert pos.room_of("entry:street:shop:501") == "shop"
     assert pos.room_of("obj:yard:678") == "yard"
-    assert set(pos.tokens_in("street")) == {START, "obj:street:501", "entry:yard:street", "entry:shop:street"}
-    assert set(pos.tokens_in("shop")) == {"entry:street:shop", "obj:shop:511", "obj:shop:512"}
+    assert set(pos.tokens_in("street")) == {START, "obj:street:501", "entry:yard:street:685", "entry:shop:street:515"}
+    assert set(pos.tokens_in("shop")) == {"entry:street:shop:501", "obj:shop:511", "obj:shop:512"}
     assert pos.tokens_in("attic") == []
 
 
@@ -237,6 +270,14 @@ def test_an_action_without_a_template_fails(objects):
     steps = town_steps()
     del steps["actions"]["open-door"]
     with pytest.raises(PositionError, match="open-door"):
+        _derive(objects, steps=steps)
+
+
+def test_a_room_change_without_a_template_fails(objects):
+    # Its token names the exit object, which only the template knows.
+    steps = town_steps()
+    del steps["actions"]["walk-into-shop"]
+    with pytest.raises(PositionError, match="walk-into-shop"):
         _derive(objects, steps=steps)
 
 
@@ -286,14 +327,14 @@ def test_the_context_is_the_position_before_each_action(objects):
     assert contexts == [
         START,                 # open-door: the segment start
         "obj:street:501",      # walk-into-shop: at the door just opened
-        "entry:street:shop",   # buy-key: just came in
+        "entry:street:shop:501",  # buy-key: just came in through the door
         "obj:shop:511",        # answer-clerk: at the clerk
         "obj:shop:511",        # give-coin: dialogue-only moved nothing
         "obj:shop:511",        # polish-coin: still at the clerk
         "obj:shop:511",        # use-key-with-lock: polishing moved nothing
         "obj:shop:512",        # walk shop street: at the lock
-        "entry:shop:street",   # walk street yard
-        "entry:street:yard",   # pick-flower
+        "entry:shop:street:515",  # walk street yard
+        "entry:street:yard:504",  # pick-flower
         "obj:yard:678",        # walk yard street
     ]  # fmt: skip
 
@@ -312,9 +353,9 @@ def test_pddl_names():
     # Prefixed, so a token never collides with a room constant (a toy room may be called "start").
     assert pddl_name(START) == "p_start"
     assert pddl_name(ANY) == "p_any"
-    assert pddl_name("entry:high-street-town:jail") == "p_entry_high-street-town_jail"
+    assert pddl_name("entry:high-street-town:jail:434") == "p_entry_high-street-town_jail_434"
     assert pddl_name("obj:kitchen:567") == "p_obj_kitchen_567"
-    for token in ("entry:a:b", "obj:f215:678"):
+    for token in ("entry:a:b", "entry:cu-dock:dock:905", "obj:f215:678"):
         assert re.fullmatch(r"[a-z][a-z0-9_-]*", pddl_name(token))
 
 
@@ -344,10 +385,10 @@ def test_real_model_every_steps_action_has_an_anchor(real):
 
 
 @pytest.mark.parametrize(("action", "room", "token"), [
-    ("walk dock lookout", "dock", "entry:dock:lookout"),
-    ("walk-out-of-bar-from-left-meanwhile", "bar-left", "entry:bar-left:dock"),
-    ("walk-out-of-tent-after-helmet-meat", "tent", "entry:tent:clearing"),  # click-only, but a room change
-    ("walk-past-fester-to-underwater", "foyer", "entry:foyer:underwater"),  # a cutscene moves him
+    ("walk dock lookout", "dock", "entry:dock:lookout:426"),
+    ("walk-out-of-bar-from-left-meanwhile", "bar-left", "entry:bar-left:dock:315"),
+    ("walk-out-of-tent-after-helmet-meat", "tent", "entry:tent:clearing"),  # click-only: no exit object
+    ("walk-past-fester-to-underwater", "foyer", "entry:foyer:underwater:633"),  # a cutscene moves him
     ("open-store-door", "high-street-town", "obj:high-street-town:437"),
     ("open-mansion-door", "mansion", "obj:mansion:465"),
     ("use-meat-with-pot", "kitchen", "obj:kitchen:567"),
@@ -356,12 +397,18 @@ def test_real_model_every_steps_action_has_an_anchor(real):
     ("give-meat-to-poodles", "mansion", "obj:mansion:467"),
     ("dig-treasure", "treasure-site", "obj:treasure-site:749"),
     ("pick-up-petal", "f215", "obj:f215:678"),
-    # Alternative exits (model.md section 14.8): 686 runs 685's code, which loads 215 or 210
-    # with ego at 687, so the arrival is the twin's. 905 lands at x 566, not 904's 308, but a
-    # room change's token names only from and to: both docks give entry:cu-dock:dock.
-    ("walk-f218-f215-via-686", "f218", "entry:f218:f215"),
-    ("walk-f220-f210-via-686", "f220", "entry:f220:f210"),
-    ("walk-cu-dock-dock-via-905", "cu-dock", "entry:cu-dock:dock"),
+    # Twin exits (model.md section 14.8) are keyed by their object: 905 lands at x 566,
+    # 904 at x 308; 686 lands where 685 does, but shares no token with it (positions.py).
+    ("walk cu-dock dock", "cu-dock", "entry:cu-dock:dock:904"),
+    ("walk-cu-dock-dock-via-905", "cu-dock", "entry:cu-dock:dock:905"),
+    ("walk f218 f215", "f218", "entry:f218:f215:685"),
+    ("walk-f218-f215-via-686", "f218", "entry:f218:f215:686"),
+    ("walk-follow-guide-to-f215-via-686", "f218", "entry:f218:f215:686"),
+    ("walk-f220-f210-via-686", "f220", "entry:f220:f210:686"),
+    # The curtain (ego at (330,137)) and the left-half provoke (ego at 316's walk point) both
+    # take bar-left to bar-right; they were one token before.
+    ("walk bar-left bar-right", "bar-left", "entry:bar-left:bar-right:323"),
+    ("walk-to-kitchen-door-provoking-cook", "bar-left", "entry:bar-left:bar-right:316"),
     ("drug-meat-with-petal", None, None),
     ("open-cake", None, None),
 ])  # fmt: skip
@@ -378,12 +425,41 @@ def test_real_model_contexts_of_the_reported_plan(real):
     contexts = real.contexts(actions)
     by_index = list(zip(actions, contexts))
     assert by_index[0] == ("open-bar-door", START)
-    assert ("walk dock lookout", "entry:bar-left:dock") in by_index  # after the first bar exit
-    assert ("walk dock lookout", "entry:cu-dock:dock") in by_index
+    assert ("walk dock lookout", "entry:bar-left:dock:315") in by_index  # after the first bar exit
+    assert ("walk dock lookout", "entry:cu-dock:dock:904") in by_index
     assert ("walk-into-foyer", "obj:mansion:465") in by_index  # right after opening the door
-    assert ("walk-into-foyer", "entry:high-street-mansion:mansion") in by_index
-    assert ("walk high-street-town jail", "entry:low-street:high-street-town") in by_index
-    assert ("walk high-street-town jail", "entry:high-street-mansion:high-street-town") in by_index
+    assert ("walk-into-foyer", "entry:high-street-mansion:mansion:431") in by_index
+    assert ("walk high-street-town jail", "entry:low-street:high-street-town:451") in by_index
+    assert ("walk high-street-town jail", "entry:high-street-mansion:high-street-town:435") in by_index
     # open-cake (inventory only) does not move ego: the walk after it starts at the jail's exit.
     k = actions.index("open-cake")
-    assert contexts[k] == contexts[k + 1] == "entry:jail:high-street-town"
+    assert contexts[k] == contexts[k + 1] == "entry:jail:high-street-town:400"
+
+
+def test_real_model_room_changes_are_keyed_by_their_exit_object(real):
+    """Two actions with the same from and to share a token only if they push the same exit object.
+
+    Same object, same arrival: the split bar exits (Walk to 315; the cutscene ends at
+    loadRoomWithEgo(428,33) as the later exit does, room-028-bar/obj-0315-door.txt [0090],
+    global/script-120.txt [0538]) and the three gate variants at 215 (685).
+    """
+    same = [
+        ("walk-out-of-bar-from-left-meanwhile", "walk-out-of-bar-from-left"),
+        ("walk-forest-gate-215-203", "walk-forest-gate-215-203-open"),
+        ("walk-forest-gate-215-203", "walk-forest-gate-215-203-with-guide"),
+        ("walk f218 f215", "walk-follow-guide-to-f215"),
+        ("walk-up-ladder-taking-idol", "walk-up-ladder-taking-idol-last"),
+    ]
+    for a, b in same:
+        assert real.anchor(a).token == real.anchor(b).token, (a, b)
+    apart = [
+        ("walk cu-dock dock", "walk-cu-dock-dock-via-905"),
+        ("walk f218 f215", "walk-f218-f215-via-686"),
+        ("walk f220 f210", "walk-f220-f210-via-686"),
+        ("walk bar-left bar-right", "walk-to-kitchen-door-provoking-cook"),
+    ]
+    for a, b in apart:
+        assert real.anchor(a).token != real.anchor(b).token, (a, b)
+    # Both docks' tokens lie on the dock, so either can be the context of the next dock walk.
+    assert real.room_of("entry:cu-dock:dock:904") == real.room_of("entry:cu-dock:dock:905") == "dock"
+    assert {"entry:cu-dock:dock:904", "entry:cu-dock:dock:905"} <= set(real.tokens_in("dock"))

@@ -665,6 +665,12 @@ steps = [{verb = "walk_to", obj = {room = 85, name = "fork"}, room = 85}]
 cite = "data/scripts/global/script-067.txt [00D6] room 218: next 215; room-058-damnfores/obj-0685-path.txt [0168] at 218, path 685 loads 215"
 steps = [{verb = "walk_to", obj = {room = 58, name = "path", id = 685}, until = [{var = 4, eq = 218}]}]
 
+# The same hop through path 686 (docs/part1/model.md section 14.8): global 67
+# waits only for VAR_ROOM, whichever path ego takes.
+[actions."walk-follow-guide-to-f215-via-686"]
+cite = "data/scripts/global/script-067.txt [00D6] room 218: next 215, he walks to a point ([02F6]); room-058-damnfores/obj-0686-path.txt [0010] 686 runs 685's Walk to: [0168] at 218 loads 215"
+steps = [{verb = "walk_to", obj = {room = 58, name = "path", id = 686}, until = [{var = 4, eq = 218}]}]
+
 [actions."walk-forest-gate-215-203-with-guide"]
 cite = "data/scripts/room-058-damnfores/obj-0685-path.txt [005B] at 215, 685 passes while script 67 runs; [00C1] Bit[401] = 1; [00C6] loadRoomWithEgo(685,203)"
 steps = [{verb = "walk_to", obj = {room = 58, name = "path", id = 685}, until = [{var = 4, eq = 215}]}]

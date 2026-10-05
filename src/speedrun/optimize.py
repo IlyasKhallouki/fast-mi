@@ -891,7 +891,8 @@ def _keyed_section(report: dict, table: CostTable) -> list[str]:
         "A walk's duration depends on where the previous action left ego, by up to hundreds of ticks, while the",
         "top candidates differ by much less. The keyed surrogate charges each action its mean ticks *in the",
         "position ego starts it from*: a token derived from the plan alone (`speedrun.positions`): `start`;",
-        "`entry:<from>:<to>` after a room change; `obj:<room>:<id>` after a sentence on a room object (the last",
+        "`entry:<from>:<to>:<id>` after a room change through exit object `<id>` (`entry:<from>:<to>` when no",
+        "sentence makes it, e.g. the helmet click); `obj:<room>:<id>` after a sentence on a room object (the last",
         "sentence step's object, `obj2` first); unchanged after inventory-only, dialogue-only and click-only actions.",
         "",
         (f"- Mode: {'**on**' if s.get('keyed') else 'off (pooled means; keyed numbers are for comparison)'}, "

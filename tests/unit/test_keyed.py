@@ -49,8 +49,8 @@ def test_full_keying_declares_positions(town):
     for decl in ("(ego-pos ?p - pos)", "(pos-in-room ?p - pos ?r - room)", "(link-entry ?from ?to - room ?p - pos)"):
         assert decl in model.domain
     assert f"(ego-pos {pddl_name(START)})" in model.problem
-    assert f"(pos-in-room {pddl_name('entry:street:shop')} shop)" in model.problem
-    assert f"(link-entry street yard {pddl_name('entry:street:yard')})" in model.problem
+    assert f"(pos-in-room {pddl_name('entry:street:shop:501')} shop)" in model.problem
+    assert f"(link-entry street yard {pddl_name('entry:street:yard:504')})" in model.problem
     assert ANY not in {model.names[n] for n in model.names}  # nothing is unkeyed
 
 
@@ -60,7 +60,7 @@ def test_full_keying_grounds_one_instance_per_context(town):
     street = {pddl_name(t) for t in town.tokens_in("street")}
     assert {g for g in ground if g.startswith("open-door")} == {f"open-door {t}" for t in street}
     assert {g for g in ground if g.startswith("walk street yard")} == {
-        f"walk street yard {t} {pddl_name('entry:street:yard')}" for t in street
+        f"walk street yard {t} {pddl_name('entry:street:yard:504')}" for t in street
     }
     assert "polish-coin" in ground  # room-agnostic: never keyed
     shop = {pddl_name(t) for t in town.tokens_in("shop")}
@@ -77,7 +77,7 @@ def test_actions_read_and_set_the_position(town):
     assert "(ego-pos ?ctx) (pos-in-room ?ctx street)" in opened
     assert f"(not (ego-pos ?ctx)) (ego-pos {pddl_name('obj:street:501')})" in opened
     into_shop = _action_text(model.domain, "walk-into-shop")
-    assert f"(ego-pos {pddl_name('entry:street:shop')})" in into_shop
+    assert f"(ego-pos {pddl_name('entry:street:shop:501')})" in into_shop
     # Unchanged position: reads the context, sets nothing.
     answer = _action_text(model.domain, "answer-clerk")
     assert "(pos-in-room ?ctx shop)" in answer and "(not (ego-pos" not in answer
@@ -94,7 +94,7 @@ def test_selective_keying_gives_unkeyed_rooms_one_shared_context(town):
     assert "open-door" in ground  # an unkeyed room's action: no context parameter
     assert "walk-into-shop" in ground
     into_shop = _action_text(model.domain, "walk-into-shop")
-    assert f"(ego-pos {any_})" in into_shop and f"(ego-pos {pddl_name('entry:street:shop')})" in into_shop
+    assert f"(ego-pos {any_})" in into_shop and f"(ego-pos {pddl_name('entry:street:shop:501')})" in into_shop
     assert {g for g in ground if g.startswith("walk street yard")} == {f"walk street yard {any_} {any_}"}
     assert {g for g in ground if g.startswith("walk shop street")} == {
         f"walk shop street {pddl_name(t)} {any_}" for t in town.tokens_in("shop")
@@ -105,7 +105,7 @@ def test_selective_keying_gives_unkeyed_rooms_one_shared_context(town):
 
 def test_split_and_strip(town):
     model = keyed_model(TOWN_DOMAIN, TOWN_PROBLEM, town, keyed_rooms={"street", "shop"})
-    s, e = pddl_name(START), pddl_name("entry:street:yard")
+    s, e = pddl_name(START), pddl_name("entry:street:yard:504")
     assert model.split(f"walk street yard {s} {e}") == ("walk street yard", START)
     assert model.split(f"open-door {s}") == ("open-door", START)
     assert model.split("polish-coin") == ("polish-coin", None)
@@ -118,7 +118,7 @@ def test_split_and_strip(town):
 def test_effective_pairs_of_a_plan(town):
     model = keyed_model(TOWN_DOMAIN, TOWN_PROBLEM, town, keyed_rooms={"shop"})
     pairs = model.pairs(["open-door", "walk-into-shop", "buy-key", "walk shop street", "polish-coin"])
-    assert pairs == [("open-door", ANY), ("walk-into-shop", ANY), ("buy-key", "entry:street:shop"),
+    assert pairs == [("open-door", ANY), ("walk-into-shop", ANY), ("buy-key", "entry:street:shop:501"),
                      ("walk shop street", "obj:shop:511"), ("polish-coin", ANY)]  # fmt: skip
 
 

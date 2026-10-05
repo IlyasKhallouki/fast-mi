@@ -338,6 +338,38 @@ def test_pool_prior_function(tree, positions):
     assert table.bridges == {BRIDGE}
 
 
+def test_pool_prior_rekeys_old_summaries_from_their_plans(tmp_path):
+    # A summary measured before room changes were keyed by their exit object: its stored
+    # contexts say "entry:street:shop". Pooling ignores them, re-derives the contexts from the
+    # summary's plan under the current positions, and keeps every sample.
+    from test_positions import PLAN, TOWN_DOMAIN, TOWN_OBJECTS, TOWN_PROBLEM, town_steps
+
+    town = derive_positions(TOWN_DOMAIN, TOWN_PROBLEM, town_steps(), ObjectIndex.from_dict(TOWN_OBJECTS))
+    old = ["start", "obj:street:501", "entry:street:shop", "obj:shop:511", "obj:shop:511", "obj:shop:511",
+           "obj:shop:511", "obj:shop:512", "entry:shop:street", "entry:street:yard", "obj:yard:678"]  # fmt: skip
+    assert len(old) == len(PLAN)
+    runs = [{"seed": seed, "ok": True, "bridge": BRIDGE, "total_ticks": 0,
+             "instances": [{"seed": seed, "index": i, "action": a, "ticks": 10 * i + seed, "context": c}
+                           for i, (a, c) in enumerate(zip(PLAN, old))]}
+            for seed in (1, 2)]  # fmt: skip
+    summary = {"version": 1, "segment": "toy", "skips": {"text": True, "cutscenes": True},
+               "engine": timing_settings(), "actions": PLAN, "contexts": old, "runs": runs}  # fmt: skip
+    path = tmp_path / "measure" / "20261001T000000Z" / "summary.json"
+    path.parent.mkdir(parents=True)
+    path.write_text(json.dumps(summary))
+
+    table = CostTable()
+    result = optimize.pool_prior(table, town, [tmp_path / "measure"], BRIDGE)
+    assert [p["path"] for p in result["pooled"]] == [str(path)] and result["skipped"] == []
+    assert table.context_samples("buy-key") == {"entry:street:shop:501": [21, 22]}
+    assert table.context_samples("walk street yard") == {"entry:shop:street:515": [81, 82]}
+    assert table.context_samples("pick-flower") == {"entry:street:yard:504": [91, 92]}
+    keys = {c for a in table.actions() for c in table.context_samples(a)}
+    assert keys <= set(town.tokens())
+    assert not keys & {"entry:street:shop", "entry:shop:street", "entry:street:yard"}
+    assert sum(len(table.samples(a)) for a in table.actions()) == 2 * len(PLAN)
+
+
 # --- settings ---------------------------------------------------------------------------------
 
 

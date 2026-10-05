@@ -584,7 +584,12 @@ F220 : F210 (11,685) | (11,686) ; F213 (11,687) ; F215 (11,688)
   - The cliffside 426 is off screen on that arrival, unlike after 904, where the pin is `RoomScroll(0,160)` (`[0011]`).
   - A Walk to 426 crosses x 566 at once, so the camera rule still allows it (§7).
   - The walk to the cliffside is 234 ticks longer from 905's landing.
-- **Still collapsed.** Other `|` alternatives on modelled edges remain single links or actions in the model: 439 for 34M → 36, 421 for 31 → 34T, and 320 for 28L ↔ 28R. Each forwards to the modelled object. They were not reported by the extraction and have not been assessed.
+- **Following the storekeeper.** The guided hop F218 → F215 can also use 686 (`walk-follow-guide-to-f215-via-686`). At 218 global script 67 walks him to a point and waits only for `VAR_ROOM` (`data/scripts/global/script-067.txt [00D6]`, `[02F6]`, `[0353]`). It measured 162 ticks against 216.
+- **Still collapsed, and identical by the scripts.** The other `|` alternatives on modelled edges stay single links or actions:
+  - **439 for 34M → 36.** It forwards to 431 (`data/scripts/room-034-high-stre/obj-0439-deadly-piranha-poodles.txt [000C]`) and has 431's walk point (82,47). It is untouchable (class 32) until room 36's entry clears it (`data/scripts/room-036-mansion-e/entry.txt [0000]`).
+  - **421 for 31 → 34T.** Any verb on it runs `startObject(400,Local[1])` (`data/scripts/room-031-jail/obj-0421-unnamed.txt [0010]`), and it has 400's walk point (294,116).
+  - **320 for 28L ↔ 28R.** It forwards to 323 (`data/scripts/room-028-bar/obj-0320-unnamed.txt [000F]`). Both have class 8, for which the sentence script does not walk to the object (`data/scripts/global/script-002.txt [02B4]`).
+  - Each makes its twin's walk and lands the same way, so none can be faster (`docs/part1/model.md` §14.8).
 
 ### 5.3 Phase-B and story edges
 

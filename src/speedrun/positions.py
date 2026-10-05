@@ -5,8 +5,9 @@ the action starts: the walk to the next exit is long or short depending on the
 spot the previous action left him on. A **position token** names that spot:
 
 - ``start``: where the segment starts (the problem's initial ``(at R)``);
-- ``entry:<from>:<to>``: ego arrived in PDDL room ``<to>`` through the exit
-  from ``<from>``;
+- ``entry:<from>:<to>:<id>``: ego arrived in PDDL room ``<to>`` through exit
+  object ``<id>`` of ``<from>`` (``actor<n>`` for an actor);
+  ``entry:<from>:<to>`` when no sentence names the exit;
 - ``obj:<room>:<id>``: ego walked to object ``<id>`` in PDDL room ``<room>``
   (``actor:<room>:<n>`` for an actor).
 
@@ -15,7 +16,18 @@ effects on ``(at ?r)`` and the action's ``steps.toml`` template:
 
 1. An action that changes ``(at ...)`` (every ``walk*``, including scripted
    room changes such as the Fester cutscene) leaves ego at
-   ``entry:<from>:<to>``, whatever its steps do.
+   ``entry:<from>:<to>:<id>``. ``<id>`` is the exit object: the object its
+   last sentence step walks to, chosen as in rule 2. A room change with no
+   sentence on a room object (the circus helmet's click-only step) leaves
+   ``entry:<from>:<to>``. The exit object is part of the token because two
+   exits between the same rooms can land ego on different spots: dock 905
+   puts him at x 566, 904 at x 308 (``room-083-cu-dock/obj-0905-dock.txt
+   [0019]``, ``obj-0904-dock.txt [0019]``). Two actions on the same exit
+   share the token (the split bar exits, the gate variants at 215). Twins
+   on different objects get different tokens even where they land on the
+   same spot (path 686 runs 685's code): the template does not say where
+   the destination room puts ego, so the split costs only samples, never
+   accuracy.
 2. Otherwise the **last sentence step** decides (``verb`` + ``obj`` [+
    ``obj2``]). Ego walks to a *room* object, never to an inventory object.
    The anchor is ``obj2`` if it lies in the room, else ``obj`` if it does,
@@ -39,7 +51,8 @@ which only matters in a one-object sentence (a two-object one prefers
 
 **Ambiguity fails loudly** (``PositionError``): a room change without exactly
 one ``(at from)`` precondition and one ``(at to)`` add, two rooms in a
-precondition, a non-room-changing action without a template, a room-agnostic
+precondition, an action without a template (a room change needs one to name
+its exit), a room-agnostic
 action (no ``(at ...)`` precondition) with a step that names a room, a
 room-less step in a room whose object room is unknown or conflicting, an
 unresolvable object.
@@ -90,7 +103,7 @@ class Anchor:
 
 
 def pddl_name(token: str) -> str:
-    """The PDDL object name of a position token: ``entry:a:b`` -> ``p_entry_a_b``.
+    """The PDDL object name of a position token: ``entry:a:b:905`` -> ``p_entry_a_b_905``.
 
     PDDL room names contain hyphens but no underscores, so ``_`` is unambiguous,
     and the ``p_`` prefix keeps tokens apart from the domain's own constants.
@@ -333,6 +346,16 @@ def _sentence_token(g: _Ground, steps: Mapping, objects: ObjectIndex, object_roo
     return None
 
 
+def _entry_token(g: _Ground, steps: Mapping, objects: ObjectIndex, object_rooms: dict[str, set[int]]) -> str:
+    """``entry:<from>:<to>:<exit>`` for a room change; ``entry:<from>:<to>`` if no sentence names its exit."""
+    base = f"entry:{g.room}:{g.to}"
+    spot = _sentence_token(g, steps, objects, object_rooms)  # the room object the exit sentence walks to
+    if spot is None:
+        return base
+    kind, _, ident = spot.split(":")
+    return f"{base}:{ident}" if kind == "obj" else f"{base}:actor{ident}"
+
+
 def derive_positions(domain_text: str, problem_text: str, steps: Mapping, objects: ObjectIndex) -> Positions:
     """Every ground action's anchor; see the module doc. Raises ``PositionError`` on any ambiguity."""
     initial, grounds = _ground_rooms(domain_text, problem_text)
@@ -344,7 +367,7 @@ def derive_positions(domain_text: str, problem_text: str, steps: Mapping, object
     anchors: dict[str, Anchor] = {}
     for g in grounds:
         if g.to is not None:
-            anchors[g.name] = Anchor(g.room, g.to, f"entry:{g.room}:{g.to}")
+            anchors[g.name] = Anchor(g.room, g.to, _entry_token(g, steps, objects, object_rooms))
         else:
             anchors[g.name] = Anchor(g.room, None, _sentence_token(g, steps, objects, object_rooms))
     return Positions(initial, anchors)

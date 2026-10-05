@@ -792,6 +792,20 @@
     :precondition (and (at f218) (following-storekeeper))
     :effect (and (not (at f218)) (at f215) (increase (total-cost) 1)))
 
+  ;; The same hop through path 686 (docs/part1/model.md section 14.8). At 218
+  ;; global 67 walks him to a point, not to 685 (Local[5] is not set there), and
+  ;; only waits for VAR_ROOM to change, so which path ego takes does not matter.
+
+  ; src: data/scripts/global/script-067.txt [00D6] — room 218: next room 215, 1800 jiffies; no exit object (Local[5] unset)
+  ; src: data/scripts/global/script-067.txt [02F6] — so he walks to the point (154,74), not to an object
+  ; src: data/scripts/global/script-067.txt [0353] — then restarts for 215, where he waits for VAR_ROOM ([02E3])
+  ; src: data/scripts/room-058-damnfores/obj-0686-path.txt [0010] — any verb on 686: startObject(685,11), 685's Walk to
+  ; src: data/scripts/room-058-damnfores/obj-0685-path.txt [0168] — at 218: loadRoomWithEgo(687,215), as walk-follow-guide-to-f215
+  (:action walk-follow-guide-to-f215-via-686
+    :parameters ()
+    :precondition (and (at f218) (following-storekeeper))
+    :effect (and (not (at f218)) (at f215) (increase (total-cost) 1)))
+
   ; src: data/scripts/global/script-067.txt [010E] — room 215: exit 685, next room 203
   ; src: data/scripts/room-058-damnfores/obj-0685-path.txt [005B] — at 215, path 685 passes while script 67 runs (no map needed)
   ; src: data/scripts/room-058-damnfores/obj-0685-path.txt [00C1] — Bit[401] = 1: the gates stay open for good

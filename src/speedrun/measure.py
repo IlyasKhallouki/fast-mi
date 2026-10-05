@@ -81,7 +81,7 @@ values; ``mean``/``median``/``min``/``max`` are ``null`` with none.
 
 **Position contexts.** Given ``positions`` (``speedrun.positions.Positions``),
 each instance's ``context`` is ego's position token just before the action
-(``start``, ``entry:<from>:<to>``, ``obj:<room>:<id>``), derived in Python
+(``start``, ``entry:<from>:<to>:<id>`` or ``entry:<from>:<to>``, ``obj:<room>:<id>``), derived in Python
 from the plan's actions and the model's anchors, never from the engine, so
 it is the same on every seed. A plan the positions cannot place (an action
 outside the model, or in the wrong room) is still measured, with null

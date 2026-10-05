@@ -1036,7 +1036,7 @@ Also split one-shot actions whose duration differs from later repeats:
 
 **As built: the position-keyed surrogate** (`--keyed`, the default; `--no-keyed` is the pooled-mean surrogate above).
 - **Anchors** (`speedrun.positions`). Every ground action leaves ego at a position token, derived from the PDDL `(at …)` effects and `steps.toml`, failing loudly on ambiguity:
-  - a room change (every `walk*`, cutscenes included) leaves `entry:<from>:<to>`;
+  - a room change (every `walk*`, cutscenes included) leaves `entry:<from>:<to>:<id>`, where `<id>` is the exit object its last sentence walks to. Two exits between the same rooms can land ego apart: dock 905 at x 566, 904 at x 308. A room change with no sentence on a room object, the helmet's click-only step, leaves `entry:<from>:<to>`. Until `docs/part1/model.md` §14.8 every room change left `entry:<from>:<to>`. Pooling re-derives earlier summaries' contexts from their plans, so they are re-keyed;
   - otherwise the last sentence step's room object leaves `obj:<room>:<id>`, `obj2` first (global script 2 walks to `obj` only while it lies in the room, and the class-7 auto pick-up chains on to `obj2`);
   - inventory-only, dialogue-only and click-only actions leave the position unchanged.
   The segment starts at `start`.

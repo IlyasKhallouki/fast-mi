@@ -8,7 +8,8 @@ encoding recommended in ``docs/research/fd-costs.md`` §4(b), extended from
 entry rooms to position tokens (§3.4, "spot"):
 
 - a type ``pos``, one constant per position token (``p_start``,
-  ``p_entry_<from>_<to>``, ``p_obj_<room>_<id>``, ``p_any``);
+  ``p_entry_<from>_<to>[_<id>]``, ``p_obj_<room>_<id>``, ``p_any``; see
+  ``speedrun.positions`` for the token scheme);
 - ``(ego-pos ?p - pos)``: exactly one is true; static ``(pos-in-room ?p ?r)``
   (the token can be the position while ego is in ``?r``) and
   ``(link-entry ?from ?to ?p)`` (the token a ``walk ?from ?to`` leaves);
