@@ -2,24 +2,33 @@
 
 Automated glitchless speedrunner for *The Secret of Monkey Island* (SCUMM v5).
 
-It works in two stages:
+It works in three stages:
 
-1. **Plan.** Fast Downward (`astar(lmcut())`, action costs) finds the provably shortest
-   route through a hand-written PDDL model of the game. Every action in the model cites
-   the decompiled script it came from.
-2. **Replay.** A patched ScummVM replays the route. It pushes verb/object sentences into
-   the engine's own sentence queue and picks visible dialogue lines. Guybrush walks and
-   acts exactly as if a player had clicked.
+1. **Model.** A hand-written PDDL model of the game. Every action cites the decompiled
+   script it came from.
+2. **Plan for time.** Every action is measured in the real engine on many seeds. Fast
+   Downward (`astar(lmcut())`) plans on those measured costs, keyed by where Guybrush is
+   standing. The candidate routes are then raced on seeds 1–30, and the winner is
+   reported on held-out seeds 31–60.
+3. **Replay.** A patched ScummVM replays the route. It pushes verb/object sentences into
+   the engine's own sentence queue, clicks verb and inventory slots, picks visible
+   dialogue lines, and presses `.` and Esc to skip text and cutscenes, exactly as a player
+   could. Guybrush walks and acts as if a player had clicked.
 
-The v1 segment is **Part I**, from the moment the player gains control on the Mêlée dock
-until **the treasure trial and the idol trial** are both complete. Completion is detected
-from bit variables 85 and 86.
+The v1 segment is **Part I**. It runs from the moment the player gains control on the
+Mêlée dock until **the treasure trial and the idol trial** are both complete. Completion
+is detected from bit variables 85 and 86.
 
 ```
 $ uv run speedrun run part1
 ...
-TOTAL: 107660 ticks (29:54.33 at 60 Hz)
+TOTAL: 22388 ticks (6:13.13 at 60 Hz)
 ```
+
+The time-optimal route has 67 actions. It averages **22,416 ticks (6:13.6)** over 30
+held-out seeds, with a stdev of 61. The visible demo reproduces the headless run tick for
+tick. `docs/optimization.md` describes the method and `docs/comparison.md` compares the
+route with the human route.
 
 ## Quick start
 
@@ -44,7 +53,7 @@ uv run speedrun demo part1              # watch Guybrush play the route hands-fr
 | `speedrun dump-objects` | Dumps every room's objects and the verbs from the engine to `out/objects.json`. |
 | `speedrun plan part1` | Runs Fast Downward on `pddl/part1/` and prints cost, actions and transitions. |
 | `speedrun compile [part1]` | Turns the plan into the player's JSONL steps, using the object dump for ids. |
-| `speedrun run part1` | Replays headless (about 15 s) and prints the per-step table and total ticks. |
+| `speedrun run part1` | Replays headless (a few seconds) and prints the per-step table and total ticks. |
 | `speedrun demo part1` | Replays in a visible window. It fast-forwards the boot (logo, credits, opening; about 2.6 minutes at real speed) to the dock, then plays the segment at real speed. `--no-fast-boot` plays the boot at real speed too. The ticks are identical to `run`. |
 | `speedrun measure part1` | Replays the plan headless on many seeds in parallel (`--seeds 1-30`) and reports per-action and total ticks. |
 | `speedrun optimize part1` | Searches for the plan with the lowest mean ticks over many seeds and installs it as the time plan. |
