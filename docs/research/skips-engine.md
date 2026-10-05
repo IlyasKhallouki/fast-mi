@@ -4,25 +4,18 @@ This is Task 8.1 (engine part) of `docs/plan.md` Phase 8. It covers how SCUMM v5
 
 **Citation conventions.**
 - Engine paths are relative to `third_party/scummvm/`.
-- `scumm.cpp` and `scumm.h` line numbers are from the **patched** working tree (bridge hooks applied). They are 3 to 6 lines later than the stock numbers in `docs/research/engine-bridge.md`, for example `processInput()` is at `scumm.cpp:3173` here and `:3168` there.
+- `scumm.cpp` and `scumm.h` line numbers are from the patched working tree (bridge hooks applied). They are 3 to 6 lines later than the stock numbers in `docs/research/engine-bridge.md`, for example `processInput()` is at `scumm.cpp:3173` here and `:3168` there.
 - Every other engine file is unpatched.
 - Scripts are cited as `data/scripts/<file> [XXXX]`.
 - The route was read from the existing `out/plans/part1.sas_plan`. `speedrun plan` was not run because it writes into `out/`, and this task is read-only.
 
 ## Corrections to the task framing
 
-1. **`processInput` never compares the key with `VAR_TALKSTOP_KEY` or `VAR_CUTSCENEEXIT_KEY`.**
-   - It matches the literal `'.'` (`engines/scumm/input.cpp:1416`) and `KEYCODE_ESCAPE` with no modifier flags (`input.cpp:1421`).
-   - The two vars only act as *enables*: non-zero means enabled (`input.cpp:963-964`).
-   - Var 24's value is then forwarded as the key code that the input script sees (`input.cpp:1425-1426`).
-2. **`stopTalk()` is not part of the `.` effect for MI1 Mac.**
-   - It is gated on `DIGI_SND_MODE_TALKIE` (`input.cpp:1418`). That mode is set only by a talkie escape in a message (`string.cpp:496-508`) or by MI SE audio (`sound.cpp:2237`, gated on `GF_DOUBLEFINE_PAK` at `sound.cpp:2241-2244`). No MI1 Mac text contains a talkie escape. descumm renders code 10 as `sound(` (`third_party/scummvm-tools/engines/scumm/descumm-common.cpp:315-316`), and a grep of `data/scripts` for a `sound(` that is not part of `startSound`/`stopSound`/`isSoundRunning` finds none.
-   - So `.` only sets `_talkDelay = 0`, and the line ends later in the same frame, in `displayDialog()` (§1.3).
-3. **The logo glitch is not an override that jumps over a var 19 write in its own script.**
-   - The logo's override ends script 152 early. The boot script's `loadRoom(0)` then *kills* room 10's local script 204 before that script restores var 19 (§6).
-   - The banned family therefore has two shapes:
-     - an override path that skips a var 19 write;
-     - an override that leads, through a room change or `stopScript`, to killing a script between its var 19 set and its restore.
+1. **`processInput` never compares the key with `VAR_TALKSTOP_KEY` or `VAR_CUTSCENEEXIT_KEY`.** It matches the literal `'.'` (`engines/scumm/input.cpp:1416`) and `KEYCODE_ESCAPE` with no modifier flags (`input.cpp:1421`). The two vars only act as *enables*, where non-zero means enabled (`input.cpp:963-964`). Var 24's value is then forwarded as the key code that the input script sees (`input.cpp:1425-1426`).
+2. **`stopTalk()` is not part of the `.` effect for MI1 Mac.** It is gated on `DIGI_SND_MODE_TALKIE` (`input.cpp:1418`). That mode is set only by a talkie escape in a message (`string.cpp:496-508`) or by MI SE audio (`sound.cpp:2237`, gated on `GF_DOUBLEFINE_PAK` at `sound.cpp:2241-2244`). No MI1 Mac text contains a talkie escape: descumm renders code 10 as `sound(` (`third_party/scummvm-tools/engines/scumm/descumm-common.cpp:315-316`), and a grep of `data/scripts` for a `sound(` that is not part of `startSound`/`stopSound`/`isSoundRunning` finds none. So `.` only sets `_talkDelay = 0`, and the line ends later in the same frame, in `displayDialog()` (§1.3).
+3. **The logo glitch is not an override that jumps over a var 19 write in its own script.** The logo's override ends script 152 early, and the boot script's `loadRoom(0)` then *kills* room 10's local script 204 before that script restores var 19 (§6). The banned family therefore has two shapes:
+   - an override path that skips a var 19 write;
+   - an override that leads, through a room change or `stopScript`, to killing a script between its var 19 set and its restore.
 
 ## 1. How v5 handles `.` and Esc
 
@@ -39,9 +32,7 @@ This is Task 8.1 (engine part) of `docs/plan.md` Phase 8. It covers how SCUMM v5
 
 These are the only writes to vars 24, 57 and 37 in all 1,743 decompiled files (grep for the names and for `Var[24]`, `Var[57]`, `Var[37]`). The boot script sets them once, and nothing ever clears them.
 
-**Timeline of the enables.**
-- Esc is enabled from `[0092]`, before the logo.
-- `.` is enabled only from `[07E9]`. That line is reached after the logo/credits script 152 has finished: the boot script waits for it at `[07C8]-[07CD]`.
+**Timeline of the enables.** Esc is enabled from `[0092]`, before the logo. The `.` key is enabled only from `[07E9]`, which the boot script reaches after the logo/credits script 152 has finished (it waits for 152 at `[07C8]-[07CD]`).
 
 The run at `out/runs/20261004T213031Z-run/state-start.json` (tick 12865, room 33) confirms these segment-start values: var 24 = 27, var 57 = 46, var 19 = 6, var 37 = 7 (talkspeed 60), var 25 = 255 and var 5 = 0.
 
@@ -58,9 +49,9 @@ The run at `out/runs/20261004T213031Z-run/state-start.json` (tick 12865, room 33
 4. In `ScummEngine::processKeyboard` (`input.cpp:959`):
    - The `isUsingOriginalGUI()` block (`:1020`) is skipped because we pin `original_gui=false`.
    - Then comes the else-if chain: F5 (`:1398`), F8 (`:1410`), Space (`:1413`), then:
-     - **`.`**: `talkstopKeyEnabled && lastKeyHit.ascii == '.'` → `_talkDelay = 0`; `stopTalk()` only for talkies (`:1416-1419`). `_mouseAndKeyboardStat` stays 0.
-     - **Esc**: `cutsceneExitKeyEnabled && keycode == KEYCODE_ESCAPE && hasFlags(0)` → `abortCutscene()`, then `_mouseAndKeyboardStat = VAR(VAR_CUTSCENEEXIT_KEY)` = 27 (`:1421-1426`).
-     - **Any other key**, or a disabled `.`/Esc, falls through to `_mouseAndKeyboardStat = lastKeyHit.ascii` (`:1556`).
+     - `.`: `talkstopKeyEnabled && lastKeyHit.ascii == '.'` → `_talkDelay = 0`; `stopTalk()` only for talkies (`:1416-1419`). `_mouseAndKeyboardStat` stays 0.
+     - Esc: `cutsceneExitKeyEnabled && keycode == KEYCODE_ESCAPE && hasFlags(0)` → `abortCutscene()`, then `_mouseAndKeyboardStat = VAR(VAR_CUTSCENEEXIT_KEY)` = 27 (`:1421-1426`).
+     - Any other key, or a disabled `.`/Esc, falls through to `_mouseAndKeyboardStat = lastKeyHit.ascii` (`:1556`).
 5. `scummLoop_updateScummVars()` (`scumm.cpp:3194`) copies `VAR_HAVE_MSG = _haveMsg` (`:3378`).
 6. `runAllScripts(); checkExecVerbs();` (`scumm.cpp:3227-3228`).
    - An aborted cutscene script runs its override jump here, in the same frame.
@@ -121,7 +112,7 @@ if (vm.cutScenePtr[idx]) {
 **Cutscene stack.**
 - `beginCutscene` (`script.cpp:1632-1648`) pushes a level with `cutScenePtr = 0`, so a nested cutscene hides an outer override until it ends.
 - `endCutscene` (`:1650-1687`) clears that level's pointer, sets `VAR_OVERRIDE = 0` and pops.
-- Overrides also occur at **level 0**, outside any cutscene. Example: `room-051-circus-te/local-207.txt [0438]`, after its `endCutscene` at `[01F7]`. This is the "Esc only sometimes skips conversation fragments" behaviour runners describe (`docs/human-route.md` §2.2).
+- Overrides also occur at level 0, outside any cutscene. Example: `room-051-circus-te/local-207.txt [0438]`, after its `endCutscene` at `[01F7]`. This is the "Esc only sometimes skips conversation fragments" behaviour runners describe (`docs/human-route.md` §2.2).
 
 **`VAR_OVERRIDE` (5).**
 - Set to 1 only by `abortCutscene`; reset by beginOverride, endOverride and endCutscene.
@@ -133,26 +124,26 @@ if (vm.cutScenePtr[idx]) {
 
 | Condition | `.` | Esc |
 |---|---|---|
-| `_userPut <= 0` (userput off, inside any cutscene) | **Still works.** `processKeyboard` has no userput test. | **Still aborts.** Only the key forwarded to the input script is dropped (`verbs.cpp:590`). |
-| No message showing / delay already 0 | No-op | — |
-| No override at the current level (`cutScenePtr[sp] == 0`), e.g. a cutscene without override, the part of a cutscene before its `beginOverride` (`script-120 [0005]-[000B]`: `delay(60)` first), or a nested level | — | `abortCutscene` does nothing, **but** `_mouseAndKeyboardStat = 27` still reaches the input script when `_userPut > 0` |
+| `_userPut <= 0` (userput off, inside any cutscene) | Still works, since `processKeyboard` has no userput test. | Still aborts. Only the key forwarded to the input script is dropped (`verbs.cpp:590`). |
+| No message showing / delay already 0 | No-op | n/a |
+| No override at the current level (`cutScenePtr[sp] == 0`), e.g. a cutscene without override, the part of a cutscene before its `beginOverride` (`script-120 [0005]-[000B]`: `delay(60)` first), or a nested level | n/a | `abortCutscene` does nothing, but `_mouseAndKeyboardStat = 27` still reaches the input script when `_userPut > 0` |
 | Var contents 0 | Before boot `[07E9]` (logo/credits): falls through to `_mouseAndKeyboardStat = 46` (`input.cpp:1556`) | Before boot `[0092]` only |
 | Modifier flags | Ignored (`:1416` tests only `ascii`) | Shift/Ctrl/Alt+Esc ignored (`hasFlags(0)`, `:1421`) |
 | `ascii == 0` | `processKeyboard` not called (`:531`) | same |
 
 **A useless Esc is not harmless when `_userPut > 0`.** Key 27 goes to the input script:
-- **Global input script 4.** With area 4 and key 27, the non-debug path runs `startScript(20,[27])` (`global/script-004.txt [02B5]`). Script 20 sets `Var[105] = 0` (`global/script-020.txt [001E]`), so nothing happens. The debug branch `[004F]` needs `VAR_DEBUGMODE > 1`.
-- **Script 4's preamble** `[0000]-[0034]` still runs. It can rewrite `Var[107]` when `Bit[547]` and `Var[108]` are set.
-- **Dialogue input script 14** has no handler for 27 (`global/script-014.txt [010A]-[019D]`).
-- **No room input script tests key 27.**
+- In global input script 4, with area 4 and key 27, the non-debug path runs `startScript(20,[27])` (`global/script-004.txt [02B5]`). Script 20 sets `Var[105] = 0` (`global/script-020.txt [001E]`), so nothing happens. The debug branch `[004F]` needs `VAR_DEBUGMODE > 1`.
+- Script 4's preamble `[0000]-[0034]` still runs. It can rewrite `Var[107]` when `Bit[547]` and `Var[108]` are set.
+- Dialogue input script 14 has no handler for 27 (`global/script-014.txt [010A]-[019D]`).
+- No room input script tests key 27.
 
-Even so, this is an extra input-script run in that frame. It breaks the plan player's "one engine action per decision point", which is why the bridge must check for an override before pressing (§4).
+Even so, the press adds an input-script run to that frame. That breaks the plan player's "one engine action per decision point", which is why the bridge must check for an override before pressing (§4).
 
 **Mouse-button Esc.** Both mouse buttons clicked in the same frame also become Esc for v4+ (`input.cpp:440-445`). The bridge clears both buttons every frame, so this path never fires.
 
 ## 2. Injecting the keys through the engine's own path
 
-**Ordering is correct today.**
+**The current ordering is correct.**
 - `onFrameBegin` (`scumm.cpp:3104`) is the first statement of `scummLoop`. It runs after `waitForTimer` → `parseEvents` has written any real key (`scumm.cpp:2886`, `input.cpp:167`) and before `processInput` (`scumm.cpp:3173`).
 - Nothing between them reads or writes `_keyPressed` (`scumm.cpp:3105-3172`: timers, script delays, `_talkDelay`, a PASS-only TTS block, `oldEgo`, and `displayDialog` only for v≤3).
 - `onFrameBegin` calls `neutraliseInput()` (`speedrun/speedrun_bridge.cpp:245`), which does `_keyPressed.reset()` (`:392`).
@@ -203,7 +194,7 @@ Evaluate it fresh in `onFrameBegin`; do not reuse `_lastIdle` from the decision 
 
 On the island map, global script 24 runs a loop: `print(255,[…Text(getName(…))])` or `print(255,[Pos(0,0),Text(" ")])`, then `breakHere`, then back to the top (`global/script-024.txt [0057]`, `[0069]`, `[0073]`, `[0074]`). Every frame it sets `_haveMsg` and `_talkDelay = 60` (`actor.cpp:3442-3444`, `string.cpp:1142`). Its talker is `VAR_TALK_ACTOR = 0xFF` (`actor.cpp:3422-3423`), and no script waits on it.
 
-- Without the talker/WaitForMessage clause, `_haveMsg && _talkDelay > delta` would hold on **every map frame**. The bot would press `.` on every frame for the whole map walk, and each press would have no effect on progress: script 24 reprints the label the next frame. That is not "pressing on the first frame it has an effect". It is not human-equivalent. It would also flood the trace with skip records.
+- Without the talker/WaitForMessage clause, `_haveMsg && _talkDelay > delta` would hold on every map frame. The bot would press `.` on every frame for the whole map walk, and no press would make progress, because script 24 reprints the label the next frame. That is not "pressing on the first frame it has an effect" and not human-equivalent, and it would flood the trace with skip records.
 - Each press would still run `stopTalk` every frame, toggling `_haveMsg` and the `VAR_HAVE_MSG` copy and redrawing the text area, with no gain. The idle rule already ignores the label: the map counts as idle with it showing (`speedrun_state.cpp:229-241`).
 
 The same reasoning excludes fire-and-forget `print(255)` captions paced by `delay()` rather than `WaitForMessage`, e.g. the credits in `global/script-152.txt [007D]-[00A0]`. Nothing waits on the text, so skipping it gains nothing.
@@ -235,7 +226,7 @@ VAR(VAR_CUTSCENEEXIT_KEY) != 0                         // input.cpp:964
 - `beginOverride` does not increment `cutsceneOverride` (`script.cpp:1711-1726`; only `beginCutscene` does, at `:1634`).
 - Nothing that kills a script clears `cutScenePtr`: not `stopScript` (`script.cpp:273-275`), not `stopObjectCode` (`:879-891`), not `killScriptsAndResources` on a room change (`:1089-1104`).
 - So a level-0 override whose script ends or is killed without `endOverride` leaves a stale pointer. `abortCutscene` would then set `ssRunning` and the old offset on whatever script now occupies that slot.
-- No route instance is known; the pairs in the circus script are balanced, for example. The guard is still cheap.
+- No route instance is known (the pairs in the circus script are balanced, for example), but the guard is cheap.
 - Track the identity in `observePreviousFrame`: when `cutScenePtr[sp]` changes, remember `(sp, ptr, slot, number, where)`.
 
 When the predicate is false, never press Esc:
@@ -251,19 +242,19 @@ After a successful abort, `cutScenePtr[sp] = 0` (`script.cpp:1707`), so the pred
 
 ## 5. `talkspeed` and `VAR_CHARINC` (var 37)
 
-**ConfMan range: 0–255.** The default is 60 (`base/commandLine.cpp:369`). The options GUI maps its slider to 0–255 (`gui/options.cpp:575`, `:1109`).
+**ConfMan range: 0 to 255.** The default is 60 (`base/commandLine.cpp:369`). The options GUI maps its slider to 0 to 255 (`gui/options.cpp:575`, `:1109`).
 
 **Conversion** (`scumm.cpp:2714-2720`):
 - `setTalkSpeed(s)` stores `(s*255 + 4)/9`.
-- `getTalkSpeed()` returns `(talkspeed*9 + 127)/255`, which is 0–9.
+- `getTalkSpeed()` returns `(talkspeed*9 + 127)/255`, which is 0 to 9.
 
 **Callers that write var 37 for v5:**
 - `syncSoundSettings`: when the target domain has `talkspeed`, `VAR(VAR_CHARINC) = 9 - getTalkSpeed()` (`scumm.cpp:2644-2649`). It runs at setup and again on `_completeScreenRedraw` (`scumm.cpp:3212-3214`).
 - **Boot override.** MI1 boot writes `VAR_CHARINC = 9 - Var[114]` with `Var[114] = 6` (`global/script-001.txt [06A5]-[06AA]`). `writeVar` intercepts this (`script.cpp:734-754`):
   - with `_currentRoom == 0`, which holds there because no `loadRoom` opcode runs before `[07EE]`, and `talkspeed` in the target domain (`engine.py` writes it in `[TARGET]`), the value becomes `9 - getTalkSpeed()` (`:741-742`);
-  - any later script write of 0–9 would be saved back as the talkspeed (`:743-754`). MI1 has no later write.
+  - any later script write of 0 to 9 would be saved back as the talkspeed (`:743-754`). MI1 has no later write.
 - `init()` writes a default talkspeed only if the key is missing (`scumm.cpp:1551-1552`).
-- Not used by us: the in-game `+`/`-` keys (`input.cpp:1456-1470`, clamped to 0–9) and the original-GUI sliders (`input.cpp:1138-1165`, `gfx_gui.cpp:2785-2803`).
+- Not used by us: the in-game `+`/`-` keys (`input.cpp:1456-1470`, clamped to 0 to 9) and the original-GUI sliders (`input.cpp:1138-1165`, `gfx_gui.cpp:2785-2803`).
 
 **Per-line effect.** `_talkDelay = 60 + CHARINC × chars` per chunk (`string.cpp:1142`, `:1312`; `VAR_DEFAULT_TALK_DELAY` is 0xFF for v5, `scumm.h:1918`).
 
@@ -271,8 +262,8 @@ After a successful abort, `cutScenePtr[sp] = 0` (`script.cpp:1707`), so the pred
 |---|---|---|---|
 | 60 (current pin) | 2 | 7 (observed in `state-start.json`) | 340 jiffies |
 | 240 | 8 | 1 | 100 |
-| 241–255 | 9 | **0** | **60** |
-| 256–269 (outside the GUI range) | 9 | 0 | 60 |
+| 241-255 | 9 | **0** | **60** |
+| 256-269 (outside the GUI range) | 9 | 0 | 60 |
 | ≥ 270 (outside the GUI range) | ≥ 10 | negative (the room-0 branch at `script.cpp:741-742` has no clamp) | < 60 |
 
 **Recommendation.**
@@ -297,9 +288,9 @@ After a successful abort, `cutScenePtr[sp] = 0` (`script.cpp:1707`), so the pred
 1. Boot sets `VAR_TIMER_NEXT = 6` (`[07B3]`) and starts script 152 (`[07C5]`).
 2. Script 152 opens `cutscene([])` (`global/script-152.txt [0000]`), then `delay(60)`, then `beginOverride` with `goto 08C8` (`[004F]-[0051]`), then `delay(180)`.
 3. It starts room 10's local script 204 (`[0058]`) and waits for it (`[005B]-[0060]`).
-4. **Local 204 sets `VAR_TIMER_NEXT = 5`** (`room-010-logo/local-204.txt [0000]`).
+4. Local 204 sets `VAR_TIMER_NEXT = 5` (`room-010-logo/local-204.txt [0000]`).
    - It starts eleven sparkle scripts 203 (`[0018]-[0072]`), scrolls `Var[295]` from 320 to 640 by 10 per frame (`[007B]-[0086]`), waits for the 203s (`[008D]-[0092]`).
-   - Only then does it **restore `VAR_TIMER_NEXT = 6`** (`[0097]`).
+   - Only then does it restore `VAR_TIMER_NEXT = 6` (`[0097]`).
 5. The per-frame tick delta is `VAR(VAR_TIMER_NEXT)` (`scumm.cpp:2818`). During the sparkles, frames are 5 jiffies.
 
 **Mechanism.** Esc while 204 runs, i.e. at the first sparkle (`docs/human-route.md` §2.3):
@@ -312,7 +303,7 @@ After a successful abort, `cutScenePtr[sp] = 0` (`script.cpp:1707`), so the pred
 - `delay()` and talk timers count jiffies (`scumm.cpp:3128-3132`), so they keep their length;
 - in the bridge's tick metric, frame-bound actions cost 5/6 as many ticks.
 
-The skipped assignment is `local-204 [0097]`. It is not jumped over by the override; its script is killed by the room change that the override allows.
+The skipped assignment is `local-204 [0097]`. The override does not jump over it; the room change that the override allows kills its script.
 
 **Why injected skips can never trigger it.**
 - Skips are injected only when `_segmentStarted` is true, from the frame after `segment_start`. The first idle frame is on the dock, room 33, tick 12865.
@@ -344,7 +335,7 @@ Order inside `onFrameBegin(delta)`:
 1. `observePreviousFrame()`. Also track override identity (§4) and the pending var 19 check (§7.3).
 2. Add `delta`.
 3. `neutraliseInput()`.
-4. **`maybeInjectSkip(delta)`**.
+4. `maybeInjectSkip(delta)`.
 5. Pump audio.
 6. Watchdog.
 
@@ -386,7 +377,7 @@ maybeInjectSkip(delta):
 - **Same inputs, same frames.** Every decision is a pure function of the engine state after the previous frame plus `delta`. It never depends on wall-clock time, and human keys are erased before injection. Same seed and plan give identical `skip` records and `end` fingerprints, headless and demo. Test this with two identical runs.
 - **One key per frame,** Esc first (§2). The engine consumes the key once (`input.cpp:408-409`), and `neutraliseInput` clears it again next frame, so a key never repeats.
 - **Skips change frame counts, so they change RNG consumption.** For example, script 24 calls `getRandomNr` on every map frame (`global/script-024.txt [0000]`), and room fades draw from the RNG (`docs/research/engine-bridge.md` §12). A run with skips and a run without skips on the same seed diverge in random outcomes long after any skip. A whole-run with/without diff (Task 8.2) is therefore dominated by RNG drift. Two consequences for the harness:
-  - Enable Esc for **one cutscene at a time**.
+  - Enable Esc for one cutscene at a time.
   - Diff bits, inventory and owners at the frame its cutscene level pops, or at that step's `step_end`. Exclude the randomised vars listed in `segment.toml`.
   Route choice stays the mean over many seeds (`rules/glitchless.md`, "Route selection").
 - **Races.** Text skips make talking steps end earlier, so NPC timing relative to Guybrush changes (cook, Fester). Room-input-script guards are already `until` conditions. Any remaining sensitivity becomes a cited `no_skip` (§7.2).

@@ -1,28 +1,26 @@
 # Part I: the idol (thievery) trial chain
 
-Scope: every player action needed to steal the idol, from free control at the
-Lookout with no items to the trial-complete flag. Covered: the piranha poodles
-(meat + yellow petal), the mansion and foyer, the jail and Otis (mints,
-gopher repellent, cake with file), the theft, Fester, the underwater escape
-and the completion flag.
+This file lists every player action needed to steal the idol, starting from
+free control at the Lookout with no items and ending at the trial-complete
+flag. It covers the piranha poodles (meat + yellow petal), the mansion and
+foyer, the jail and Otis (mints, gopher repellent, cake with file), the theft,
+Fester, the underwater escape and the completion flag.
 
 ## Conventions
 
-- **Script citations** use `data/scripts/<file> [XXXX]`. `XXXX` is the descumm
-  byte offset (see `data/scripts/INDEX.md`, "Offsets"). Short forms inside a
-  section, e.g. "`local-201 [0079]`", refer to the file named in that
-  section's heading.
+- **Script citations** use `data/scripts/<file> [XXXX]`, where `XXXX` is the
+  descumm byte offset (see `data/scripts/INDEX.md`, "Offsets"). Inside a
+  section, a short form such as "`local-201 [0079]`" refers to the file named
+  in that section's heading.
 - **Engine citations** use `third_party/scummvm/engines/scumm/<file>:<line>`
   at the pinned ScummVM tag `v2026.3.0`.
-- **[DOBJ]** marks initial object owner, state and class data. It comes from
-  the `DOBJ` block of `game/classic/MONKEY1.000`, which I parsed read-only. It
-  is **not** in the script dump.
-  - The index file is XOR-encrypted with key 0x69 for v5
-    (`resource.cpp:204`).
-  - The layout follows the engine's reader: a uint16 count, then one byte per
-    object (owner = low nibble, state = high nibble), then little-endian
-    uint32 class bitmasks (`resource.cpp:1360-1378`).
-  - Class `c` is bit `c-1` (`object.cpp:254`).
+- **[DOBJ]** marks initial object owner, state and class data. This data is
+  **not** in the script dump. It comes from a read-only parse of the `DOBJ`
+  block of `game/classic/MONKEY1.000`. The index file is XOR-encrypted with
+  key 0x69 for v5 (`resource.cpp:204`). The layout follows the engine's
+  reader: a uint16 count, then one byte per object (owner = low nibble,
+  state = high nibble), then little-endian uint32 class bitmasks
+  (`resource.cpp:1360-1378`). Class `c` is bit `c-1` (`object.cpp:254`).
 
   Values used here:
 
@@ -38,11 +36,11 @@ and the completion flag.
   | 465, 632, 633, 316, 570 doors | 15 |
   | 634 closet door | 6, 15 |
   | 637 gaping hole | 32 |
-  | 640–644 foyer items | all have 32 |
+  | 640-644 foyer items | all have 32 |
 
   All of these objects start with owner 15 and state 0.
 - **Verified** means read directly in the scripts or the engine source.
-  **Inferred** means a conclusion drawn from the code but not stated by it.
+  **Inferred** means the code implies it but does not state it.
 - Choice substrings are case-insensitive and avoid descumm's `^`, which may
   render as an ellipsis in game.
 
@@ -69,15 +67,15 @@ and the completion flag.
 - **Verb ids.**
   - Verb **80** is the "item given/used on me" entry (see §1).
   - Verbs 90/91 only set the default-verb hint `Var[182]` and the inventory
-    icon `Var[376]`. They are irrelevant to the chain (**inferred** from
+    icon `Var[376]`, so they play no part in the chain (**inferred** from
     usage).
 
 ---
 
 ## 0. Summary
 
-- **Poodles.** Give the meat to the poodles, after it has been drugged with
-  the yellow petal. This sets `Bit[15]`.
+- **Poodles.** Drug the meat with the yellow petal, then give it to the
+  poodles. This sets `Bit[15]`.
   - Petal: forest screen 215.
   - Meat: kitchen, room 41. To reach it, the bar cook must be out of the
     kitchen.
@@ -160,36 +158,36 @@ Files: `room-036-mansion-e/obj-0467-deadly-piranha-poodles.txt`,
         - `Var[116] = 10` (`[0082]`; meaning not analysed).
         - **`Bit[15] = 1`** (`[0087]`).
         - The dogs are renamed "sleeping piranha poodles" (`[008C]`).
-        - Walk-boxes 1–6 are unlocked (`setBoxFlags(...,0)`, `[00BA]`-`[00C7]`).
+        - Walk-boxes 1-6 are unlocked (`setBoxFlags(...,0)`, `[00BA]`-`[00C7]`).
         - **Door 465 becomes touchable** (`setClass(465,[32])`, `[00CE]`).
         - The notice object 468 is drawn and printed (`[00D9]`-`[01B6]`).
         - `VAR_VERB_SCRIPT = 203` (`[01B9]`; see §12).
       - **Failure** (`[01C1]`-`[01E5]`): the barking scripts restart and the
         meat is lost to the kitchen.
     - `[01EE]`: `setClass(566,[32,6])` clears untouchable and class 6.
-- **Room entry.** `entry [0007]`: if `Bit[15]` is clear, walk-boxes 1–6 are
+- **Room entry.** `entry [0007]`: if `Bit[15]` is clear, walk-boxes 1-6 are
   locked (`[002B]`-`[0038]`, flag 128) and door 465 is made untouchable
   (`[003F]` `setClass(465,[160])`). The door cannot be clicked or reached
   until the dogs sleep.
 
-**Alternatives.** None for the dogs: `Bit[15]` is set only at
-`local-201 [0087]` (grep). The only real choice is **how the meat gets
+**Alternatives.** There is no other way past the dogs: `Bit[15]` is set only
+at `local-201 [0087]` (grep). The only real choice is **how the meat gets
 class 6** (§2.4).
 
 ### 2.2 The yellow petal (forest, pseudo-room 215)
 
-**Pseudo-rooms.** The forest is room 58 loaded under the room numbers
-201–220. `global/script-001 [0736]`-`[0762]` executes `PseudoRoom(58, …)`.
+**Pseudo-rooms.** The forest is room 58, loaded under the room numbers 201
+to 220. `global/script-001 [0736]`-`[0762]` executes `PseudoRoom(58, …)`.
 The engine maps resource ids `0x80|j` to room 58 (`script_v5.cpp:2089`) and
-loads them as room 58 (`room.cpp:166-167`). `VAR_ROOM` holds 201–220.
+loads them as room 58 (`room.cpp:166-167`). `VAR_ROOM` holds 201 to 220.
 
 | # | Sentence | Room | Preconditions | Effects | Cite |
 |---|---|---|---|---|---|
 | P1 | Walk to `fork` (11, 911) | 85 (Melee map) | none | → room **218** (forest) | `room-085-melee/obj-0911-fork.txt [000C]` |
 | P2 | Walk to `path` (11, 685) | 218 | `VAR_ROOM == 218` | → **215** | `room-058-damnfores/obj-0685-path.txt [015E]`/`[0168]` |
 | P3 | **Pick up `plants` (9, 678)** | 215 | `VAR_ROOM == 215` (`[007F]`); petal 689 owner == 15 (`[0086]`) | **gain 689 yellow petal** (`[0092]` `pickupObject(689,0)`, `[0096]`). Otherwise: "I've already got one." (`[009D]`) | `room-058-damnfores/obj-0678-plants.txt` |
-| P4 | Walk to `path` (11, 687) | 215 | – | → 218 | `room-058-damnfores/obj-0687-path.txt [0045]`/`[004F]` |
-| P5 | Walk to `path` (11, 687) | 218 | – | → map 85 | same file `[010B]`/`[0115]` |
+| P4 | Walk to `path` (11, 687) | 215 | - | → 218 | `room-058-damnfores/obj-0687-path.txt [0045]`/`[004F]` |
+| P5 | Walk to `path` (11, 687) | 218 | - | → map 85 | same file `[010B]`/`[0115]` |
 
 Notes:
 
@@ -212,8 +210,8 @@ Notes:
 
 The kitchen is reached only from the bar: door 316 →
 `room-028-bar/local-218 [0017]` `loadRoomWithEgo(570,41)` (grep). Detailed
-cook timing belongs to `money.md`. The parts that matter here are below. All
-`local-*` files in this section are in `room-028-bar/` unless noted.
+cook timing is in `money.md`. All `local-*` files in this section are in
+`room-028-bar/` unless noted.
 
 **Cook state at bar entry.**
 
@@ -225,8 +223,8 @@ cook timing belongs to `money.md`. The parts that matter here are below. All
 - **Otherwise** door 316 is set to state 0 and `local-211` starts
   (`local-205 [0040]`/`[0044]`):
   - The cook (actor 6) is out of the room (`[0000]`).
-  - **Timer:** `delay((rand(0..20) + 30) * 60)`, i.e. **1800–3000 jiffies
-    (30–50 s)** (`local-211 [000D]`).
+  - **Timer:** `delay((rand(0..20) + 30) * 60)`, i.e. **1800 to 3000 jiffies
+    (30 to 50 s)** (`local-211 [000D]`).
   - The wait is extended while script 220 (leaders' talk) or 203 runs
     (`[0021]`-`[0036]`).
   - Then `local-216` starts (`[0039]`).
@@ -255,7 +253,7 @@ cook timing belongs to `money.md`. The parts that matter here are below. All
   and closes the door, then starts `local-212` (`[004B]`).
 - 212 waits `delay(300)` twice, **600 jiffies**, then starts 216: the cook
   comes out (`local-212 [0000]`-`[0020]`).
-- This can beat the random 1800–3000-jiffy wait in 211.
+- This can be faster than the random wait of 1800 to 3000 jiffies in 211.
 
 **Click guard** (only in the room's input script; see §12).
 
@@ -275,7 +273,7 @@ cook timing belongs to `money.md`. The parts that matter here are below. All
 | M2 | Pick up `hunk of meat` (9, 566) | 41 | owner(566) == 15 (`room-041-kitchen/obj-0566-hunk-of-meat.txt [0035]`) | **gain 566** (`[0041]`). Usually merged into M3 (§2.4). |
 | M3 | Walk to `door` (11, 570) | 41 | 570 state == 1 (opened together with 316) | → room 28 (`room-041-kitchen/obj-0570-door.txt [0030]`/`[003C]`). If the cook closed 570 during M1 (§12), first Open `door` (2, 570) → `startScript(25,[570,316])` (`obj-0570 [0018]`). It is a no-op when already open (`global/script-025 [000F]`). |
 
-The kitchen has no guard on taking the meat. The kitchen actor 7 is the
+Nothing in the kitchen guards the meat. The kitchen actor 7 is the
 seagull on the pier, not the cook (`room-041-kitchen/local-204`, `local-205`).
 
 ### 2.4 Drugging the meat (class 6): alternatives
@@ -291,8 +289,8 @@ Recommended.
 - Reversed order (7, 689, 566) is equivalent: the petal's Use forwards to
   `doSentence(7,566,689)` (`room-058-damnfores/obj-0689-yellow-petal.txt [0042]`/`[0049]`).
 - If the meat is still on the kitchen table, this **single** sentence also
-  picks it up first, via the class-7 auto-pickup (§1). Effectively it is two
-  engine sentences: `(9,566)` and then `(7,566,689)`.
+  picks it up first, via the class-7 auto-pickup (§1). The engine runs it as
+  two sentences: `(9,566)` and then `(7,566,689)`.
 - If both items are already in the inventory, it works in any room.
 
 **B. Stew route** (kitchen only; three sentences).
@@ -313,7 +311,7 @@ Recommended.
      `local-214`.
    - Meat goes to ego (`[0007]`), named "stewed meat" (`[000C]`), class 19
      (`[001B]`).
-   - **If the stew has class 6, the meat gets class 6** (`[0043]`/`[005A]`).
+   - If the stew has class 6, the meat gets class 6 (`[0043]`/`[005A]`).
 
 Route A is strictly shorter.
 
@@ -389,18 +387,18 @@ input.
   is unlocked, opened, closed and re-locked (`[0000]`-`[0029]`). Ego says
   "If only I had a file" (`[0030]`).
 
-The same item set is guaranteed if Esc is used. The override branch
-(`[0472]`-`[04B6]`) grants 640/641/642/643. Skipping is out of scope for v1.
+Pressing Esc gives the same items: the override branch (`[0472]`-`[04B6]`)
+grants 640/641/642/643. Skipping is out of scope for v1.
 
 ### 3.3 Leaving the foyer before the theft
 
 | # | Sentence | Preconditions | Effects |
 |---|---|---|---|
 | F3 | Walk to `door` (11, 633) | 633 state == 1 (still open from E1) | → room 36 (`obj-0633-door.txt [005C]`/`[0068]`) |
-| F4 | Walk to `trail` (11, 466) | – | → room 34 (`room-036-mansion-e/obj-0466-trail.txt [000C]`) |
+| F4 | Walk to `trail` (11, 466) | none | → room 34 (`room-036-mansion-e/obj-0466-trail.txt [000C]`) |
 
-On the way back in (§5), E2 alone suffices. Door 465 stays at state 1 and
-nothing closes it.
+On the way back in (§5), E2 alone is enough, because door 465 stays at
+state 1 and nothing closes it.
 
 ### 3.4 The gaping hole: where the file is used
 
@@ -413,7 +411,7 @@ nothing closes it.
 | ego does not own 420 but owns 641 | same line (`[002D]`/`[0039]`) |
 | otherwise | "I'm not going back in there!" (`[0059]`) |
 
-**The file is used here.** The opened cake is the only item the hole checks.
+The opened cake is the only item the hole checks.
 
 ---
 
@@ -439,7 +437,7 @@ Files: `room-031-jail/`.
 - **Give** (verb 80) → `local-203` with the item (`obj-0405 [006F]`). A give
   also sets `Bit[420]` at the end (`local-203 [034C]`/`[0351]`), **except**
   in three cases that never reach `[034C]`:
-  - grog mugs 362–366 (`chainScript(70)` at `[0076]`);
+  - grog mugs 362 to 366 (`chainScript(70)` at `[0076]`);
   - the opened cake/file (`stopScript(0)` at `[0031]`);
   - the mints (`chainScript(202)` at `[0112]`).
 - **Item handlers in `local-203`:**
@@ -463,8 +461,8 @@ Files: `room-031-jail/`.
   - **488 money:** Otis takes 1 piece of eight (`[0221]`-`[0297]`). Not
     useful here.
 
-**So Otis wants the breath mints first, then something against the rats (the
-gopher repellent).** In return he gives the carrot cake with the file. Nothing
+So Otis wants the breath mints first, then something against the rats (the
+gopher repellent). In return he gives the carrot cake with the file. Nothing
 in 203 checks the dialogue flags (`Bit[95]`, `Bit[559]`).
 
 ### 4.2 Breath mints (store, room 30)
@@ -493,15 +491,15 @@ in 203 checks the dialogue flags (`Bit[95]`, `Bit[559]`).
     `[0387]`-`[03D2]`; handler `[1BD6]` → `[1DD5]`).
   - Other relevant choices:
     - "Do you have files?" (127, needs ego to own 640) leads to a submenu
-      that ends "Sorry, we're out of those." (`[1C2C]`-`[1DB0]`). **The store
-      sells no file.**
+      that ends "Sorry, we're out of those." (`[1C2C]`-`[1DB0]`). The store
+      sells no file.
     - "I'd like some rat repellent, please." (126) gets "...I haven't got
       any." (`[1BE3]`-`[1C29]`).
 - **Leaving.** Walk to `door` (11, 387) → `local-204`. If ego carries no
   unpaid sword or shovel and 387 has state 1 → room 34
   (`obj-0387-door.txt [008C]`/`[0098]`, `local-204 [0031]`-`[0044]`). If the
   bell was used, Open 387 first.
-- **Price: 1 piece of eight. Money var: `Var[195]`.**
+- The mints cost 1 piece of eight, paid from the money var `Var[195]`.
 
 ### 4.3 Jail action table
 
@@ -538,21 +536,21 @@ in 203 checks the dialogue flags (`Bit[95]`, `Bit[559]`).
 
 ### 4.4 Is the jail visit required? Yes (verified)
 
-- **The cake has only one source.** Cake 420 is picked up only at
+- Cake 420 has one source: it is picked up only at
   `room-031-jail/local-203 [01E0]`.
-- **The mints have only one source.** Mints 395 are picked up only at
+- Mints 395 also have one source: they are picked up only at
   `room-030-store/local-211 [1BC0]`.
 - The other grep hits for both are in `global/script-001`, inside the
   boot-param branch (`[085F]` `if (Local[0] != 0)`; e.g. `[0AD0]`, `[1420]`).
   Boot params that change state are banned (`rules/glitchless.md`, Banned 1).
 - **The hole needs the opened cake** (§3.4).
-- **Two jail visits are the minimum.**
+- Two jail visits are the minimum.
   - `Bit[420]` must be set before the storekeeper offers mints.
   - The mints must reach Otis before the repellent.
   - The repellent exists only after mansion visit 1.
   - J1 can be the first Talk-to, or any give except mugs, file or mints
     (§4.1), at any time before S1.
-  - J2–J3 must come after S1 and after F2.
+  - J2 and J3 must come after both S1 and F2.
 
 ---
 
@@ -582,7 +580,7 @@ idol." (`[0063]`).
 
 **`local-212`** (Fester, then the Governor).
 
-- Dialogue at `[02AA]`-`[0453]`, verbs 120–124:
+- Dialogue at `[02AA]`-`[0453]`, verbs 120 to 124:
 
   | Verb | Choice | `Var[273]` |
   |---|---|---|
@@ -594,8 +592,8 @@ idol." (`[0063]`).
 
 - The choice sets `Var[273]` (`[0458]`-`[04A0]`). `Var[273]` only selects
   later lines (`[0545]`-`[0702]`, `global/script-119 [006B]`-`[019A]`,
-  `room-083-cu-dock/local-201 [009E]`). **All choices are equivalent.**
-  Suggest `could have it` (verb 120), which has the shortest reply lines.
+  `room-083-cu-dock/local-201 [009E]`). All choices are equivalent.
+  Pick `could have it` (verb 120), which has the shortest reply lines.
 - The Governor enters ("What's going on here?") and Fester leaves. Then
   `startScript(119)` (`[0882]`).
 
@@ -603,7 +601,7 @@ idol." (`[0063]`).
 
 - It loads room 23 (`[000E]` `loadRoom(23)`). This is a script-forced room
   change.
-- Three menus, each four choices with **empty branches** (no state change):
+- Three menus, each with four choices and **empty branches** (no state change):
 
   | Menu | Choices | Cite | Suggested substring |
   |---|---|---|---|
@@ -624,10 +622,10 @@ idol." (`[0063]`).
   - Closet 634 is locked (`local-214 [0029]`).
   - The hole refuses: "I'm not going back in there!" (§3.4).
 
-  So **Open `door` 633 is the only way out**. With the idol owned, it runs
+  So Open `door` 633 is the only way out. With the idol owned, it runs
   `local-217` instead of opening the door.
 - **`local-217`.**
-  - Fester blocks the door. Menu at `[006E]`-`[01FF]`, verbs 120–123:
+  - Fester blocks the door. Menu at `[006E]`-`[01FF]`, verbs 120 to 123:
     "…safe-deposit box", "…make up and be friends", "…blocking the doorway",
     **"Buzz off, Fester."**
   - 122 and 123 share the shortest reply (`[02DC]`-`[02E9]`), so **choose
@@ -642,8 +640,8 @@ idol." (`[0063]`).
   (`[023A]`) and `actorFollowCamera` (`[025C]`), i.e. **room 42**.
 
 `Var[277] = 1` is set only at `local-217 [038C]`, and `global/script-065` is
-called only from the cu-dock entry (grep). **There is no other way into the
-underwater room.**
+called only from the cu-dock entry (grep). There is no other way into the
+underwater room.
 
 **Timers in §5: none.** Every dialogue waits for input forever (the
 `Var[194]` polling loops). Override (Esc) points exist, but text and cutscene
@@ -677,7 +675,7 @@ The ladder alone does not work. While 201 runs, Walk to `ladder` (577) gives
 - Unlocks box 1 (`[0004]`) and stops the rope script 201 (`[0016]`).
 - **`pickupObject(578,0)`** (`[0024]`).
 - If the sword was confiscated (owner 14), ego walks to sword 590 and takes it
-  back. `setOwnerOf(388,VAR_EGO)` (`[0030]`-`[008B]`).
+  back with `setOwnerOf(388,VAR_EGO)` (`[0030]`-`[008B]`).
 - Walks to the ladder (`[0094]`) and starts `local-200` (`[009E]`).
 
 **`local-200`** (now that 201 is stopped).
@@ -692,11 +690,11 @@ The ladder alone does not work. While 201 runs, Walk to `ladder` (577) gives
 - **Drowning** (`local-205`):
   - `delay(28800)`, then "…how much longer I can hold my breath." (`[0000]`/`[0008]`).
   - Then 3600 + 1800 + 900 + 900 more jiffies (`[0042]`-`[0066]`).
-  - At **36000 jiffies (600 s) after entry** comes the death: `UserputOff`,
+  - At **36000 jiffies (600 s) after entry**, ego dies: `UserputOff`,
     `doSentence(STOP)`, and `VAR_VERB_SCRIPT = 211`. Verbs then only
-    highlight (`[006A]`-`[00CE]`, `local-211`). That is a dead end.
+    highlight (`[006A]`-`[00CE]`, `local-211`), so the run is at a dead end.
   - U1 is the first possible action and stops 205 at once
-    (`local-203 [0002]`). No risk.
+    (`local-203 [0002]`), so the timer poses no risk.
 - **Cameo** (`local-209`): after 5400 jiffies, two pirates chat (`local-208`).
   This is cosmetic. If it is still running at U1, `local-210` plays two more
   lines (`local-203 [000A]`/`[0013]`).
@@ -722,7 +720,7 @@ The ladder alone does not work. While 201 runs, Walk to `ladder` (577) gives
   - the store's rat-repellent gate (`room-030-store/local-211 [02CB]`).
 - `Bit[85]` and `Var[200]` are set only here (grep).
 
-**Is anything at the dock required? No.**
+**Nothing at the dock is required.**
 
 - The flag is set at `local-200 [0041]`, inside the underwater cutscene,
   **before** the move to room 83.
@@ -732,7 +730,7 @@ The ladder alone does not work. While 201 runs, Walk to `ladder` (577) gives
   - It is **forced but not required**. The trial already counts.
   - The bridge's goal check fires on the first frame where `Bit[85]` holds,
     which is before this scene.
-- **If the idol is the third trial.** If `Var[196]` reaches 3,
+- **If the idol is the third trial**, `Var[196]` reaches 3 and
   `local-200 [0085]` sets `Var[277] = 5`. Room 83 then runs
   `room-083-cu-dock/local-203`, the kidnapping scene, which has a menu
   (`[0243]`-`[03C4]`). v1 (treasure + idol) never gets there.
@@ -776,8 +774,8 @@ Free choices for the planner:
 **Prerequisite:** ≥ 1 piece of eight before S1. This comes from `money.md`
 and is not counted here.
 
-The room-to-room links used are the ones verified in this file. Routing
-between them belongs to `rooms.md`: it may find shorter paths, and the
+The table uses only room-to-room links verified in this file. Routing
+between rooms is left to `rooms.md`. It may find shorter paths, and the
 Lookout stairs go straight to the dock.
 
 **Legend:**
@@ -804,32 +802,32 @@ Lookout stairs go straight to the dock.
 | 14 | Walk to `archway` (11, 427) | 33 | 33→35 | | |
 | 15 | Walk to `archway` (11, 451) | 35 | 35→34 | | |
 | 16 | Walk to `doorway` (11, 434) | 34 | 34→31 | | |
-| 17 | Talk to `prisoner` (10, 405) — J1 | 31 | | | |
+| 17 | Talk to `prisoner` (10, 405) (J1) | 31 | | | |
 | 18 | Walk to `doorway` (11, 400) | 31 | 31→34 | | |
 | 19 | Open `door` (2, 437) | 34 | | | |
 | 20 | Walk to `door` (11, 437) | 34 | 34→30 | | |
-| 21 | Talk to `storekeeper` (10, 394) — S1 | 30 | | | `breath mint`, `browse` |
+| 21 | Talk to `storekeeper` (10, 394) (S1) | 30 | | | `breath mint`, `browse` |
 | 22 | Walk to `door` (11, 387) | 30 | 30→34 | | |
 | 23 | Walk to `Governor's mansion` (11, 431) | 34 | 34→36 | | |
-| 24 | Give `hunk of meat` to `poodles` (4, 566, 467) — D1 | 36 | | | |
+| 24 | Give `hunk of meat` to `poodles` (4, 566, 467) (D1) | 36 | | | |
 | 25 | Open `door` (2, 465) | 36 | | | |
 | 26 | Walk to `door` (11, 465) | 36 | 36→53 | | |
 | 27 | Open `door` (2, 632) | 53 | | | |
-| 28 | Walk to `door` (11, 632) — cutscene 210 | 53 | | | |
+| 28 | Walk to `door` (11, 632), which plays cutscene 210 | 53 | | | |
 | 29 | Walk to `door` (11, 633) | 53 | 53→36 | | |
 | 30 | Walk to `trail` (11, 466) | 36 | 36→34 | | |
 | 31 | Walk to `doorway` (11, 434) | 34 | 34→31 | | |
-| 32 | Give `breath mints` to `prisoner` (4, 395, 405) — J2 | 31 | | | `stiff upper lip` |
-| 33 | Give `gopher repellent` to `prisoner` (4, 640, 405) — J3 | 31 | | | |
-| 34 | Open `cake` (2, 420) — J4 | 31 | | | |
+| 32 | Give `breath mints` to `prisoner` (4, 395, 405) (J2) | 31 | | | `stiff upper lip` |
+| 33 | Give `gopher repellent` to `prisoner` (4, 640, 405) (J3) | 31 | | | |
+| 34 | Open `cake` (2, 420) (J4) | 31 | | | |
 | 35 | Walk to `doorway` (11, 400) | 31 | 31→34 | | |
 | 36 | Walk to `Governor's mansion` (11, 431) | 34 | 34→36 | | |
 | 37 | Walk to `door` (11, 465) | 36 | 36→53 | | |
-| 38 | Walk to `gaping hole` (11, 637) — T1 | 53 | | 53→23→53 (`global/script-119 [000E]`, `[07C2]`/`[07E4]`) | `could have it`, `Uh`, `Um`, `Blfft` |
-| 39 | Open `door` (2, 633) — T2 | 53 | | 53→83 (`local-217 [0391]`), 83→42 (`global/script-065 [023A]`/`[025C]`) | `Buzz off` |
-| 40 | Pick up `fabulous idol` (9, 578) — U1 → **goal** | 42 | | 42→83, after the flag (`local-200 [0091]`/`[009D]`) | |
+| 38 | Walk to `gaping hole` (11, 637) (T1) | 53 | | 53→23→53 (`global/script-119 [000E]`, `[07C2]`/`[07E4]`) | `could have it`, `Uh`, `Um`, `Blfft` |
+| 39 | Open `door` (2, 633) (T2) | 53 | | 53→83 (`local-217 [0391]`), 83→42 (`global/script-065 [023A]`/`[025C]`) | `Buzz off` |
+| 40 | Pick up `fabulous idol` (9, 578) (U1) → **goal** | 42 | | 42→83, after the flag (`local-200 [0091]`/`[009D]`) | |
 
-**Totals:** 40 sentences (plus money), 24 PT, 5–8 FT (3 of them only on the
+**Totals:** 40 sentences (plus money), 24 PT, 5 to 8 FT (3 of them only on the
 first bar exit), 8 dialogue choices.
 
 Variant steps:
@@ -861,9 +859,9 @@ Variant steps:
 
 | What | Value | Cite | Planning impact |
 |---|---|---|---|
-| Cook stays in the kitchen after each bar entry | 1800–3000 jiffies (`rand(0..20)`) | `room-028-bar/local-211 [000D]` | Must wait before step 10. Get-caught alternative: 600 jiffies + cutscene. |
+| Cook stays in the kitchen after each bar entry | 1800-3000 jiffies (`rand(0..20)`) | `room-028-bar/local-211 [000D]` | Must wait before step 10. Get-caught alternative: 600 jiffies + cutscene. |
 | Cook's destination in the bar | object 330 + `rand(0..28)` | `room-028-bar/local-216 [003F]` | Decides whether x ≤ 310 occurs (click guard) |
-| Storekeeper away on entry | 1/4 (`rand(0..3) == 0`) | `room-030-store/entry.txt [002B]`/`[0042]` | +1–2 sentences |
+| Storekeeper away on entry | 1/4 (`rand(0..3) == 0`) | `room-030-store/entry.txt [002B]`/`[0042]` | +1 or 2 sentences |
 | Barking dogs | cosmetic `rand` delays | `room-036-mansion-e/local-202 [0028]` | none |
 | Foyer sound/cloud effects | cosmetic | `room-053-foyer/local-207`, `local-219` | none |
 | Drowning | 36000 jiffies | `room-042-underwate/local-205` | none (U1 stops it) |
@@ -880,8 +878,8 @@ read from engine state or observed, not guessed.
 A real click goes through `VAR_VERB_SCRIPT` (`runInputScript`,
 `script.cpp:1478-1511`), which then queues the sentence. The bridge pushes
 sentences straight into the queue (`docs/plan.md` C4), so room input scripts
-are **not run**. `rules/glitchless.md` (Banned 4) allows only sentences that
-the input script would push after a click. So the model must reproduce any
+**do not run**. `rules/glitchless.md` (Banned 4) allows only sentences that
+the input script would push after a click, so the model must reproduce any
 guard that lives in an input script.
 
 - **Bar, door 316 (blocks modelling of step 10).**
@@ -911,7 +909,7 @@ guard that lives in an input script.
     room's unrelated local 203.
   - The notice text may also stay on screen. That is cosmetic.
 - **Underwater 204.** It only updates `Var[164]`, the rope animation target
-  (`room-042-underwate/local-204 [0007]`-`[0030]`). Cosmetic.
+  (`room-042-underwate/local-204 [0007]`-`[0030]`). This is cosmetic.
 - **Bar, kitchen-door race (direct push only).**
   - On the click path, `local-203 [0030]`-`[0035]` freezes the cook (stops
     216 and 217) as soon as the click lands.
@@ -950,7 +948,7 @@ guard that lives in an input script.
    wait for "cook in the bar with x ≤ 310"?
    - Options: add actor-position or script-running conditions to C3, or
      have the bridge emulate the room input script.
-   - It is also unknown which of objects 330–358 lie at x ≤ 310. That needs
+   - It is also unknown which of objects 330 to 358 lie at x ≤ 310. That needs
      `objects.json`. If none do, the cook must be caught mid-walk.
    - Emulating the input script would also remove the door-closing race
      (§12).
@@ -959,7 +957,7 @@ guard that lives in an input script.
    cutscene + 600 jiffies. Measure in engine.
 3. **Reach checks.** Do these pass the distance checks from the positions
    that walking actually reaches?
-   - Give (≤ 32) for the poodles (walk-boxes 1–6 locked).
+   - Give (≤ 32) for the poodles (walk-boxes 1-6 locked).
    - Walk to `gaping hole` 637 (≤ 16, box 16 locked).
    - Pick up idol 578 (≤ 16, box 1 locked).
 

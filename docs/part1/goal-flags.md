@@ -23,8 +23,8 @@ source. **Inferred** means a conclusion drawn from the code but not stated by it
 [{"bit": 85, "eq": 1}, {"bit": 86, "eq": 1}]
 ```
 
-You do **not** need to show the proof to the pirate leaders. That step is
-optional flavour (section 3).
+The goal does not require showing the proof to the pirate leaders. That step
+is optional flavour (section 3).
 
 ---
 
@@ -32,31 +32,37 @@ optional flavour (section 3).
 
 **Verified.**
 
-- **Plain bit variable.** descumm prints a bit variable (operand word with
-  `0x8000` set) as `Bit[N]`, where `N` is the bit-variable index
-  (`third_party/scummvm-tools/engines/scumm/descumm.cpp:446`, `:513`).
-- **Indexed bit variable.** When the operand has the `0x2000` "indexed" flag,
-  descumm appends the index:
-  - `Bit[B + K]` for a constant index (`descumm.cpp:521`);
-  - `Bit[B + Local[i]]` or `Bit[B + Var[i]]` for a variable index.
+descumm prints a plain bit variable (an operand word with `0x8000` set) as
+`Bit[N]`, where `N` is the bit-variable index
+(`third_party/scummvm-tools/engines/scumm/descumm.cpp:446`, `:513`).
 
-  The engine adds the index to the base and then strips `0x2000`
-  (`third_party/scummvm/engines/scumm/script.cpp:573-579`). So the
-  **effective bit index is B + K**. Examples:
-  - `Bit[83 + 3]` is bit variable **86**.
-  - `Bit[83 + Local[0]]` with `Local[0] = 2` is bit variable **85**.
-- **Storage.** Bit variable `N` is stored as
-  `_bitVars[N >> 3] & (1 << (N & 7))` (read at `script.cpp:665`, set at
-  `script.cpp:827`). It is the same value as `readVar(0x8000 | N)`. The C3
-  condition `{"bit": N, ...}` must use this `N`: do not add the base again and
-  do not keep the `0x2000` flag.
-- **Variables.** `Var[N]` is `_scummVars[N]`.
-- **Object owners.**
-  - Owner `15` is `OF_OWNER_ROOM` for v5, meaning "still lying in its room, not
-    in anyone's inventory" (`third_party/scummvm/engines/scumm/scumm.cpp:1739`).
-  - `pickupObject` sets the owner to `VAR_EGO`
-    (`third_party/scummvm/engines/scumm/script_v5.cpp:2028`).
-  - `VAR_EGO = 1` is set at boot (`global/script-001.txt [0841]`).
+When the operand also has the `0x2000` "indexed" flag, descumm appends the
+index:
+
+- `Bit[B + K]` for a constant index (`descumm.cpp:521`);
+- `Bit[B + Local[i]]` or `Bit[B + Var[i]]` for a variable index.
+
+The engine adds the index to the base and then strips `0x2000`
+(`third_party/scummvm/engines/scumm/script.cpp:573-579`), so the effective bit
+index is B + K. For example:
+
+- `Bit[83 + 3]` is bit variable 86.
+- `Bit[83 + Local[0]]` with `Local[0] = 2` is bit variable 85.
+
+Bit variable `N` is stored as `_bitVars[N >> 3] & (1 << (N & 7))` (read at
+`script.cpp:665`, set at `script.cpp:827`), the same value as
+`readVar(0x8000 | N)`. The C3 condition `{"bit": N, ...}` must use this `N`:
+do not add the base again and do not keep the `0x2000` flag.
+
+`Var[N]` is `_scummVars[N]`.
+
+For object owners:
+
+- Owner `15` is `OF_OWNER_ROOM` for v5, meaning "still lying in its room, not
+  in anyone's inventory" (`third_party/scummvm/engines/scumm/scumm.cpp:1739`).
+- `pickupObject` sets the owner to `VAR_EGO`
+  (`third_party/scummvm/engines/scumm/script_v5.cpp:2028`).
+- `VAR_EGO = 1` is set at boot (`global/script-001.txt [0841]`).
 
 ## 1. The single "trial complete" routine: global script 71
 
@@ -71,8 +77,8 @@ does the following:
 | `[008D]` | `Bit[83 + Local[0]] = 1`, which sets bit 84, 85 or 86. |
 | `[0094]` | `Var[198 + Local[0]] = 2`, which sets Var 199, 200 or 201 to "done". |
 
-It has **exactly three callers**. A grep for `startScript(71,` over the whole
-dump finds only these:
+It has exactly three callers. A grep for `startScript(71,` over the whole dump
+finds only these:
 
 | Trial | Caller |
 |---|---|
@@ -80,12 +86,12 @@ dump finds only these:
 | 2 (idol) | `room-042-underwate/local-200.txt [0041]` `startScript(71,[2])` |
 | 3 (treasure) | `room-064-treasure/local-200.txt [0214]` `startScript(71,[3])` |
 
-Several independent sources agree on the numbering 1 = sword, 2 = idol,
+Three independent sources agree on the numbering 1 = sword, 2 = idol,
 3 = treasure:
 
-- **The give handler on the pirate leaders**
-  (`room-028-bar/obj-0322-important-looking-pirates.txt`). It maps each item
-  to a trial:
+- The give handler on the pirate leaders
+  (`room-028-bar/obj-0322-important-looking-pirates.txt`) maps each item to a
+  trial:
 
   | Item given | Script started |
   |---|---|
@@ -93,13 +99,13 @@ Several independent sources agree on the numbering 1 = sword, 2 = idol,
   | object 752 "T-shirt" from the treasure | `startScript(220,[3])` at `[0036]`/`[0040]` |
   | object 578 "fabulous idol" | `startScript(220,[2])` at `[0046]`/`[0050]` |
 
-- **The leaders' "what's left" line** (`room-028-bar/local-220.txt [01DA]`,
-  `[020A]`, `[0238]`). It tests `Bit[83 + 1]` and asks about the Sword Master,
-  then tests `Bit[83 + 2]` and asks about the idol, and otherwise asks about
-  the treasure.
-- **The developers' debug checkpoint encoder** (`global/script-061.txt [007C]`,
-  `[0088]`, `[0094]`). It packs bits 84/85/86 with weights 1/2/4. The boot
-  script decodes the same digit at `global/script-001.txt [08D9]`–`[0987]`.
+- The leaders' "what's left" line (`room-028-bar/local-220.txt [01DA]`,
+  `[020A]`, `[0238]`) tests `Bit[83 + 1]` and asks about the Sword Master, then
+  tests `Bit[83 + 2]` and asks about the idol, and otherwise asks about the
+  treasure.
+- The developers' debug checkpoint encoder (`global/script-061.txt [007C]`,
+  `[0088]`, `[0094]`) packs bits 84/85/86 with weights 1/2/4. The boot script
+  decodes the same digit at `global/script-001.txt [08D9]` to `[0987]`.
 
 ### Var[198 + N]: per-trial progress (0 → 1 → 2 → 3)
 
@@ -112,18 +118,18 @@ Several independent sources agree on the numbering 1 = sword, 2 = idol,
 | 2 | trial complete | `global/script-071.txt [0094]` |
 | 3 | proof shown to the leaders | `room-028-bar/local-220.txt [14E8]` (sword), `[1571]` (idol), `[1607]` (treasure) |
 
-Value 1 is never written back once the value is 2. In the leaders' menu, the
-choices that write 1 ("Tell me more/again ...") are offered only while the
-value is 0 or 1 (`local-220.txt [0958]`–`[0C92]`). When the value is 2, the
-menu offers the brag line instead:
+Once the value is 2, nothing writes 1 back. In the leaders' menu, the choices
+that write 1 ("Tell me more/again ...") are offered only while the value is 0
+or 1 (`local-220.txt [0958]` to `[0C92]`). When the value is 2, the menu offers
+the brag line instead:
 
 - `[0A20]`: "deadliest scalawag";
 - `[0B65]`: "I'm the sneakiest footpad in these isles!";
 - `[0C92]`: "I found your 'legendary Lost Treasure'."
 
-No variable-indexed `Var` write reaches 196–201:
+No variable-indexed `Var` write reaches 196 to 201:
 
-- `Var[184 + Local[1]]` with `Local[1] = getRandomNr(3)` stays in 184–187
+- `Var[184 + Local[1]]` with `Local[1] = getRandomNr(3)` stays in 184 to 187
   (`room-035-low-stree/local-206.txt [0005]`, `[001C]`). Verified.
 - `Var[166 + Var[165]]` (`global/script-075.txt [00A0]`,
   `global/script-089.txt [00B2]`) and `Var[133 + Local[8]]`
@@ -134,7 +140,7 @@ No variable-indexed `Var` write reaches 196–201:
 
 ### 2.1 Treasure (trial 3): bit 86
 
-**Flag:** bit variable **86** (`Bit[83 + 3]`).
+**Flag:** bit variable 86 (`Bit[83 + 3]`).
 
 **Setter.** Verified at `room-064-treasure/local-200.txt [0214]`
 `startScript(71,[3])`, which runs `global/script-071.txt [008D]`.
@@ -151,8 +157,8 @@ Context, all in `room-064-treasure/local-200.txt`:
 | `[0214]` | `startScript(71,[3])`: **trial complete** |
 | `[021D]` | `endCutscene()`, which returns control to the player. |
 
-Skipping the cutscene with Esc jumps to `[01A7]` and falls through to `[0214]`.
-So the setter runs whether or not the cutscene is skipped (verified).
+Skipping the cutscene with Esc jumps to `[01A7]` and falls through to
+`[0214]`, so the setter runs whether or not the cutscene is skipped (verified).
 
 **How local-200 is started.** `room-064-treasure/obj-0749-x.txt`, Use verb
 `[006B]`: if `Local[0] == 396` (shovel) and `!Bit[83 + 3]` (`[0072]`), it runs
@@ -174,15 +180,16 @@ swap semantics are inferred from the standard v5 pattern.
 
 **Alternate paths: none.** Verified:
 - `startScript(71,[3])` appears once.
-- The only `startScript(200` in room 64 is `obj-0749-x.txt [00A6]`.
+- The only `startScript(200` in room 64 is `obj-0749-x.txt [00A6]`. (The same
+  grep also matched `room-058-damnfores/obj-0688-path.txt [0060]`, which starts
+  room 58's own local 200, not room 64's.)
 
-(The same grep also matched `room-058-damnfores/obj-0688-path.txt [0060]`,
-which starts room 58's own local 200, not room 64's.) The only other places that set the bit are the debug
-boot paths (Open question 1).
+The only other places that set the bit are the debug boot paths (Open
+question 1).
 
 ### 2.2 Idol / thievery (trial 2): bit 85
 
-**Flag:** bit variable **85** (`Bit[83 + 2]`).
+**Flag:** bit variable 85 (`Bit[83 + 2]`).
 
 **Setter.** Verified at `room-042-underwate/local-200.txt [0041]`
 `startScript(71,[2])`, which runs `global/script-071.txt [008D]`.
@@ -221,14 +228,14 @@ boot paths (Open question 1).
    | `[0002]` | `stopScript(205)`: drowning timer stopped |
    | `[0016]` | `stopScript(201)`: untied |
    | `[0024]` | `pickupObject(578,0)` |
-   | `[0030]`–`[008B]` | Recovers the confiscated sword if `owner(388) == 14`. |
+   | `[0030]`-`[008B]` | Recovers the confiscated sword if `owner(388) == 14`. |
    | `[0094]` | Walks to the ladder. |
    | `[009E]` | `startScript(200,[])` |
 
 5. **Ladder cutscene: the trial is complete here.**
    - Local 201 is no longer running, so
      `room-042-underwate/local-200.txt [003F]` enters `cutscene([])`.
-   - `[0041]` `startScript(71,[2])` sets **bit 85**.
+   - `[0041]` `startScript(71,[2])` sets bit 85.
    - It then sets `Var[277]`: 4 if `Var[196] < 3` (`[007D]`), otherwise 5
      (`[0085]`).
    - It moves ego to room 83 (`[0091]`).
@@ -246,19 +253,19 @@ boot paths (Open question 1).
 **Earliest flag that marks the trial as irreversibly complete: bit 85**, set at
 `room-042-underwate/local-200.txt [0041]`.
 
-- It is set at the very start of the ladder cutscene: before ego leaves room 42,
-  before the Elaine scene, and with no showing to the leaders.
+- It is set at the very start of the ladder cutscene, before ego leaves room 42
+  and before the Elaine scene. Showing the idol to the leaders plays no part.
 - `startScript` runs the child script nested within the same frame
   (`third_party/scummvm/engines/scumm/script.cpp:106`, `runScriptNested`).
   Script 71 has no `breakHere`, so bit 85 and `Var[196]` are already updated
   when `[0076]` reads `Var[196]`.
 
-The earliest irreversible *state* is slightly earlier: `pickupObject(578,0)` at
-`room-042-underwate/local-203.txt [0024]`. From there the script runs inside an
-override-less cutscene, with the drowning timer already stopped (`[0002]`),
-straight to `[009E]` and then `[0041]`, with no branch that can fail (verified
-by reading the script). `{"has": 578}` would fire a few seconds of walking
-earlier, but it is worse as a goal (section 4).
+The earliest irreversible *state* comes slightly earlier, at
+`pickupObject(578,0)` in `room-042-underwate/local-203.txt [0024]`. From there
+the script runs straight to `[009E]` and then `[0041]` inside a cutscene with
+no override, and the drowning timer is already stopped (`[0002]`). No branch
+on that path can fail (verified by reading the script). `{"has": 578}` would
+fire a few seconds of walking earlier, but it is worse as a goal (section 4).
 
 **Readers of bit 85:**
 - `room-028-bar/local-220.txt [020A]`: the "Have you stolen the idol yet?"
@@ -279,7 +286,7 @@ idol 635, the trial always ends with the underwater pickup and the ladder.
 
 ### 2.3 Sword (trial 1): bit 84 (out of scope for v1)
 
-**Flag:** bit variable **84** (`Bit[83 + 1]`).
+**Flag:** bit variable 84 (`Bit[83 + 1]`).
 
 **Setter.** Verified at `global/script-116.txt [0117]` `startScript(71,[1])`.
 
@@ -300,15 +307,14 @@ idol 635, the trial always ends with the underwater pickup and the ladder.
 
 ## 3. "All three trials done" checks and the Part I → Part II transition
 
-**Verified.** The engine-wide "all trials done" test is `Var[196] >= 3`, the
-count kept by script 71. It is never the leaders' report.
+**Verified.** The game's "all trials done" test is always `Var[196] >= 3`, the
+count kept by script 71. Reporting to the leaders never enters into it.
 
-- **Talking to the leaders.** Talk to / Look at the leaders runs `local-220`
-  only while `Var[196] < 3`. Otherwise it runs `global/script-059.txt` (the old
-  drunk's "The Governor is gone!" scene)
-  (`room-028-bar/obj-0322-important-looking-pirates.txt [0018]`–`[0025]`).
-- **Exits to the dock.** These all gate the trip to the dock and test the same
-  conditions:
+- Talk to / Look at the leaders runs `local-220` only while `Var[196] < 3`.
+  Otherwise it runs `global/script-059.txt`, the old drunk's "The Governor is
+  gone!" scene (`room-028-bar/obj-0322-important-looking-pirates.txt [0018]` to
+  `[0025]`).
+- These exits all gate the trip to the dock and test the same conditions:
   - the lookout stairs, `room-038-lookout/obj-0486-stairs.txt [0010]`;
   - the low-street archway, `room-035-low-stree/obj-0450-archway.txt [0057]`;
   - the island-map village, `room-085-melee/obj-0917-village.txt [000C]`.
@@ -322,9 +328,9 @@ count kept by script 71. It is never the leaders' report.
   - otherwise, if `!Bit[449]`, it sets `Var[277] = 2` and plays the kidnapping
     scene (`room-083-cu-dock/local-203.txt`, whose helper `local-202.txt [0000]`
     sets `Bit[449]`).
-- **Underwater.** `room-042-underwate/local-200.txt [0076]` picks the dock
-  scene with the same `Var[196] < 3` test.
-- **Other `Var[196] >= 3` / `< 3` gates**, all ambience or the kidnapping
+- Underwater, `room-042-underwate/local-200.txt [0076]` picks the dock scene
+  with the same `Var[196] < 3` test.
+- Other `Var[196] >= 3` / `< 3` gates, all for ambience or the kidnapping
   aftermath:
   - `room-033-dock/entry.txt [0004]`;
   - `room-034-high-stre/exit.txt [0000]`;
@@ -369,37 +375,39 @@ goal_cite = [
 | `var 196 eq 2` | Worse | Ambiguous: sword + treasure also gives 2. It also disagrees with the bits under debug boot params (Open question 1). |
 | `has 752` (T-shirt) | OK for Part I only | Picked up at `[020C]`, four bytes before the setter. It can be lost later: burned in the galley, `room-014-sh-galley/obj-0161-red-hot-fire.txt [0073]` `setOwnerOf(752,0)`. |
 | `has 578` (idol) | Worse | Taken by the leaders when shown (`room-028-bar/local-220.txt [156D]` `setOwnerOf(578,0)`), and again at Part II start (`global/script-122.txt [0168]`). |
-| `has 635` (foyer idol) | **Wrong** | It is a precondition, not completion. Fester removes it (`room-053-foyer/local-217.txt [0388]`), and the trial still needs the underwater part. |
+| `has 635` (foyer idol) | **Wrong** | A precondition, not completion. Fester removes it (`room-053-foyer/local-217.txt [0388]`), and the trial still needs the underwater part. |
 
 **Check that the bits are never cleared.** Verified by grep over the whole
 dump:
 
 - No script writes the literal forms `Bit[84]`, `Bit[85]` or `Bit[86]`.
-- Summing every constant-indexed `Bit[B + K]` in the dump, only base 83 lands
-  on 84–86. Every write is `= 1`: at `global/script-071.txt [008D]` and in the
-  debug boot block of `global/script-001.txt` (`[08EA]`–`[0987]`). Base 77
-  reaches at most 82.
+- Computing B + K for every constant-indexed `Bit[B + K]` in the dump shows
+  that only base 83 lands on 84 to 86. Each of those writes is `= 1`, at
+  `global/script-071.txt [008D]` and in the debug boot block of
+  `global/script-001.txt` (`[08EA]` to `[0987]`). Base 77 reaches at most 82.
 - No bit write uses a non-constant value: there is no `Bit[...] = Var/Local`.
-- No variable-indexed bit write can reach 84–86. The indexed writes with a base
-  of 86 or less are:
+- No variable-indexed bit write can reach 84 to 86. The indexed writes with a
+  base of 86 or less are:
   - `Bit[29|37|44 + Local[n]]`, with n in 0..6. This is a verified loop at
-    `global/script-056.txt [01E3]`–`[0207]` and at
-    `room-038-lookout/obj-0488-pieces-of-eight.txt [00A1]`–`[00B0]`. At
+    `global/script-056.txt [01E3]` to `[0207]` and at
+    `room-038-lookout/obj-0488-pieces-of-eight.txt [00A1]` to `[00B0]`. At
     `global/script-056.txt [1536]` the index is `Local[1] - 691`; that
-    `Local[1]` is one of the seven boat objects 691–697 in room 59 is inferred.
+    `Local[1]` is one of the seven boat objects 691 to 697 in room 59 is
+    inferred.
   - `Bit[52 + Var[207]]`, where `Var[207]` wraps at 7
-    (`global/script-056.txt [31CC]`–`[31D8]`).
+    (`global/script-056.txt [31CC]` to `[31D8]`).
 
   The maximum reachable index is 58.
 
 **When the goal fires** (verified offsets; frame timing inferred):
 
-- **Treasure last:** at `room-064-treasure/local-200.txt [0214]`, near the end
-  of the dig cutscene, a few instructions before `endCutscene` at `[021D]`.
-- **Idol last:** at `room-042-underwate/local-200.txt [0041]`, the first
-  instruction after `cutscene([])` at `[003F]`. That is before the ladder climb
-  and the long Elaine dock scene, so the measured time does not include that
-  scene.
+- If treasure is the last trial, the goal fires at
+  `room-064-treasure/local-200.txt [0214]`, near the end of the dig cutscene, a
+  few instructions before `endCutscene` at `[021D]`.
+- If the idol is the last trial, it fires at
+  `room-042-underwate/local-200.txt [0041]`, the first instruction after
+  `cutscene([])` at `[003F]`. That is before the ladder climb and the long
+  Elaine dock scene, so the measured time does not include that scene.
 
 **No extra route step is required after either setter.** In particular, the
 route does not need to visit the bar.
@@ -430,9 +438,9 @@ A sensible bridge-side assertion for a normal (non-boot-param) run is:
      (`third_party/scummvm/engines/scumm/scumm.cpp:273-274`), which sets
      `VAR_DEBUGMODE = 1` (`third_party/scummvm/engines/scumm/vars.cpp:821-822`).
    - That enables the debug start block in `global/script-001.txt`
-     (`[086D]`–`[1474]`):
-     - params 3000–3777 set `Bit[83 + N]` directly (`[08EA]`–`[0987]`) and
-       leave `Var[196] = 0` and `Var[198 + N]` untouched;
+     (`[086D]` to `[1474]`):
+     - params 3000 to 3777 set `Bit[83 + N]` directly (`[08EA]` to `[0987]`)
+       and leave `Var[196] = 0` and `Var[198 + N]` untouched;
      - params 6767 and 9432 (and the later blocks) set `Var[196] = 3`
        (`[0BE4]`, `[0C2A]`, ...) without setting the bits.
    - The bits stay the authoritative goal signal. Use `Var[196]` as a
@@ -449,7 +457,7 @@ A sensible bridge-side assertion for a normal (non-boot-param) run is:
    `_bitVars[N >> 3] & (1 << (N & 7))` (or `readVar(0x8000 | N)`) with
    N = 85 and N = 86. It must not apply descumm's `0xFFF` print mask or the
    `0x2000` index flag. This is a contract note, not a script question.
-5. **Entering room 42 by other means.** I did not check whether any glitchless
-   path re-enters room 42 after completion. It would not matter, because the
-   room's entry script restarts local 201 (`room-042-underwate/entry.txt [007C]`)
-   and the bits are never cleared.
+5. **Entering room 42 by other means.** This analysis did not check whether
+   any glitchless path re-enters room 42 after completion. It would not matter,
+   because the room's entry script restarts local 201
+   (`room-042-underwate/entry.txt [007C]`) and the bits are never cleared.

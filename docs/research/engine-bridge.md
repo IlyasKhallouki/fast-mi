@@ -9,8 +9,8 @@ Source: `third_party/scummvm` at tag **v2026.3.0**. Every `path:line` below
 is relative to that tree, re-derived with `grep -n` against the exact text.
 Build facts come from `build/scummvm/config.h` and `config.mk` (stock
 configure output): SDL2 API (`USE_SDL2`, linked through sdl2-compat 2.32 on
-SDL3 3.4), `USE_OPENGL`, `USE_IMGUI`, **no** `ENABLE_EVENTRECORDER`
-(`config.h:72`), **no** `USE_TTS`.
+SDL3 3.4), `USE_OPENGL` and `USE_IMGUI`. `ENABLE_EVENTRECORDER`
+(`config.h:72`) and `USE_TTS` are not set.
 
 Notation: "v5" means `_game.version == 5`. `VAR(n)` means `_scummVars[n]`.
 
@@ -63,7 +63,7 @@ Notation: "v5" means `_game.version == 5`. `VAR(n)` means `_scummVars[n]`.
 
 ### Recommendation
 
-**If only one hook is allowed:** put it immediately before
+If only one hook is allowed, put it immediately before
 `checkAndRunSentenceScript();` (`scumm.cpp:3245`):
 
 ```cpp
@@ -76,7 +76,7 @@ Why:
 - It is the exact place a real click takes effect. `checkExecVerbs()` has
   just run (`:3223`), so:
   - `doSentence(...)` pushed here is consumed by `checkAndRunSentenceScript()`
-    in the **same frame**, exactly as when the input script calls
+    in the same frame, exactly as when the input script calls
     `o5_doSentence` during a click;
   - `runInputScript(kVerbClickArea, id, 1)` here is indistinguishable in
     timing from `checkExecVerbs`' own call (`verbs.cpp:686`).
@@ -88,9 +88,9 @@ Why:
   are banned in runs, so the bridge aborts if `_saveLoadFlag` is ever
   non-zero.
 
-**Recommended (two one-line hooks).** One hook point cannot do everything,
-so add a second hook as the first statement of `scummLoop`, before
-`scumm.cpp:3101`:
+The recommended setup uses two one-line hooks. One hook point cannot do
+everything, so add a second hook as the first statement of `scummLoop`,
+before `scumm.cpp:3101`:
 
 ```cpp
 void ScummEngine::scummLoop(int delta) {
@@ -101,47 +101,46 @@ void ScummEngine::scummLoop(int delta) {
 
 `onFrameBegin` adds what the decision hook cannot:
 
-- **Unclamped `delta`.** The local is clamped in place at `:3120`, so by the
-  decision hook it may be wrong. The only other way back is `VAR(VAR_TIMER)`,
-  which scripts could overwrite.
-- **Input neutralisation.** This is the only bridge point before
-  `processInput()` (`:3168`). See section 15 for the list of human inputs
-  to neutralise.
-- **Trace snapshot.** It sees the **completed previous frame** (scripts,
-  sentence script, walking, effects), which is the right moment to snapshot
-  state and check the goal: state after frame N, stamped with
-  `T_N = sum(delta_1..delta_N)`.
+- It sees the unclamped `delta`. The local is clamped in place at `:3120`,
+  so by the decision hook it may be wrong. The only other way back is
+  `VAR(VAR_TIMER)`, which scripts could overwrite.
+- It is the only bridge point before `processInput()` (`:3168`), so input
+  neutralisation goes here. See section 15 for the list of human inputs to
+  neutralise.
+- It sees the completed previous frame (scripts, sentence script, walking,
+  effects), which is the right moment to take the trace snapshot and check
+  the goal: state after frame N, stamped with `T_N = sum(delta_1..delta_N)`.
 
 ---
 
 ## 2. Ticks
 
-- **What `delta` is.** `delta = VAR(VAR_TIMER_NEXT)` (`scumm.cpp:2814`), with
+- `delta = VAR(VAR_TIMER_NEXT)` (`scumm.cpp:2814`), with
   `VAR_TIMER_NEXT = 19` (`vars.cpp`, `setupScummVars`), minimum 1
-  (`:2827`). For MI1 Mac none of the per-game delta rewrites apply. Those are
+  (`:2827`). None of the per-game delta rewrites apply to MI1 Mac. Those are
   FM-Towns `_scrollDeltaAdjust`, v0, MM v1, and the `kEnhUIUX` rewrites for
   Indy3/Loom/Zak (`:2815-2875`).
-- **Unit: jiffies of 1/60 s.**
+- The unit is the jiffy, 1/60 s.
   - `waitForTimer(delta*4)` waits `quarterFrames * 1000/getTimerFrequency()`
     ms (`scumm.cpp:2914`).
   - For Mac, `setTimerAndShakeFrequency()` keeps the default
     `_timerFrequency = 240.0` (`scumm.cpp:2981`). The DOS PIT branches do not
     apply to `kPlatformMacintosh`.
   - So 4 quarter-frames at 240 Hz = 1/60 s per delta unit.
-- **Accumulators** (`scumm.cpp:3101-3109`):
+- Accumulators (`scumm.cpp:3101-3109`):
   - `VAR_TIMER` (46) is set to `delta`;
   - `VAR_TIMER_TOTAL` (47) is incremented by `delta`;
   - `VAR_TMR_1/2/3` (11/12/13) are incremented by `delta`.
   - All of these are game-writable script variables. Scripts can reset the
     TMR vars, so none of them is a trustworthy run clock.
-- **Independent of wall-clock and fast mode.** `delta` is read from a script
-  variable before waiting. `waitForTimer` only sleeps
+- Ticks do not depend on wall-clock time or fast mode. `delta` is read from
+  a script variable before waiting, `waitForTimer` only sleeps
   (`scumm.cpp:2912-2966`), and `_fastMode` only changes `msecDelay`
-  (`:2916-2919`). The tick sequence does not depend on how long frames take.
-  - Caveat: wall-clock **audio** state can feed back into scripts
+  (`:2916-2919`).
+  - Caveat: wall-clock audio state can feed back into scripts
     (section 3).
   - Caveat: `_fastMode` has two non-timing side effects (section 3).
-- **Recommended run clock:**
+- Recommended run clock:
   - `uint64 _ticks += delta` in `onFrameBegin(delta)`, using the unclamped
     value;
   - also count frames;
@@ -163,14 +162,14 @@ void ScummEngine::scummLoop(int delta) {
 - Effects:
   - In `waitForTimer`, bit 2 → `msecDelay = 0` and bit 1 → `msecDelay = 10`
     (`scumm.cpp:2916-2919`).
-  - **Side effect 1:** `playActorSounds()` skips `_sound->startSound()` when
-    `_fastMode` is set (`actor.cpp:2266`).
+  - The first side effect is in `playActorSounds()`, which skips
+    `_sound->startSound()` when `_fastMode` is set (`actor.cpp:2266`).
     - That skips `VAR(VAR_LAST_SOUND) = sound` (`sound.cpp:122`, var 23).
     - It also skips the walk sound in the Mac player, which changes
       `isSoundRunning`.
     - So `_fastMode` **is not logic-neutral** in principle.
-  - **Side effect 2:** `dissolveEffect` skips its waits (`gfx.cpp:4609`).
-    This is harmless.
+  - The second side effect is in `dissolveEffect`, which skips its waits
+    (`gfx.cpp:4609`). This is harmless.
 - Recommendation: **do not use `_fastMode`.** Add one condition to
   `waitForTimer` (`scumm.cpp:2916`):
 
@@ -185,8 +184,8 @@ void ScummEngine::scummLoop(int delta) {
 
 ### SDL backend with `SDL_VIDEODRIVER=dummy`
 
-These results were tested empirically on this machine with a minimal SDL2
-program (sdl2-compat 2.32.70):
+These results come from testing a minimal SDL2 program on this machine
+(sdl2-compat 2.32.70):
 
 - `SDL_Init(SDL_INIT_VIDEO)` succeeds and the driver is `dummy`. ScummVM
   always inits video (`backends/platform/sdl/sdl.cpp:609`).
@@ -196,8 +195,8 @@ program (sdl2-compat 2.32.70):
 - The default graphics manager on Linux is SurfaceSDL
   (`sdl.cpp:962-963`, no Linux override). Its `SDL_CreateRenderer`
   (`backends/graphics/surfacesdl/surfacesdl-graphics.cpp:3088`) gets the
-  **`software`** renderer, and the RGB565 streaming texture works.
-- **Pitfall: vsync.**
+  `software` renderer, and the RGB565 streaming texture works.
+- Vsync is a pitfall:
   - `vsync` defaults to true (`base/commandLine.cpp:321`), which sets
     `SDL_RENDERER_PRESENTVSYNC` (`surfacesdl-graphics.cpp:236`, `:3086`).
   - With the dummy driver, each present then blocks for about 16.5 ms. The
@@ -243,7 +242,7 @@ program (sdl2-compat 2.32.70):
   - With both set, `LoomMonkeyMacSnd::startSound` returns before starting
     anything (`players/player_mac_loom_monkey.cpp:510`).
 
-**Why audio matters:** the Mac MI1 player is driven by the mixer thread, and
+Audio matters because the Mac MI1 player is driven by the mixer thread, and
 two pieces of its state feed into game logic:
 
 - `VAR_MUSIC_TIMER` (var 14) = `getMusicTimer()` (`sound.cpp:2219`)
@@ -267,7 +266,7 @@ Consequences for each setup:
 | `--disable-sdl-audio` + `mute`+`music_mute` | stays 0 | never running | deterministic; sound waits take 0 ticks (shorter than real play); any script waiting on var 14 hangs |
 | **`--disable-sdl-audio` + bridge pumps the null mixer** | ticks | ends after tick-time | **deterministic and faithful** (recommended) |
 
-**Recommended: tick-locked audio.**
+The recommended setup is tick-locked audio:
 
 - Run with `--disable-sdl-audio`, unmuted.
 - In `onFrameBegin(delta)`, pump the mixer:
@@ -286,9 +285,9 @@ Consequences for each setup:
 - The VBL callback, `_restartSound` and sound-end callbacks then run on the
   main thread at tick rate.
 
-The **visible demo must use the same setup**, which means it is **silent**.
-With real audio, tick counts would diverge from the headless run whenever a
-script waits on a sound or on var 14.
+The visible demo **must use the same setup**, so it is silent. With real
+audio, tick counts would diverge from the headless run whenever a script
+waits on a sound or on var 14.
 
 (Open question for later: whether MI1 scripts read var 14 at all. Check in
 the descumm output.)
@@ -319,7 +318,7 @@ unaffected, since `delta` comes from `VAR_TIMER_NEXT` regardless.
 `void doSentence(int verb, int objectA, int objectB)` (`script.cpp:1145`;
 declared `scumm.h:1137`).
 
-- For v<7 it simply appends:
+- For v<7 it appends:
   - `assert(_sentenceNum < NUM_SENTENCE)` (`:1164`), so a 7th push crashes;
   - `preposition = (objectB != 0)` (`:1170`);
   - `freezeCount = 0`.
@@ -449,7 +448,7 @@ State relevant to "the player could click now":
   - At the decision hook, `_doEffect == true` means a room was entered this
     frame and the fade-in is pending. `!_screenEffectFlag` means the screen
     is blanked.
-- `_userState` is used only by v0–v2 interface code (`verbs.cpp:349,519,990`,
+- `_userState` is used only by v0 to v2 interface code (`verbs.cpp:349,519,990`,
   `string.cpp:933`). Ignore it for v5.
 - Other guards:
   - `isPaused()`;
@@ -501,27 +500,26 @@ demo then decide on exactly the same frame.
 
 Pitfalls:
 
-- **Background scripts.** Global scripts like ambient animation, the clock,
-  and `VAR_MAIN_SCRIPT` always run, so "no scripts running" is never true.
-  That is why only sentence, input and object-owned (room/inventory/flobject)
-  slots are checked.
-- **Room-owned slots and entry scripts.** Some *room-owned* slots are
-  long-running room local scripts started by entry code. These are
-  `WIO_LOCAL` (number ≥ `_numGlobalScripts`), so they are deliberately not
-  excluded above. If a room keeps an object script alive forever, idle never
-  fires. Log the blocking slot number when idle has been false for N frames,
-  and whitelist per room if needed.
-- **Ego absent.** Ego may not be in the current room (close-ups, map, dialog
-  rooms). Gate the walking check with `isInCurrentRoom()`. The plan step type
-  (sentence vs. dialog) must match `IdleKind`.
-- **Freeze counts.** `freezeScripts()` sets `freezeCount` on both sentences
-  and the sentence script. A frozen sentence script does not block the
-  engine, and it does not block the predicate either; that matches.
-- **Transient idle windows** (userput on for a single frame between
-  cutscenes) are real game behaviour. A human could click there too. `K`
-  handles the policy deterministically.
-- **Do not use these:** `_cursor.state` (Mac MI1 hack), `VAR_TALK_ACTOR`
-  (0xFF when not talking), `VAR_HAVE_MSG` (copy taken before scripts run).
+- Global scripts like ambient animation, the clock, and `VAR_MAIN_SCRIPT`
+  always run, so "no scripts running" is never true. That is why only
+  sentence, input and object-owned (room/inventory/flobject) slots are
+  checked.
+- Some *room-owned* slots are long-running room local scripts started by entry
+  code. These are `WIO_LOCAL` (number ≥ `_numGlobalScripts`), so they are
+  deliberately not excluded above. If a room keeps an object script alive
+  forever, idle never fires. Log the blocking slot number when idle has been
+  false for N frames, and whitelist per room if needed.
+- Ego may not be in the current room (close-ups, map, dialog rooms). Gate the
+  walking check with `isInCurrentRoom()`. The plan step type (sentence vs.
+  dialog) must match `IdleKind`.
+- `freezeScripts()` sets `freezeCount` on both sentences and the sentence
+  script. A frozen sentence script blocks neither the engine nor the
+  predicate, so the two agree.
+- Transient idle windows (userput on for a single frame between cutscenes) are
+  real game behaviour. A human could click there too. `K` handles the policy
+  deterministically.
+- Do not use `_cursor.state` (Mac MI1 hack), `VAR_TALK_ACTOR` (0xFF when not
+  talking) or `VAR_HAVE_MSG` (copy taken before scripts run).
 
 ---
 
@@ -740,7 +738,7 @@ for (int r = 1; r < _vm->_numRooms; r++) {
 
 Pitfalls and side effects:
 
-- **Loading a room is not free.** `getResourceAddress` →
+- Loading a room is not free. `getResourceAddress` →
   `ensureResourceLoaded` → `loadResource` → `openRoom(r)` → reads the
   resource (`resource.cpp:767`, `:599`, `:647`, `:671`).
   - Loading the **current** room sets `VAR(VAR_ROOM_FLAG)=1` (`:644`).
@@ -755,24 +753,24 @@ Pitfalls and side effects:
     `isSoundRunning` consults `isResourceLoaded(rtSound)` (`sound.cpp:875`).
   - A room pointer from an earlier iteration may be freed by a later load.
     Fully process each room before loading the next.
-- **Invalid room ids can open a modal dialog.** `openRoom` falls back to
+- Invalid room ids can open a modal dialog. `openRoom` falls back to
   `askForDisk` and to `%.3d.lfl` files (`resource.cpp:123`, `:128`), which
   under dummy video means a hang.
   - Skip rooms with `_roomno == 0`.
   - First load one known-good room, so the disk's LOFF table populates
     `_roomoffs` via `readRoomsOffsets` (`resource.cpp:156-171`).
   - Then skip rooms whose `_roomoffs` is still 0.
-- **Room 25 is patched on load** when `kEnhRestoredContent` is enabled
+- Room 25 is patched on load when `kEnhRestoredContent` is enabled
   (`resource.cpp:1849-1850`, MI1 cannibal script). This is irrelevant to
   object headers.
-- **Avoid perturbing a run.** Do the all-rooms dump only in a dedicated
+- To avoid perturbing a run, do the all-rooms dump only in a dedicated
   `objdump` mode. It runs in `go()` **before `runBootscript()`**
   (`scumm.cpp:2751`), writes JSON, and calls `quitGame()`, so no gameplay
   ever shares the process.
-- **Alternative with zero engine risk:** parse `MONKEY1.000` / `MONKEY1.001`
-  offline (XOR 0x69 v5 encoding; LECF → LOFF / LFLF → ROOM → OBCD /
-  CDHD / OBNA / VERB) in Python with the same layout. The in-engine dumper
-  is the reference that the offline parser is validated against.
+- An alternative with zero engine risk is to parse `MONKEY1.000` /
+  `MONKEY1.001` offline (XOR 0x69 v5 encoding; LECF → LOFF / LFLF → ROOM →
+  OBCD / CDHD / OBNA / VERB) in Python with the same layout. The in-engine
+  dumper is the reference that the offline parser is validated against.
 
 ---
 
@@ -865,8 +863,8 @@ Pitfalls and side effects:
   - 160 B inventory.
 
   That is under 10 KB of `memcmp` per frame, which is negligible.
-- **Exclude from the diff**; these are engine-written every frame or
-  wall-clock/mouse-derived:
+- Exclude these from the diff. The engine writes them every frame, or they
+  derive from the wall clock or the mouse:
   - 2 (camera), 3 (`HAVE_MSG` copy);
   - 11, 12, 13, 46, 47 (timers), 14 (music timer);
   - 20, 21, 44, 45 (mouse), 23 (`LAST_SOUND`).
@@ -901,7 +899,7 @@ Pitfalls and side effects:
       before the per-frame rewrite at `scumm.cpp:3381`.
 
     Otherwise var 39 must be treated as a hard difference, not excluded.
-- **Known MI1 values:** the source contains none. The only boot-param
+- The source contains no MI1 boot-param values. The only boot-param
   special cases are MI2 Mac/Indy4 `-7873` (`scumm.cpp:1741-1751`), Loom
   FM-Towns, SAMNMAX, and SegaCD passcodes. The community list is at
   <https://wiki.scummvm.org/index.php/Boot_Params>. It was not fetched,
@@ -940,8 +938,9 @@ Pitfalls and side effects:
   - Wall-clock autosave: set `autosave_period=0`. Autosave is triggered from
     the event loop (`backends/events/default/default-events.cpp:87`,
     `engine.cpp:622-633`).
-- **Recipe:** `random_seed=<N>` in config, plus the pins above, plus
-  tick-locked audio. Record the seed and all pinned keys in the run header.
+- To put it together, set `random_seed=<N>` in config, apply the pins above,
+  and use tick-locked audio. Record the seed and all pinned keys in the run
+  header.
 
 ---
 
@@ -971,8 +970,8 @@ Pitfalls and side effects:
 
 ## 14. Mac data loading
 
-**MI1 Mac needs the "Monkey Island" application resource fork.** It is
-effectively mandatory:
+**MI1 Mac needs the "Monkey Island" application resource fork.** In
+practice the game cannot run without it:
 
 - `init()` searches for `"Monkey Island"` (then `"Monkey_Island"`) via
   `MacResManager::exists` (`scumm.cpp:1287`, `:1321`, `:1330`). If it is
@@ -1006,8 +1005,8 @@ effectively mandatory:
   6. backend alt stream;
   7. on macOS only, `..namedfork/rsrc`.
 
-**Verdict: our `game/classic/Monkey Island.rsrc` will be found as-is.** Do not
-convert it to MacBinary.
+Our `game/classic/Monkey Island.rsrc` will be found as-is. Do not convert it
+to MacBinary.
 
 - `exists("Monkey Island")` is true via `.rsrc`.
 - `open` loads it with `loadFromRawFork` → `load()`, whose sanity check is at
@@ -1081,9 +1080,9 @@ constructor:
   - parse it with `Common::JSON::parse` (`common/formats/json.h:151-161`,
     always built).
 
-**Least invasive:** the harness generates `run.ini` with a `[fastmi]` game
-domain containing both the engine pins and `speedrun_*` keys, and launches
-`scummvm -c run.ini --disable-sdl-audio fastmi`. The bridge reads
+The least invasive option is for the harness to generate `run.ini` with a
+`[fastmi]` game domain containing both the engine pins and `speedrun_*` keys,
+then launch `scummvm -c run.ini --disable-sdl-audio fastmi`. The bridge reads
 `ConfMan.get("speedrun_mode")` etc. Env vars are only a fallback.
 
 ### Human input in the visible demo
@@ -1184,18 +1183,18 @@ In total that is 1 new `.cpp`/`.h` pair, 2 lines in `module.mk`, 3 lines in
   `kEnhGameBreakingBugFixes|kEnhGrp1` = 1|2|4 = **7**
   (`engines/engine.cpp:201`, `engines/enhancements.h:120-170`). Affected
   behaviour:
-  - Herman note give→pickup rewrite: Minor, **on**
+  - Herman note give→pickup rewrite: Minor, on
     (`script.cpp:1275-1295`);
   - `isScriptRunning(164)` override in room 25 script 204: GameBreaking,
-    **on** (`script_v5.cpp:1467`);
+    on (`script_v5.cpp:1467`);
   - `setObjectName` in script 68 waits for inventory cutscenes: GameBreaking,
-    **on** (`script_v5.cpp:2709`);
-  - clock tower var 248 increment changed: RestoredContent, **off**
+    on (`script_v5.cpp:2709`);
+  - clock tower var 248 increment changed: RestoredContent, off
     (`script_v5.cpp:772`);
-  - storekeeper extra `WaitForMessage`: RestoredContent, **off**
+  - storekeeper extra `WaitForMessage`: RestoredContent, off
     (`script_v5.cpp:3848`);
-  - Jolly Roger actor removal: VisualChanges, **off** (`script_v5.cpp:3891`);
-  - cannibal room 25 script patch: RestoredContent, **off**
+  - Jolly Roger actor removal: VisualChanges, off (`script_v5.cpp:3891`);
+  - cannibal room 25 script patch: RestoredContent, off
     (`resource.cpp:1849-1850`).
 
   **Pin `enhancements` explicitly** in the game domain (7 = stock default)
@@ -1213,9 +1212,9 @@ In total that is 1 new `.cpp`/`.h` pair, 2 lines in `module.mk`, 3 lines in
     not change ticks;
   - it changes the quit flow (section 15).
 
-  Recommend `original_gui=false` for both headless and demo. It makes the
-  screen 320×200, which is cheaper, and has no Mac menus. Keep it
-  **identical** between the two either way.
+  The recommended setting is `original_gui=false` for both headless and
+  demo. It makes the screen 320×200, which is cheaper, and has no Mac menus.
+  Keep it **identical** between the two either way.
 - **Room 25 cannibals** script workaround `printPatchedMI1CannibalString`
   (`script_v5.cpp:3704-3705`) and other text-color workarounds are cosmetic.
 - **Copy protection script 155** is skipped (section 13).
@@ -1368,7 +1367,7 @@ still pass rule 4's identical-dump check.
 
 ### Config / options (per-run generated `run.ini`, game domain `[fastmi]`)
 
-**Unverified template.** Generate the base domain once with
+This template is unverified. Generate the base domain once with
 `scummvm -c scratch.ini --add --path=…/game/classic` after the build
 finishes. Then copy the detected keys (`engineid`, `gameid`, `extra`,
 `platform`, `language`, `guioptions`) and append the pins below.
@@ -1431,7 +1430,7 @@ Env fallbacks (read only if the ConfMan key is absent, in a file with
   example the Herman note rewrite and the script-204 and script-68
   workarounds.
 - **Audio.** Tick-locked null-mixer pumping keeps real sound-wait timing, but
-  makes the visible demo **silent**. Muting instead makes sound waits take
+  makes the visible demo silent. Muting instead makes sound waits take
   0 ticks.
 - **`subtitles`**: var 60 is answered from config.
 

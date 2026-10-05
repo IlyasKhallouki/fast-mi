@@ -4,20 +4,20 @@ Automated glitchless speedrunner for *The Secret of Monkey Island* (SCUMM v5).
 
 It works in three stages:
 
-1. **Model.** A hand-written PDDL model of the game. Every action cites the decompiled
-   script it came from.
-2. **Plan for time.** Every action is measured in the real engine on many seeds. Fast
-   Downward (`astar(lmcut())`) plans on those measured costs, keyed by where Guybrush is
-   standing. The candidate routes are then raced on seeds 1–30, and the winner is
-   reported on held-out seeds 31–60.
-3. **Replay.** A patched ScummVM replays the route. It pushes verb/object sentences into
-   the engine's own sentence queue, clicks verb and inventory slots, picks visible
-   dialogue lines, and presses `.` and Esc to skip text and cutscenes, exactly as a player
-   could. Guybrush walks and acts as if a player had clicked.
+1. A hand-written PDDL model describes the game. Every action cites the decompiled script
+   it came from.
+2. Every action is measured in the real engine on many seeds, and Fast Downward
+   (`astar(lmcut())`) plans for time on those measured costs, keyed by where Guybrush is
+   standing. The candidate routes are then raced on seeds 1 to 30, and the winner is
+   reported on held-out seeds 31 to 60.
+3. A patched ScummVM replays the route. It pushes verb/object sentences into the engine's
+   own sentence queue, clicks verb and inventory slots, picks visible dialogue lines, and
+   presses `.` and Esc to skip text and cutscenes. Guybrush walks and acts exactly as if a
+   player had clicked.
 
-The v1 segment is **Part I**. It runs from the moment the player gains control on the
-Mêlée dock until **the treasure trial and the idol trial** are both complete. Completion
-is detected from bit variables 85 and 86.
+The v1 segment is Part I. It runs from the moment the player gains control on the Mêlée
+dock until the treasure trial and the idol trial are both complete. Completion is detected
+from bit variables 85 and 86.
 
 ```
 $ uv run speedrun run part1
@@ -25,31 +25,32 @@ $ uv run speedrun run part1
 TOTAL: 22388 ticks (6:13.13 at 60 Hz)
 ```
 
-The time-optimal route has 67 actions. It averages **22,416 ticks (6:13.6)** over 30
-held-out seeds, with a stdev of 61. The visible demo reproduces the headless run tick for
-tick. `docs/optimization.md` describes the method and `docs/comparison.md` compares the
-route with the human route.
+The time-optimal route has 67 actions and averages 22,416 ticks (6:13.6) over 30 held-out
+seeds, with a stdev of 61. The visible demo reproduces the headless run tick for tick.
+`docs/optimization.md` describes the method, and `docs/comparison.md` compares the route
+with the human route.
 
 ## Where this is going
 
 The long-term goal is a system that plans and replays glitchless speedruns for all, or
-most, of the games ScummVM supports. Monkey Island Part I is the first target, and it was
-chosen to prove the pipeline end to end.
+most, of the games ScummVM supports. Monkey Island Part I is the first target, chosen to
+prove the pipeline end to end.
 
 Some parts are already game-agnostic:
 
-- The engine bridge works at the level of the SCUMM engine, not the game. It pushes
-  sentences into the engine's sentence queue, clicks verb slots through the game's input
-  script, answers dialogue menus (which are ordinary verbs), detects when the game accepts
-  input, keeps a tick clock, advances audio in ticks, and presses `.` and Esc through the
-  engine's own key handling.
+- The engine bridge works at the level of the SCUMM engine rather than any one game. It
+  pushes sentences into the engine's sentence queue, clicks verb slots through the game's
+  input script, answers dialogue menus (which are ordinary verbs), detects when the game
+  accepts input, keeps a tick clock, advances audio in ticks, and presses `.` and Esc
+  through the engine's own key handling.
 - The Python pipeline (extract data, dump objects, plan, compile, measure, optimize) only
   needs a segment definition (`segment.toml`), step templates (`steps.toml`) and a PDDL
   model.
 - Phase 7 showed that six blind extractor agents, reading only decompiled scripts, can
-  produce a cited model over engine-state atoms. Once three defects were fixed, it reached
-  the hand-written model's optimum (`docs/extraction-diff.md`). That is the route to new
-  games without hand-writing a model for each one.
+  produce a cited model over engine-state atoms. After three defects were fixed, the
+  extracted model reached the hand-written model's optimum (`docs/extraction-diff.md`).
+  Extracting the model from decompiled scripts is the route to new games without
+  hand-writing a model for each one.
 
 Other parts are still specific to Monkey Island: the dialogue verb range (120 to 128), the
 inventory slot layout, the island map's hover-label idle rule, the Mac disk extraction, and
@@ -59,7 +60,7 @@ games.
 ## Quick start
 
 Requirements: Linux, a C++ toolchain, SDL2, CMake, git and
-[uv](https://docs.astral.sh/uv/). Python 3.12 is pinned and installed by uv.
+[uv](https://docs.astral.sh/uv/). Python 3.12 is pinned, and uv installs it.
 
 ```sh
 git submodule update --init --depth 1   # ScummVM v2026.3.0, scummvm-tools v2.9.0, Fast Downward 26.6.0
@@ -80,13 +81,14 @@ uv run speedrun demo part1              # watch Guybrush play the route hands-fr
 | `speedrun plan part1` | Runs Fast Downward on `pddl/part1/` and prints cost, actions and transitions. |
 | `speedrun compile [part1]` | Turns the plan into the player's JSONL steps, using the object dump for ids. |
 | `speedrun run part1` | Replays headless (a few seconds) and prints the per-step table and total ticks. |
-| `speedrun demo part1` | Replays in a visible window. It fast-forwards the boot (logo, credits, opening; about 2.6 minutes at real speed) to the dock, then plays the segment at real speed. `--no-fast-boot` plays the boot at real speed too. The ticks are identical to `run`. |
+| `speedrun demo part1` | Replays in a visible window. It fast-forwards the boot (logo, credits, opening; about 2.6 minutes at real speed) to the dock, then plays the segment at real speed. `--no-fast-boot` plays the boot at real speed too. Tick counts are identical to `run`. |
 | `speedrun measure part1` | Replays the plan headless on many seeds in parallel (`--seeds 1-30`) and reports per-action and total ticks. |
 | `speedrun optimize part1` | Searches for the plan with the lowest mean ticks over many seeds and installs it as the time plan. |
 
 `run` and `demo` re-plan and re-compile automatically when the model is newer than the
-compiled plan. They replay the time plan from `speedrun optimize` when it is fresh, and
-the action-count plan otherwise; `--objective actions|time` chooses explicitly. Every run writes `trace.jsonl`, `state-start.json` and `state-end.json` to
+compiled plan. They replay the time plan from `speedrun optimize` when it is fresh, and the
+action-count plan otherwise; `--objective actions|time` picks one explicitly. Every run
+writes `trace.jsonl`, `state-start.json` and `state-end.json` to
 `out/runs/<timestamp>-<mode>/`.
 
 ## How it fits together
@@ -101,20 +103,23 @@ out/plans/part1.sas_plan ──compile (steps.toml + objects.json)──► out/
 patched ScummVM (engines/scumm/speedrun/) ──► out/runs/<ts>/trace.jsonl ──► tick table
 ```
 
-- **Engine bridge.** `patches/0001-scumm-add-speedrun-bridge.patch` adds new files under
-  `engines/scumm/speedrun/` and changes about a dozen lines in `module.mk`, `scumm.h`,
-  `scumm.cpp` and `input.cpp`. It is configured through `SPEEDRUN_*` environment variables, listed in
-  `docs/plan.md` C1, and does nothing unless `SPEEDRUN_OUT` is set.
-- **Timing** is in engine ticks (1/60 s jiffies, summed over engine frames), never wall-clock
-  time. Audio is advanced in ticks, so headless and windowed runs give the same count. The
-  cost is that the demo is silent.
-- **Rules** for the glitchless category, the pinned engine settings and the
-  click-equivalence rules are in `rules/glitchless.md`.
+The engine bridge comes from `patches/0001-scumm-add-speedrun-bridge.patch`, which adds new
+files under `engines/scumm/speedrun/` and changes about a dozen lines in `module.mk`,
+`scumm.h`, `scumm.cpp` and `input.cpp`. `SPEEDRUN_*` environment variables configure the
+bridge (they are listed in `docs/plan.md` C1), and it does nothing unless `SPEEDRUN_OUT` is
+set.
+
+Timing is in engine ticks (1/60 s jiffies, summed over engine frames), never wall-clock
+time. The bridge also advances audio in ticks, so headless and windowed runs give the same
+count, but this leaves the demo silent.
+
+`rules/glitchless.md` has the rules for the glitchless category, the pinned engine settings
+and the click-equivalence rules.
 
 ## Game data
 
-You must supply your own copy of the game in `game/`. That folder is gitignored, and so are
-every derived file, decompiled script, dump and trace. `speedrun extract` detects:
+You must supply your own copy of the game in `game/`. That folder is gitignored, as are all
+derived files, decompiled scripts, dumps and traces. `speedrun extract` detects:
 
 - a classic Mac HFS disk image (`*.img`) holding `MONKEY1.000`/`MONKEY1.001` and the
   `Monkey Island` application. This project was developed against that layout: ScummVM
@@ -131,13 +136,13 @@ uv run pytest            # unit + integration (real patched ScummVM, real game d
 uv run pytest -m "not slow"
 ```
 
-Integration tests skip **loudly** if the game data or a build is missing. Skipped tests are
-listed in a banner at the end, because a skip is information, not a pass.
+If the game data or a build is missing, the integration tests skip loudly: a banner at the
+end lists every skipped test, so that a skip is not mistaken for a pass.
 
 ## Documents
 
 - `docs/plan.md`: the implementation plan and all interface contracts.
 - `docs/part1/`: cited script analysis and `model.md`, which describes the PDDL model.
 - `docs/human-route.md`: the current human speedrun route, with sources.
-- `docs/comparison.md`: our route compared with the human route.
+- `docs/comparison.md`: this project's route compared with the human route.
 - `docs/next.md`: follow-ups that are out of scope for v1.

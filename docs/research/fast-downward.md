@@ -24,7 +24,7 @@ PYTHONDONTWRITEBYTECODE=1 uv run --no-project --python 3.12 python \
 # exit 0 = optimal plan written to /path/to/out.plan
 ```
 
-Two gotchas you must know:
+Two gotchas:
 
 1. **The problem must contain `(:metric minimize (total-cost))`.** Without it the translator silently sets every action cost to 1.
 2. **No conditional effects, and nothing that compiles to axioms.** That means no `forall` conditions, no disjunctive or existential *goals*, and no `:derived` predicates. lmcut rejects all of these with exit code 34. See the feature table below.
@@ -55,9 +55,7 @@ These are exactly the flags `build.py` uses for its default `release` config: `b
 | compile and link | about 1123 s |
 | **total** | **about 18 min 51 s** |
 
-- The time is wall clock with `-j 4`, while a concurrent 8-core ScummVM build was running.
-- Load average was 33 at the start and about 18 at the end, so expect it to be much faster on an idle machine.
-- Full log: `build/downward/build-release.log`.
+These are wall-clock times with `-j 4`, measured while a concurrent 8-core ScummVM build was running. Load average was 33 at the start and about 18 at the end, so the build should be much faster on an idle machine. The full log is `build/downward/build-release.log`.
 
 **Output:**
 
@@ -70,10 +68,11 @@ These are exactly the flags `build.py` uses for its default `release` config: `b
 
 ### Why out-of-tree instead of `./build.py`
 
-- **`build.py` writes into the submodule.** It hard-codes `<submodule>/builds/<config>/`. The submodule's `.gitignore` *does* ignore `/builds/`, as well as `__pycache__/`, `/output.sas`, `/sas_plan` and `/sas_plan.*`. So `./build.py` would **not** dirty the submodule, but it would put 180+ MB inside `third_party/`.
-- **The out-of-tree dir is already ignored.** `build/downward/` sits under the superproject's own `.gitignore` entry `build/`.
-- **Job count with `build.py`:** it always runs `cmake --build … -j <nproc>`, then forwards extra args after `--`. So `./build.py -j4` becomes `cmake --build builds/release -j 8 -- -j4`. That *should* work: with a toy Makefile, GNU make 4.4.1 honored the last `-j` (`make -j8 -j4` → `MAKEFLAGS= -j4`). `build.py` itself was not run. Calling cmake directly avoids the ambiguity.
-- **Submodule state:** after building and all test runs, `GIT_OPTIONAL_LOCKS=0 git -C third_party/downward status --porcelain --ignored` is empty.
+`build.py` writes into the submodule: it hard-codes `<submodule>/builds/<config>/`. The submodule's `.gitignore` *does* ignore `/builds/`, as well as `__pycache__/`, `/output.sas`, `/sas_plan` and `/sas_plan.*`. So `./build.py` would not dirty the submodule, but it would put 180+ MB inside `third_party/`. The out-of-tree dir is already ignored, because `build/downward/` sits under the superproject's own `.gitignore` entry `build/`.
+
+`build.py` also always runs `cmake --build … -j <nproc>` and forwards extra args after `--`, so `./build.py -j4` becomes `cmake --build builds/release -j 8 -- -j4`. That *should* work: with a toy Makefile, GNU make 4.4.1 honored the last `-j` (`make -j8 -j4` → `MAKEFLAGS= -j4`). `build.py` itself was not run. Calling cmake directly avoids the ambiguity.
+
+After building and all test runs, `GIT_OPTIONAL_LOCKS=0 git -C third_party/downward status --porcelain --ignored` is empty.
 
 ### The `--build` flag (help text is misleading)
 
@@ -92,7 +91,7 @@ The driver's `--help` says `--build` may be "the path to a directory holding the
 - `lmcut(goal_zone_detection=true, border_detection=true, cache_estimates=true, …)`
 - `astar(eval, lazy_evaluator=<none>, pruning=null(), cost_type=normal, bound=infinity, max_time=infinity, …)`
 
-`cost_type=normal` means real action costs are used. lmcut is admissible but **not consistent**, and `astar` hard-wires node reopening: `src/search/search_algorithms/plugin_astar.cc:52` has `options_copy.set("reopen_closed", true);`, and the run log says "Conducting best first search with reopening closed nodes". So the plan is optimal.
+`cost_type=normal` means real action costs are used. lmcut is admissible but not consistent, and `astar` hard-wires node reopening: `src/search/search_algorithms/plugin_astar.cc:52` has `options_copy.set("reopen_closed", true);`, and the run log says "Conducting best first search with reopening closed nodes". So the plan is optimal.
 
 **Alias:** `--alias seq-opt-lmcut` is defined in `driver/aliases.py` as exactly `["--search", "astar(lmcut())"]`. It was tested and gives an identical result. `--alias` cannot be combined with `--search …`.
 
@@ -116,7 +115,7 @@ fast-downward.py [driver opts] [DOMAIN] PROBLEM --search "astar(lmcut())"
 
 **Keeping the submodule clean:** set `PYTHONDONTWRITEBYTECODE=1`. Otherwise importing `driver/` creates `third_party/downward/driver/__pycache__/`. That directory is gitignored, but it's still a write into the submodule.
 
-**Translator errors go to stdout.** For example "Undefined object / Got: b" or "Invalid requirement". Translator *crashes* show up on stderr as a `b'Traceback …'` blob. Capture both streams.
+**Translator errors:** these go to stdout, for example "Undefined object / Got: b" or "Invalid requirement". Translator *crashes* show up on stderr as a `b'Traceback …'` blob. Capture both streams.
 
 ## 3. Plan file format
 
@@ -129,7 +128,7 @@ This is the actual output for the test task in section 9:
 ; cost = 3 (general cost)
 ```
 
-- **Step lines:** one action per line, `(<action> <arg> …)`, with **all names lowercased**. `Walk-Fast` / `Alpha` come out as `walk-fast` / `alpha`; this was tested.
+- **Step lines:** one action per line, `(<action> <arg> …)`, with all names lowercased. `Walk-Fast` / `Alpha` come out as `walk-fast` / `alpha`; this was tested.
 - **Trailer:** the last line always matches `^; cost = (\d+) \((unit cost|general cost)\)$`. That is the same regex the driver's `plan_manager.py` uses.
   - `unit cost` means *every* operator in the task has cost 1. It does not mean "no metric".
   - Without `:metric`, all costs become 1, so you get `unit cost`.
@@ -144,7 +143,7 @@ These come from `driver/returncodes.py` and `docs/exit-codes.md`, which agree. *
 | Code | Name | Meaning | Tested with |
 | --- | --- | --- | --- |
 | 0 | SUCCESS | plan found (optimal for `astar(lmcut())`) | yes, baseline |
-| 1–3 | SEARCH_PLAN_FOUND_AND_… | portfolios only | n/a |
+| 1-3 | SEARCH_PLAN_FOUND_AND_… | portfolios only | n/a |
 | 10 | TRANSLATE_UNSOLVABLE | "currently not used" | n/a |
 | 11 | SEARCH_UNSOLVABLE | proved unsolvable | **yes**, `variants/unsolvable` |
 | 12 | SEARCH_UNSOLVED_INCOMPLETE | incomplete search gave up (e.g. `astar(..., max_time=…)`) | no |
@@ -163,17 +162,17 @@ These come from `driver/returncodes.py` and `docs/exit-codes.md`, which agree. *
 | 36 | DRIVER_INPUT_ERROR | bad driver args, missing files or build dir | **yes**, `--build …/bin` |
 | 37 | DRIVER_UNSUPPORTED | e.g. memory limits on macOS | n/a on Linux |
 
-**Signals:** if the search is killed by any other signal N (e.g. SIGTERM, SIGKILL), the driver logs `search exit code: -N` and calls `sys.exit(-N)`. The caller then sees **256−N**: SIGTERM gives **241** (tested, also through `uv run`), and SIGKILL would give 247. **247 can also mean a time limit:** the hard `RLIMIT_CPU` is T+1 s, so if the SIGXCPU shutdown doesn't finish in time, the kernel SIGKILLs the process. If the *driver* process itself is killed, e.g. by the OOM killer or your own kill, `Popen.returncode` is negative (`-N`).
+**Signals:** if the search is killed by any other signal N (e.g. SIGTERM, SIGKILL), the driver logs `search exit code: -N` and calls `sys.exit(-N)`. The caller then sees 256−N: SIGTERM gives 241 (tested, also through `uv run`), and SIGKILL would give 247. 247 can also mean a time limit. The hard `RLIMIT_CPU` is T+1 s, so if the SIGXCPU shutdown doesn't finish in time, the kernel SIGKILLs the process. If the *driver* process itself is killed, e.g. by the OOM killer or your own kill, `Popen.returncode` is negative (`-N`).
 
 **For an orchestrator:**
 
 - 0: success.
 - 11: definitively no plan.
-- 20–23: resource exhaustion.
-- 30–37: bug or bad input.
+- 20 to 23: resource exhaustion.
+- 30 to 37: bug or bad input.
 - Anything else: killed by a signal.
 
-`uv run` passes all of these through unchanged; tested with 0, 11, 20–23, 30, 31, 34, 36 and 241.
+`uv run` passes all of these through unchanged; tested with 0, 11, 20 to 23, 30, 31, 34, 36 and 241.
 
 ## 5. Time and memory limits
 
@@ -189,14 +188,12 @@ Driver options, placed before the input files, from `driver/arguments.py` and `d
 - **Units:** time is in seconds by default, with suffixes `s`, `m`, `h` (e.g. `90s`, `5m`). Memory is in MiB by default, with suffixes `K`, `M`, `G` (e.g. `2G`).
 - **Default:** none. All limits are inactive unless set; only external `ulimit`s apply.
 - **Effective limit per component:** the minimum of the component limit and the overall limit.
-  - The overall **time** limit is a budget shared across components. The search gets whatever CPU time the translator and the driver left over.
-  - In the tested example, `--overall-time-limit 5s` → `translator time limit: 4s` → the translator for satellite p25 (≈5.2 s CPU) died with **21**. Put generous margins on overall limits when translation is non-trivial.
-- **Time limits are CPU seconds, not wall clock.** The driver uses `RLIMIT_CPU` (soft = T, hard = T+1). A soft-limit SIGXCPU is turned into exit 23 (search) or 21 (translator).
-- **Memory limits are `RLIMIT_AS` (virtual address space), not resident memory.**
-- **These limits don't bound wall-clock time.** A process blocked on I/O or starved by load can exceed T in wall time, so the orchestrator should add its own wall-clock timeout (see section 9).
-- **`astar(..., max_time=…)` is not a substitute.** Its help says it is checked only between expansions and "should not be used for time-limiting experiments".
-- **Footprint of our test task:** the tiny task peaks at about 12 MB in search and takes about 0.5 s end to end. The translator's Python startup dominates; it's ~0.44 s without the `uv` wrapper.
-- **Suggested starting point:** `--overall-time-limit 60s --overall-memory-limit 2G`.
+  - The overall time limit is a budget shared across components. The search gets whatever CPU time the translator and the driver left over.
+  - In the tested example, `--overall-time-limit 5s` resulted in `translator time limit: 4s`, and the translator for satellite p25 (≈5.2 s CPU) died with exit code 21. Put generous margins on overall limits when translation is non-trivial.
+
+Time limits are CPU seconds, not wall clock. The driver uses `RLIMIT_CPU` (soft = T, hard = T+1), and a soft-limit SIGXCPU is turned into exit 23 (search) or 21 (translator). Memory limits are `RLIMIT_AS` (virtual address space), not resident memory. These limits don't bound wall-clock time: a process blocked on I/O or starved by load can exceed T in wall time, so the orchestrator should add its own wall-clock timeout (see section 9). `astar(..., max_time=…)` is not a substitute, because its help says it is checked only between expansions and "should not be used for time-limiting experiments".
+
+The tiny test task peaks at about 12 MB in search and takes about 0.5 s end to end. The translator's Python startup dominates; it's ~0.44 s without the `uv` wrapper. A suggested starting point is `--overall-time-limit 60s --overall-memory-limit 2G`.
 
 ## 6. PDDL feature support (with `astar(lmcut())`)
 
@@ -212,10 +209,7 @@ Driver options, placed before the input files, from `driver/arguments.py` and `d
 - axioms: **not supported**
 - admissible yes, consistent no, safe yes
 
-**What compiles to axioms:** some PDDL features compile into axioms, so lmcut rejects them too. I tested each feature on a fluent predicate so the translator couldn't simplify it away; the probes are in the scratchpad (section 10). Columns:
-
-- **SAS ops / cond-eff ops / axioms:** what the translator produced.
-- **lmcut result:** the end-to-end exit code.
+**What compiles to axioms:** some PDDL features compile into axioms, so lmcut rejects them too. Each feature was tested on a fluent predicate so the translator couldn't simplify it away; the probes are in the scratchpad (section 10). The "Translator result" column shows what the translator produced (SAS ops, cond-eff ops, axioms), and "lmcut result" is the end-to-end exit code.
 
 | Feature (`:requirements` label) | Where used | Translator result | lmcut result |
 | --- | --- | --- | --- |
@@ -243,7 +237,7 @@ Driver options, placed before the input files, from `driver/arguments.py` and `d
 
 **Other observations:**
 
-- **Requirement checking:** `:requirements` is checked only against a whitelist of labels: `:strips :adl :typing :negation :equality :negative-preconditions :disjunctive-preconditions :existential-preconditions :universal-preconditions :quantified-preconditions :conditional-effects :derived-predicates :action-costs`. Features are **not** gated by what you declare: a domain declaring only `:strips` that uses typing, negation and costs ran fine. An unknown label such as `:numeric-fluents` or `:fluents` is a hard error.
+- **Requirement checking:** `:requirements` is checked only against a whitelist of labels: `:strips :adl :typing :negation :equality :negative-preconditions :disjunctive-preconditions :existential-preconditions :universal-preconditions :quantified-preconditions :conditional-effects :derived-predicates :action-costs`. Features are not gated by what you declare: a domain declaring only `:strips` that uses typing, negation and costs ran fine. An unknown label such as `:numeric-fluents` or `:fluents` is a hard error.
 - **Domain constants:** objects referenced inside the domain must be declared in `(:constants …)`. Otherwise you get exit 31, "Undefined object".
 - **Action-cost restrictions** (`docs/pddl-support.md`):
   - Costs must be non-negative integers.
@@ -260,7 +254,7 @@ To keep `astar(lmcut())` running and optimal:
 - `:strips`, `:typing`
 - `:negative-preconditions`: negated literals in preconditions *and* in goals
 - `:equality`
-- `:action-costs`, with exactly one `(increase (total-cost) N)` per action, where `N` is a non-negative integer constant or a **static** function set in `:init`. Always put `(:metric minimize (total-cost))` in the problem.
+- `:action-costs`, with exactly one `(increase (total-cost) N)` per action, where `N` is a non-negative integer constant or a static function set in `:init`. Always put `(:metric minimize (total-cost))` in the problem.
 - Domain objects declared as `(:constants …)`.
 
 **OK in preconditions only:**
@@ -277,7 +271,7 @@ To keep `astar(lmcut())` running and optimal:
 
 - `when` (conditional effects)
 - `forall` in any *condition* (preconditions or goals)
-- `or` / `exists` in the **goal**
+- `or` / `exists` in the goal
 - `:derived` predicates
 - any numeric fluent other than `total-cost`
 - `(either …)` types
@@ -291,14 +285,13 @@ Model what you'd write as a conditional effect as separate actions with mutually
 
 ## 8. Python version
 
-- **Version requirements:**
-  - The driver has no version check.
-  - The translator's `pyproject.toml` says `requires-python = ">=3.9"`.
-  - The README test matrix lists 3.9, 3.10 and 3.14.
-- **Dependencies:** the driver and translator import only the standard library (`pytest` appears only in the driver's tests).
-- **Which interpreter runs the translator:** the driver launches it as `sys.executable -m fast_downward.translate` with `PYTHONPATH=<build>/bin`. So the translator runs under **whatever interpreter runs the driver**; it's not a separate install.
-- **Python 3.12 works.** Tested end to end with `uv run --no-project --python 3.12 python fast-downward.py …`, using cpython 3.12.13 from uv's managed pythons. The log line confirms it: `translator command line string: …/cpython-3.12-linux-x86_64-gnu/bin/python3.12 -m fast_downward.translate …`.
-- **Inside a uv project:** plain `uv run python …` uses the project venv interpreter, which is fine as long as it is ≥ 3.9. From the orchestrator, call it with `sys.executable` (as below) to skip `uv` startup per plan.
+The driver has no version check. The translator's `pyproject.toml` says `requires-python = ">=3.9"`, and the README test matrix lists 3.9, 3.10 and 3.14. The driver and translator import only the standard library (`pytest` appears only in the driver's tests).
+
+The driver launches the translator as `sys.executable -m fast_downward.translate` with `PYTHONPATH=<build>/bin`, so the translator runs under whatever interpreter runs the driver; it's not a separate install.
+
+Python 3.12 works. It was tested end to end with `uv run --no-project --python 3.12 python fast-downward.py …`, using cpython 3.12.13 from uv's managed pythons. The log line confirms it: `translator command line string: …/cpython-3.12-linux-x86_64-gnu/bin/python3.12 -m fast_downward.translate …`.
+
+Inside a uv project, plain `uv run python …` uses the project venv interpreter, which is fine as long as it is ≥ 3.9. From the orchestrator, call the driver with `sys.executable` (as the wrapper in section 9 does) to skip `uv` startup per plan.
 
 ## 9. Copy-pasteable example
 
@@ -352,10 +345,7 @@ echo "exit=$?"; cat /tmp/travel.plan
 
 The same run with `--alias seq-opt-lmcut` in place of `--search "astar(lmcut())"` gives the identical plan. Dropping the `:metric` line gives `(drive a d)` / `; cost = 1 (unit cost)`.
 
-**Python wrapper:**
-
-- It has been tested to return `plan`, `unsolvable` (11), `unsupported-feature` (34), `search-timeout` (23) and `wall-timeout`, with no orphans left behind.
-- **Why `start_new_session` + `killpg` matters (tested):** if you only kill the top-level process, e.g. via `subprocess.run(timeout=…)`, `bin/downward` keeps running as an **orphan**. Killing the process group removes everything.
+**Python wrapper:** it has been tested to return `plan`, `unsolvable` (11), `unsupported-feature` (34), `search-timeout` (23) and `wall-timeout`, with no orphans left behind. It uses `start_new_session` + `killpg` because killing only the top-level process, e.g. via `subprocess.run(timeout=…)`, leaves `bin/downward` running as an orphan (tested). Killing the process group removes everything.
 
 ```python
 from __future__ import annotations

@@ -8,7 +8,7 @@ This note describes the hand-written model in `pddl/part1/`:
 
 `tests/unit/test_pddl_model.py` checks all four.
 
-Citations use `data/scripts/<file> [XXXX]` (descumm offsets). The `; src:` lines in the PDDL are the primary citations. This note repeats only the key ones. Facts that come from the analysis notes are linked to the note.
+Citations use `data/scripts/<file> [XXXX]` (descumm offsets). The `; src:` lines in the PDDL are the primary citations. This note repeats only the main ones. Facts that come from the analysis notes are linked to the note.
 
 Sources besides the analysis notes:
 
@@ -58,7 +58,7 @@ There are 39 nodes, all domain constants: 18 outside the forest and 21 forest no
 | `treasure-site` | 64 | |
 | `underwater` | 42 | |
 | `cu-dock` | 83 | Ego is left here after the idol (the Elaine scene). |
-| `f201`–`f220` | 58 | Forest pseudo-rooms; `VAR_ROOM` (var 4) holds 201–220. |
+| `f201` to `f220` | 58 | Forest pseudo-rooms; `VAR_ROOM` (var 4) holds 201 to 220. |
 | `f207a`, `f207b` | 58 | 207 entered from 212 has only path 687 touchable; entered otherwise, only 685 and 688 (`room-058-damnfores/entry.txt [0473]`). |
 
 **Not modelled**, because no treasure or idol route can use them:
@@ -73,7 +73,7 @@ There are 39 nodes, all domain constants: 18 outside the forest and 21 forest no
 **Links.** There are 67 static links: 23 outside the forest and 44 inside it.
 
 - Every link is in rooms.md §5.2 and carries a trailing `; src:` citation to the object script that changes the room.
-- The forest links were generated from the switch tables in `room-058-damnfores/obj-0685/0687/0688-path.txt`. Only paths the entry script draws in that pseudo-room are included (`entry.txt [01D8]`–`[0A2C]`). They match rooms.md §2.9 and treasure.md §4.3 edge for edge.
+- The forest links were generated from the switch tables in `room-058-damnfores/obj-0685/0687/0688-path.txt`. Only paths the entry script draws in that pseudo-room are included (`entry.txt [01D8]` to `[0A2C]`). They match rooms.md §2.9 and treasure.md §4.3 edge for edge.
   - Path 686 has no switch table of its own. It forwards every verb to 685 (`obj-0686-path.txt [0010]`), so the generation missed it. It is drawn only at 218 and 220 (§14.8).
 - Four kinds of exit are left out of the link set and are dedicated actions instead:
   - the gated exits of 215 (map, Bit[401], or the guide; §14.3);
@@ -134,7 +134,7 @@ There are 39 nodes, all domain constants: 18 outside the forest and 21 forest no
 
 ### 4.1 Transitions (`walk*`, 38 schemas)
 
-| action | sentence (verb, object) | guard | key cites |
+| action | sentence (verb, object) | guard | main cites |
 |---|---|---|---|
 | `walk ?a ?b` | (Walk to, exit object) per link | `(link ?a ?b)`, `¬store-door-open` (§6), `¬cook-provoked`, `¬following-storekeeper` (§14.3) | `global/script-002.txt [02DB]`, `[039D]`; per-link cites in `problem.pddl` |
 | `walk-into-bar` | Walk to 428 | `bar-door-open`; sets `cook-timer-fresh` | `room-033-dock/obj-0428-door.txt [0029]`, `[0035]`, `room-028-bar/local-205.txt [0040]` |
@@ -147,7 +147,7 @@ There are 39 nodes, all domain constants: 18 outside the forest and 21 forest no
 | `walk-foyer-to-mansion` | Walk to 633 | `¬(has foyer-idol)`: the theft closes 633 | `room-053-foyer/obj-0633-door.txt [0068]`, `local-211.txt [018C]` |
 | `walk-forest-gate-215-203`, `walk-forest-gate-215-220` | Walk to 685 or 688 at 215 | `(has treasure-map)`; set `forest-gate-open` | `room-058-damnfores/obj-0685-path.txt [004F]`/`[00C6]`, `obj-0688-path.txt [004F]`/`[006B]` |
 | `walk-forest-gate-215-203-open`, `walk-forest-gate-215-220-open` | the same | `forest-gate-open` (Bit[401]) | `obj-0685-path.txt [0064]`, `obj-0688-path.txt [005B]` |
-| `walk-follow-guide-to-*` ×6, `walk-forest-gate-215-203-with-guide` | the plain links' sentences, then 685 at 215 | `following-storekeeper` (§14.3) | `global/script-067.txt [000D]`–`[0128]`, `obj-0685-path.txt [005B]`/`[00C1]` |
+| `walk-follow-guide-to-*` ×6, `walk-forest-gate-215-203-with-guide` | the plain links' sentences, then 685 at 215 | `following-storekeeper` (§14.3) | `global/script-067.txt [000D]` to `[0128]`, `obj-0685-path.txt [005B]`/`[00C1]` |
 | `walk-follow-guide-to-f215-via-686` | Walk to 686 at 218 | `following-storekeeper`; the hop of `walk-follow-guide-to-f215` (§14.8) | `global/script-067.txt [00D6]`/`[02F6]`, `obj-0686-path.txt [0010]`, `obj-0685-path.txt [0168]` |
 | `walk-into-tent-with-pot` | Walk to 621, then three menus | `has pot`, `¬circus-money` | `room-052-circus-gr/obj-0621-circus-tent.txt [000F]`/`[0014]`, `local-207.txt [0213]`/`[08AB]`/`[0B49]` |
 | `walk-out-of-tent-after-helmet-<g>` ×6 | `click` Use + the slot before the pot, then the Bobbin menu | `has pot`, `pot-guarded-by g`, `has g` | `room-051-circus-te/local-200.txt [0107]`/`[008B]`, `global/script-009.txt [0092]`, `local-207.txt [110E]`/`[114D]` |
@@ -189,7 +189,7 @@ There are 39 nodes, all domain constants: 18 outside the forest and 21 forest no
 - Possible guards are the meat, the petal and the four idol-room items. These are every item obtainable without money, and money needs the pot. The planner chooses the guard.
 - `pick-up-pot-first` (no guard item held) exists, but it is a dead end: no slot precedes the pot, so the helmet is impossible.
 
-**Scrolling** cannot interfere. Before the payout at most 7 items are displayed: meat, pot, petal and 4 idol-room items. The 8 slots never scroll, and the pot is at most in slot 6, inside local 200's range of 200–205 for the clicked slot.
+**Scrolling** cannot interfere. Before the payout at most 7 items are displayed: meat, pot, petal and 4 idol-room items. The 8 slots never scroll, and the pot is at most in slot 6, inside local 200's range of 200 to 205 for the clicked slot.
 
 **Kitchen actions:**
 
@@ -204,12 +204,7 @@ There are 39 nodes, all domain constants: 18 outside the forest and 21 forest no
 | `put-meat-in-stew` | Use 566 with 574 | `obj-0566 [0092]`, `local-213.txt [00B8]` |
 | `pick-up-stewed-meat-drugged`, `pick-up-stewed-meat-plain` | Pick up 574 | `obj-0574-pot-o-stew.txt [0042]`, `local-214.txt [0007]`/`[005A]` |
 
-`drug-meat-with-petal` and `open-cake` act on inventory items only, so they work in any room except two:
-
-- **The map.** Every map click becomes Walk to (`room-085-melee/local-201.txt [0035]`).
-- **The tent.** During the helmet wait, Use plus a slot click is itself the helmet trigger.
-
-Their steps omit `room`. Both also require `¬store-door-open`, so they cannot fall between the store door's Open and the walk in (§6).
+`drug-meat-with-petal` and `open-cake` act on inventory items only, so they work in any room except two. On the map every click becomes Walk to (`room-085-melee/local-201.txt [0035]`), and in the tent, during the helmet wait, Use plus a slot click is itself the helmet trigger. Their steps omit `room`. Both also require `¬store-door-open`, so they cannot fall between the store door's Open and the walk in (§6).
 
 ### 4.4 Forest
 
@@ -230,7 +225,7 @@ Their steps omit `room`. Both also require `¬store-door-open`, so they cannot f
 
 The four plain pay variants require `¬sword-master-asked`: once the pirate leaders were asked, topic 122 stays in the menu after the purchases, and their lists would not empty it. Topic 122 ends the dialogue by itself (`local-211.txt [1138]`), so the guide variants need no `browse`.
 
-**Paying through the door.** Walking to 387 with an unpaid shovel always ends in the store menu (`room-030-store/local-204.txt [042B]`). If the storekeeper is away, which happens on 1 in 4 store entries (`entry.txt [002B]`), he walks back in first (`local-204 [0053]`–`[0077]`). So the same steps work in both cases (treasure.md §2.2, money.md B3).
+**Paying through the door.** Walking to 387 with an unpaid shovel always ends in the store menu (`room-030-store/local-204.txt [042B]`). If the storekeeper is away, which happens on 1 in 4 store entries (`entry.txt [002B]`), he walks back in first (`local-204 [0053]` to `[0077]`). So the same steps work in both cases (treasure.md §2.2, money.md B3).
 
 **Why four pay variants.** After each purchase the menu is rebuilt. It ends by itself only when no topic but "browse" is left (`local-211.txt [03EB]`). Leftover `choose` entries would time out, so each variant's list empties the menu exactly. The visible topics depend on two things:
 
@@ -249,9 +244,9 @@ The other topics stay hidden on every modelled route:
 |---|---|---|---|
 | `give-meat-to-poodles` | Give 566 to 467 | | `global/script-002.txt [009A]`, `obj-0467 [00D5]`, `local-201.txt [002F]`/`[0079]`/`[0087]` |
 | `enter-idol-room` | Walk to 632 (open) | | `obj-0632-door.txt [0024]`, `local-210.txt [0002]`/`[01FB]`/`[0267]`/`[02B8]`/`[022F]` |
-| `talk-to-prisoner` | Talk to 405 | (no menu) | `obj-0405-prisoner.txt [001A]`; `local-202.txt [0050]` (405 still has class 6) → `[18DE]`–`[19C0]` halitosis, ends at `[19C4]` |
+| `talk-to-prisoner` | Talk to 405 | (no menu) | `obj-0405-prisoner.txt [001A]`; `local-202.txt [0050]` (405 still has class 6) → `[18DE]` to `[19C0]` halitosis, ends at `[19C4]` |
 | `give-meat-to-prisoner`, `give-repellent-to-prisoner-before-mints` | Give 566 or 640 to 405 | (no menu) | the refusal `local-203.txt [029D]`, then `[0351]` Bit[420]; nothing changes owner (§14.3) |
-| `give-mints-to-prisoner` | Give 395 to 405 | `stiff upper lip` | `local-203.txt [00BF]`/`[0112]`; `local-202.txt [0546]` (choice 127), `[1381]`–`[13A9]` → goto `[19C4]`, the dialogue ends |
+| `give-mints-to-prisoner` | Give 395 to 405 | `stiff upper lip` | `local-203.txt [00BF]`/`[0112]`; `local-202.txt [0546]` (choice 127), `[1381]` to `[13A9]` → goto `[19C4]`, the dialogue ends |
 | `give-repellent-to-prisoner` | Give 640 to 405 | | `local-203.txt [011F]`/`[012A]`/`[01E0]` |
 | `open-cake` | Open 420 | | `obj-0420-cake.txt [0056]`/`[005F]` |
 | `steal-idol` | Walk to 637 | `could have it`, `Uh`, `Um`, `Blfft` | `obj-0637-gaping-hole.txt [0018]`/`[0021]`, `local-211.txt [016C]`/`[0174]`, `local-212.txt [02BE]`, `global/script-119.txt [01BB]` |
@@ -286,12 +281,12 @@ Each substring is matched case-insensitively against the visible lines of one me
 | `Um` | Not `Er`, which also matches "Jeepers". |
 | `Blfft` | Unique. |
 | `Buzz off` | Unique. |
-
-**Skips and menus.** The `Uh`, `Um`, `Blfft` (steal-idol) and `Buzz off` (Fester) menus lie inside level-0 override regions: `global/script-119.txt [0000]` → `[08A1]` and `room-053-foyer/local-217.txt [000F]` → `[034B]`. With cutscene skips on, the default for every v1 run, the Esc lands first and those menus never show (`docs/part1/skips.md` §4.3). Their templates therefore list them as `override_choose`, which the bridge expects only when the cutscene plays: skips off, or a `no_skip` step (`docs/plan.md` C4). The same compiled plan replays with and without skips (`--no-skips`), and both are tested (`tests/integration/test_skip_safety.py`).
 | `Sword Master` | Unique in the store menu: the topic 122 line "I'm looking for the Sword Master of Mêlée Island™." (`local-211.txt [0110]`). |
 | `be a pirate` | The leaders' first menu: "I mean to kill you all!", "I want to be a pirate.", "I want to be a fireman." |
 | `mastering the sword` | Not a substring of "Tell me more about mastering the art of thievery." |
 | `running along` | Unique: "I'll just be running along now." |
+
+**Skips and menus.** The `Uh`, `Um`, `Blfft` (steal-idol) and `Buzz off` (Fester) menus lie inside level-0 override regions: `global/script-119.txt [0000]` → `[08A1]` and `room-053-foyer/local-217.txt [000F]` → `[034B]`. With cutscene skips on, the default for every v1 run, the Esc lands first and those menus never show (`docs/part1/skips.md` §4.3). Their templates therefore list them as `override_choose`, which the bridge expects only when the cutscene plays: skips off, or a `no_skip` step (`docs/plan.md` C4). The same compiled plan replays with and without skips (`--no-skips`), and both are tested (`tests/integration/test_skip_safety.py`).
 
 ## 5. Alternatives
 
@@ -318,7 +313,7 @@ Each substring is matched case-insensitively against the visible lines of one me
 
 | alternative | reason |
 |---|---|
-| Talk to the storekeeper to open his menu (mints alone, or the shovel) | Replay feasibility. When he is away, 394 is untouchable and Talk to cannot be clicked (`room-030-store/entry.txt [0054]`–`[0057]`). That happens at random on 1 in 4 entries, and the plan cannot branch. The door path (§4.5) works either way. Consequence: the mints are always bought together with the shovel, so `otis-breath-known` must come first. |
+| Talk to the storekeeper to open his menu (mints alone, or the shovel) | Replay feasibility. When he is away, 394 is untouchable and Talk to cannot be clicked (`room-030-store/entry.txt [0054]` to `[0057]`). That happens at random on 1 in 4 entries, and the plan cannot branch. The door path (§4.5) works either way. Consequence: the mints are always bought together with the shovel, so `otis-breath-known` must come first. |
 | Ring the bell 399 | Replay feasibility. It is only touchable while he is away, so it is random. It also closes 387 (`local-207.txt [00FD]`). |
 | Use meat with poodles | Never faster, and riskier. It runs the same walk to 467 and the same verb 80 (`obj-0566 [0098]`/`[00A2]`), so it takes the same ticks as Give. Its reach check is ≤ 16 against locked boxes (`global/script-002.txt [02EB]`); Give's is ≤ 32 (`[0093]`). |
 | Use pot with meat (both on the table) | Never faster. It is the same two auto pick-ups as `use-meat-with-pot` in the other order (`global/script-002.txt [0229]`/`[0251]`), so it takes the same ticks, but it puts the pot first. |
@@ -328,7 +323,7 @@ Each substring is matched case-insensitively against the visible lines of one me
 | `pick-up-stewed-meat` with no stew involved, fish routes | No goal effect: the dogs refuse fish (idol.md §2.1). |
 | Walk to 316 from `bar-left` (straight into the kitchen) | Replay risk: the longer walk widens the cook's door race (§7.1, §10). |
 | Unlocking the guide with the paid sword (`Bit[98]`) instead of the pirate leaders | Deferred, not infeasible. Owning the sword changes two later actions, which would need further splits (§14.4). |
-| Give pot to a Fettucini brother | A trap: it can lose the pot (money.md B1). Never modelled. |
+| Give pot to a Fettucini brother | A trap: it can lose the pot (money.md B1). It is never modelled. |
 | Boot params; anything that needs coordinates (floor clicks, the fish plank) | Banned (`rules/glitchless.md`). |
 
 ## 6. One sentence per action, and waits
@@ -354,10 +349,10 @@ Each substring is matched case-insensitively against the visible lines of one me
 | where | wait | why |
 |---|---|---|
 | `walk-into-kitchen`, `walk-into-kitchen-after-provoking-cook` | `until [{actor_room = 6, eq = 28}, {actor_x = 6, le = 310}, {state = 316, eq = 1}]` | A real click on 316 is refused while the cook stands in 28 at x > 310 (`local-203.txt [001E]`). The door must also be open, which the cook does himself when he comes out (`local-216.txt [001B]`). Every cook target is at x ≤ 285 (money.md B2), so every trip opens this window. |
-| `provoke-cook`, `walk-to-kitchen-door-provoking-cook` | `until [{not = {actor_room = 6, eq = 28}}]` | Click equivalence: with the cook out of room 28, a click on 316 runs the door's verb directly (`local-203.txt [003A]`–`[004A]`), as the pushed sentence does. It holds at once: the cook stays in the kitchen at least 1800 jiffies after bar entry (`local-211.txt [000D]`), and the provoke comes a few hundred ticks after it. |
+| `provoke-cook`, `walk-to-kitchen-door-provoking-cook` | `until [{not = {actor_room = 6, eq = 28}}]` | Click equivalence: with the cook out of room 28, a click on 316 runs the door's verb directly (`local-203.txt [003A]` to `[004A]`), as the pushed sentence does. It holds at once: the cook stays in the kitchen at least 1800 jiffies after bar entry (`local-211.txt [000D]`), and the provoke comes a few hundred ticks after it. |
 | helmet | `until [{var = 32, eq = 200}]` | The tent's input script is 200 only during the helmet wait (`local-207.txt [0D4C]`). The entry step may finish during the skippable fuss. |
 | first step in 33, 52, 53 and 42, and in 83 | `until [{room = R}]` | These rooms can follow a script-driven room change that may outlast the previous step's last idle frame: the first bar exit's LeChuck cutscene (`global/script-120.txt [0538]`), the tent walk-out, the room-23 close-up (`global/script-119.txt [07C2]`), the Fester → 83 → 42 chain and the Elaine scene. No waiting `until` is put on map steps. |
-| forest steps | no `room`; `until [{var = 4, eq = <pseudo-room>}]` | In the forest `_currentRoom` is the pseudo-room 201–220 (`third_party/scummvm/engines/scumm/room.cpp`, `startScene`: `_currentRoom = room`, and only `_roomResource` is mapped to 58). A `room = 58` check would always fail. |
+| forest steps | no `room`; `until [{var = 4, eq = <pseudo-room>}]` | In the forest `_currentRoom` is the pseudo-room 201 to 220 (`third_party/scummvm/engines/scumm/room.cpp`, `startScene`: `_currentRoom = room`, and only `_roomResource` is mapped to 58). A `room = 58` check would always fail. |
 
 ## 7. Fidelity gaps and replay risks
 
@@ -366,26 +361,26 @@ These come from `rules/glitchless.md` and the analysis notes.
 **Replays.**
 
 - The pre-audit plan (cost 67, 70 compiled steps) replayed to the goal on seed 1 in `out/runs/20261004T201241Z-run` (106892 ticks). Seed 2 also passed in `tests/integration/test_determinism.py`.
-- The current plan (§8) replays to the goal on seeds 1–5:
+- The current plan (§8) replays to the goal on seeds 1 to 5:
   - seed 1: `out/runs/20261004T205705Z-run`;
   - seed 2: the integration tests;
   - seeds 3, 4 and 5: `out/runs/20261004T205848Z-run`, `…205851Z-run` and `…205854Z-run`.
 
 - The §14 plan replays to the goal on seed 1: `out/runs/20261004T220733Z-run` (§8).
 - A hand-written 70-action plan that uses every §14 alternative replays to the goal on seed 1 (§14.5).
-- The time plan with the three §14.8 exit objects substituted, plus a two-walk detour through 210, replays to the goal on seeds 1–3, with skips on (§14.8).
+- The time plan with the three §14.8 exit objects substituted, plus a two-walk detour through 210, replays to the goal on seeds 1 to 3, with skips on (§14.8).
 
 "Verified" below means these replays ran the risky step and reached the goal.
 
-1. **The kitchen-door race** (rules "Known fidelity gap"). **Verified** on seeds 1–5: `walk-into-kitchen` reaches room 41 every time, 234 ticks after the push. It remains timing-dependent in principle.
+1. **The kitchen-door race** (rules "Known fidelity gap"). **Verified** on seeds 1 to 5: `walk-into-kitchen` reaches room 41 every time, 234 ticks after the push. It remains timing-dependent in principle.
    - A click on 316 freezes the cook (`local-203.txt [0030]`); a pushed sentence does not.
    - While ego walks from `bar-right` (x ≈ 330) to 316 (x 595), the cook keeps walking. He can close 316 first. The Walk to then does nothing, and the next step fails with `room_mismatch`. No template can recover from that.
    - Once the walk-in cutscene local-218 starts, the cook is frozen (§11, correction 2), and the room change kills his script. So the race window is only that walk, and 570 is always open in the kitchen (§6).
-   - The cook must walk from x ≤ 310 back past the door to (660,123) before he closes it, so ego should normally win. It did on seeds 1–5.
+   - The cook must walk from x ≤ 310 back past the door to (660,123) before he closes it, so ego should normally win. It did on seeds 1 to 5.
 2. **Map pirates: one idle frame on the 4th map entry.** The plan enters the map 4 times. The 4th entry (step 55, lookout → map, then step 56 → fork) can spawn a wandering pirate (`room-085-melee/entry.txt [009B]`, `Var[290] > 2`).
-   - An encounter needs ego standing still near the pirate (`room-085-melee/local-202.txt [018A]`–`[01A2]`). On the map ego stands still for about one frame: it arrives, and the bridge pushes Walk to fork on the first idle frame.
-   - Whether a pirate reaches ego in that frame is deterministic per seed. It did not happen on seeds 1–5 without skips.
-   - **Handled since Task 8.2.** It does happen on some seeds: seed 2 without skips at talkspeed 255, and seeds 164, 166 and 196 among 1–267 with skips. The encounter comes as ego reaches the fork, with the pirate heading there too. `segment.toml`'s `map-pirate` interrupt answers the road menu with "Sorry to bother you. I'll be on my way." (`room-049-road/local-200.txt [0325]`). Global 114 then puts ego back on the map where he stood, and the bridge restarts the interrupted Walk to fork (`docs/plan.md`, "Plan-player semantics as implemented"; `tests/integration/test_interrupts.py`).
+   - An encounter needs ego standing still near the pirate (`room-085-melee/local-202.txt [018A]` to `[01A2]`). On the map ego stands still for about one frame: it arrives, and the bridge pushes Walk to fork on the first idle frame.
+   - Whether a pirate reaches ego in that frame is deterministic per seed. It did not happen on seeds 1 to 5 without skips.
+   - **Handled since Task 8.2.** It does happen on some seeds: seed 2 without skips at talkspeed 255, and seeds 164, 166 and 196 among 1 to 267 with skips. The encounter comes as ego reaches the fork, with the pirate heading there too. `segment.toml`'s `map-pirate` interrupt answers the road menu with "Sorry to bother you. I'll be on my way." (`room-049-road/local-200.txt [0325]`). Global 114 then puts ego back on the map where he stood, and the bridge restarts the interrupted Walk to fork (`docs/plan.md`, "Plan-player semantics as implemented"; `tests/integration/test_interrupts.py`).
    - Four entries is the minimum for this goal: two for the circus round trip, then either a separate petal trip plus the treasure trip, or the treasure trip plus the exit from 64.
 3. **Map idle detection.** **Verified.** Global 24 prints a blank label every frame on the map (input-scripts.md §4.6), but the bridge still sees idle frames on room 85: every map step in every replay ends in its destination room.
 4. **The troll trigger on the clearing walk.** Settled; see "Settled" below.
@@ -407,15 +402,15 @@ These come from `rules/glitchless.md` and the analysis notes.
    - the mansion notice text;
    - the underwater rope tilt;
    - High Street sound 114.
-12. **A citizen closing 437 between `open-store-door` and `walk-into-store`.** This is a documented, seed-dependent risk. It was not hit on seeds 1–5.
-    - **Who closes the door.** High Street citizens open and close 437 on their own (`room-034-high-stre/local-200.txt [001E]`/`[0053]` and `[00A2]`/`[00CC]`). A citizen who appears or disappears at the store door first runs script 25 and then, 4 frames later, script 26. Script 26 closes 437 and 387 regardless of who opened them.
-    - **How often.** Global 47 tries to start a citizen every 6–9 s for each free actor slot 4–8 (`global/script-047.txt [000E]`–`[0035]`). It is started by `room-034-high-stre/entry.txt [006A]` when `VAR_MACHINE_SPEED` (var 6) > 0. Var 6 is 2 in the headless runs (`state-start.json`), so citizens do run.
-    - **The window.** `open-store-door` comes immediately before the walk (§6), so the exposure runs from Open's script 25 to the state check of Walk to 437 (`obj-0437-door.txt [004A]`). Ego is already at the door's walk point. In every replay `walk-into-store` takes 6 ticks (one frame) from the push to the room change, so the window is about one to two frames.
-    - **The failure.** A citizen's close in that window leaves ego in room 34, and the next step fails with `room_mismatch`. That close can also come from a citizen who opened the door a few frames earlier, which turns our Open into a no-op.
-    - **The old defensive step.** The second Open in the old `walk-into-store` did not reduce this risk. It covered the frames between the two Opens, but left an equally long window between itself and the Walk.
+12. **A citizen closing 437 between `open-store-door` and `walk-into-store`.** This is a documented, seed-dependent risk. It was not hit on seeds 1 to 5.
+    - High Street citizens open and close 437 on their own (`room-034-high-stre/local-200.txt [001E]`/`[0053]` and `[00A2]`/`[00CC]`). A citizen who appears or disappears at the store door first runs script 25 and then, 4 frames later, script 26. Script 26 closes 437 and 387 regardless of who opened them.
+    - Global 47 tries to start a citizen every 6 to 9 s for each free actor slot from 4 to 8 (`global/script-047.txt [000E]` to `[0035]`). It is started by `room-034-high-stre/entry.txt [006A]` when `VAR_MACHINE_SPEED` (var 6) > 0. Var 6 is 2 in the headless runs (`state-start.json`), so citizens do run.
+    - `open-store-door` comes immediately before the walk (§6), so the exposure runs from Open's script 25 to the state check of Walk to 437 (`obj-0437-door.txt [004A]`). Ego is already at the door's walk point. In every replay `walk-into-store` takes 6 ticks (one frame) from the push to the room change, so the window is about one to two frames.
+    - A citizen's close in that window leaves ego in room 34, and the next step fails with `room_mismatch`. That close can also come from a citizen who opened the door a few frames earlier, which turns our Open into a no-op.
+    - The second Open in the old `walk-into-store` did not reduce this risk. It covered the frames between the two Opens, but left an equally long window between itself and the Walk.
 13. **The provoke (§14.3).** **Verified** on seed 1 by the §14.5 plan, from the left half.
     - Its `until` (cook out of room 28) holds at once: the provoke follows the bar entry within a few hundred ticks, and the cook stays in the kitchen at least 1800 jiffies (`room-028-bar/local-211.txt [000D]`).
-    - `cook-timer-fresh` stops a plan from provoking after a kitchen return, when the cook is already out and Open 316 would simply open the door (`local-205.txt [0033]`–`[003A]`).
+    - `cook-timer-fresh` stops a plan from provoking after a kitchen return, when the cook is already out and Open 316 would only open the door (`local-205.txt [0033]` to `[003A]`).
 14. **Following the storekeeper (§14.3).** **Verified** on seed 1 by the §14.5 plan.
     - The margin is wide. Global 67 waits up to 1800 jiffies for ego to enter each of its rooms, 3600 in 33 and 85 (`global/script-067.txt [035A]`). The slowest hop measured was 33 → 38, at 1,308 ticks, and it falls inside room 85's 3600.
     - Map pirates do not start while 67 runs (`room-085-melee/entry.txt [0088]`).
@@ -423,24 +418,24 @@ These come from `rules/glitchless.md` and the analysis notes.
 **Settled** (audit `wf_e6db9470-553`; these were §7.4 and §7.5):
 
 - **The troll trigger cannot fire on the clearing walk.**
-  - The only position trigger on the map is local-200. It stops the sentence and loads the bridge room when ego comes within 2 px of 914's walk point (169,133) (`room-085-melee/local-200.txt [0001]`–`[0011]`).
+  - The only position trigger on the map is local-200. It stops the sentence and loads the bridge room when ego comes within 2 px of 914's walk point (169,133) (`room-085-melee/local-200.txt [0001]` to `[0011]`).
   - That point lies on box 34, the only segment joining the western boxes to the eastern ones (rooms.md §2.5). The clearing (133,87), the lookout point, the fork and the village are all western, so no walk between them comes near it.
   - The `X < 133` test that money.md Q6 worried about sits in 914's own Walk to (`room-085-melee/obj-0914-bridge.txt [0011]`). It runs only for a sentence on 914, which no plan pushes.
-  - `walk melee-map clearing` reaches room 52 on seeds 1–5.
+  - `walk melee-map clearing` reaches room 52 on seeds 1 to 5.
 - **Reach checks reduce to reachability.**
-  - The sentence script's distance test (`global/script-002.txt [02EB]`–`[0317]`; Give's ≤ 32) compares where the walk ends with the object's walk point.
+  - The sentence script's distance test (`global/script-002.txt [02EB]` to `[0317]`; Give's ≤ 32) compares where the walk ends with the object's walk point.
   - That depends only on walk-box geometry and on which boxes the plan has unlocked, not on timing or randomness. So a passing replay settles it for every seed.
-  - All three inferred cases pass on seeds 1–5: Give meat to the poodles, Walk to the gaping hole, and Pick up idol 578 (idol.md Q3).
+  - All three inferred cases pass on seeds 1 to 5: Give meat to the poodles, Walk to the gaping hole, and Pick up idol 578 (idol.md Q3).
 - **Room 52's STOP never hits the eastbound return walk, so `walk clearing melee-map` stays one sentence.**
-  - Local 202 tests ego's x only on the first frame it sees ego in walkbox 7. It then waits for ego to leave the box (`room-052-circus-gr/local-202.txt [0000]`–`[0024]`).
-  - Box 7 is the segment (178,116)–(215,118) (BOXD of room 52).
+  - Local 202 tests ego's x only on the first frame it sees ego in walkbox 7. It then waits for ego to leave the box (`room-052-circus-gr/local-202.txt [0000]` to `[0024]`).
+  - Box 7 is the segment from (178,116) to (215,118) (BOXD of room 52).
   - The westbound arrival walk from (430,130) enters the box from the east at x ≈ 215 > 200, so it is stopped (§12).
   - The tent walk-out leaves ego at (78,87), far west (`room-051-circus-te/obj-0617-outside.txt [000C]` loadRoomWithEgo(621,52,78,87)).
   - So the return walk to path 622 (walk point (515,136)) enters the box from the west at x ≈ 178 ≤ 200 and passes. In every replay it takes one sentence (576 ticks).
 
 ## 8. Expected optimal plan
 
-`run_planner(domain, problem)` gives **cost 66**: 66 actions, of which 48 are `walk*` and 18 are other. Fast Downward 26.6, `astar(lmcut())`, expands 16,544 states and searches for about 3 s (4,500 states and 0.8 s before the §14 additions). There were 227 ground operators after §14; §14.8 brings them to 231 and leaves the search and the plan unchanged. The plan compiles against the index-derived `ObjectIndex` to **67 plan steps**: 66 actions plus the circus tent's second walk (§12). There are no defensive steps (§6).
+`run_planner(domain, problem)` gives cost 66: 66 actions, of which 48 are `walk*` and 18 are other. Fast Downward 26.6, `astar(lmcut())`, expands 16,544 states and searches for about 3 s (4,500 states and 0.8 s before the §14 additions). There were 227 ground operators after §14; §14.8 brings them to 231 and leaves the search and the plan unchanged. The plan compiles against the index-derived `ObjectIndex` to 67 plan steps: 66 actions plus the circus tent's second walk (§12). There are no defensive steps (§6).
 
 The §14 additions left the unit-cost optimum at 66. The plan below changed only within ties:
 
@@ -530,29 +525,33 @@ Ties exist. For example, the meat may be drugged in any room after the petal, an
 | 4 | 107600 | 107366 | −234 |
 | 5 | 107660 | 107366 | −294 |
 
-- **The pre-audit column.** Seed 1 is the original run. Seeds 2–5 are the same compiled steps replayed for this comparison; that rebuild reproduces seed 1's 106892 exactly.
-- **The model's own effect** is −54 ticks on every seed:
-  - −66 for the removed Open 570, +42 because the Walk to 570 now does the walk to the door itself;
-  - −24 for the removed second Open 437;
-  - −6 for Walk to 315 straight from the right half.
-- **Everything else is the RNG.** The shorter timing shifts every later random draw. Most of the spread is in the store:
-  - The storekeeper is absent on 1 store entry in 4 (`room-030-store/entry.txt [002B]`). He then walks in and catches ego first (`local-204.txt [0061]`–`[0359]`, Bit[324]).
-  - The store dialogue picks random line variants (`local-211.txt [043D]`, `[060B]`, `[08FF]`), some of which walk ego elsewhere. So the pay step takes 4854 to 5544 ticks, and the walk out takes 132 or 420.
-  - On seed 1 the new timing made the storekeeper absent: +468 on the pay step and +288 on the walk out.
-  - The idol-room and Fester scenes vary by tens of ticks as well.
-- **No seed-independent claim is possible.** The plan is shorter, but a single seed's total can still go either way.
+In the pre-audit column, seed 1 is the original run. Seeds 2 to 5 are the same compiled steps replayed for this comparison, and that rebuild reproduces seed 1's 106892 exactly.
 
-**The §14 plan** (the listing above) replays to the goal on seed 1 in **106,412** ticks (`out/runs/20261004T220733Z-run`), 1,248 fewer than the previous plan's 107,660:
+The model's own effect is −54 ticks on every seed:
+
+- −66 for the removed Open 570, +42 because the Walk to 570 now does the walk to the door itself;
+- −24 for the removed second Open 437;
+- −6 for Walk to 315 straight from the right half.
+
+Everything else is the RNG, because the shorter timing shifts every later random draw. The idol-room and Fester scenes vary by tens of ticks, but most of the spread is in the store:
+
+- The storekeeper is absent on 1 store entry in 4 (`room-030-store/entry.txt [002B]`). He then walks in and catches ego first (`local-204.txt [0061]` to `[0359]`, Bit[324]).
+- The store dialogue picks random line variants (`local-211.txt [043D]`, `[060B]`, `[08FF]`), some of which walk ego elsewhere. So the pay step takes 4854 to 5544 ticks, and the walk out takes 132 or 420.
+- On seed 1 the new timing made the storekeeper absent: +468 on the pay step and +288 on the walk out.
+
+No claim holds for every seed: the plan is shorter, but a single seed's total can still go either way.
+
+**The §14 plan** (the listing above) replays to the goal on seed 1 in 106,412 ticks (`out/runs/20261004T220733Z-run`), 1,248 fewer than the previous plan's 107,660:
 
 - −738 is `give-meat-to-prisoner` (1,032) against `talk-to-prisoner` (1,770);
 - −588 is the pay step (4,956 against 5,544), which is the store RNG;
 - the rest is a few tens of ticks of shifted timing.
 
-Seeds 2–5 were not rerun for this plan.
+Seeds 2 to 5 were not rerun for this plan.
 
 ## 9. Counts against the human route
 
-`docs/human-route.md` §4 has 22 actions and 48 transitions from the Lookout. Our segment starts on the dock, and the human list's step 1 (Lookout → Dock) falls away with the intro skip, so the comparable human count is **47 transitions**.
+`docs/human-route.md` §4 has 22 actions and 48 transitions from the Lookout. Our segment starts on the dock, and the human list's step 1 (Lookout → Dock) falls away with the intro skip, so the comparable human count is 47 transitions.
 
 | | ours, by the naming rule | ours, human-comparable | human |
 |---|---:|---:|---:|
@@ -581,7 +580,7 @@ Otherwise the transition sequence is identical to the human route: kitchen, circ
 
 The §14 additions leave these counts unchanged. On the first jail visit, `give-meat-to-prisoner` replaces the Talk to Otis one for one: both set Bit[420], and both are one sentence.
 
-Our plan uses **67 compiled steps** in total: 66 actions plus the circus tent's second walk (§12). It also makes 15 dialogue choices and 2 verb-slot clicks (the helmet).
+Our plan uses 67 compiled steps in total: 66 actions plus the circus tent's second walk (§12). It also makes 15 dialogue choices and 2 verb-slot clicks (the helmet).
 
 The pre-audit text here said "69 compiled steps (67 actions plus 2 defensive opens)". That missed the circus double walk: the pre-audit plan compiled to 70 steps, and its replay ran 70.
 
@@ -591,7 +590,7 @@ The pre-audit text here said "69 compiled steps (67 actions plus 2 defensive ope
   - Walk to 315 from `bar-right` is now modelled (§2).
   - Walk to 431 from the town half is excluded by the camera rule (`rules/glitchless.md`: the town camera never shows 431). It is not a follow-up.
   - Walk to 316 from `bar-left` would save 1 action. It is held back by the cook race (§7.1) and would need an engine measurement of the longer walk against the cook's return.
-- **Map entries.** Capping them at 3 is impossible for this goal (§7.2). The pirate risk is deterministic per seed, and it passed on seeds 1–5.
+- **Map entries.** Capping them at 3 is impossible for this goal (§7.2). The pirate risk is deterministic per seed, and it passed on seeds 1 to 5.
 - **Store variance.** The store's random branches (§8) dominate run-to-run tick differences. The plan cannot branch on them.
 - **Time objective.** §14 lists what the costing step (Task 8.3) must measure: the split halves, the alternatives, and the context effects that are not split (§14.6).
 
@@ -609,7 +608,7 @@ The pre-audit text here said "69 compiled steps (67 actions plus 2 defensive ope
 
 ## 12. Corrections found by replay
 
-- **Circus grounds, room 52.** Local 202 cancels a walk with `doSentence(STOP)` while ego is in walkbox 7 at x > 200 (`data/scripts/room-052-circus-gr/local-202.txt [0000]`–`[001C]`). Arriving from the map at (430,130), the first `Walk to circus tent` stops at (210,117). `walk-into-tent-with-pot` therefore pushes the walk twice, as a player would click twice. The PDDL action count is unchanged: one action, two sentences. Found by the first full replay (step 12 `step_timeout` with `awaiting_menu` stalls).
+- **Circus grounds, room 52.** Local 202 cancels a walk with `doSentence(STOP)` while ego is in walkbox 7 at x > 200 (`data/scripts/room-052-circus-gr/local-202.txt [0000]` to `[001C]`). Arriving from the map at (430,130), the first `Walk to circus tent` stops at (210,117). `walk-into-tent-with-pot` therefore pushes the walk twice, as a player would click twice. The PDDL action count is unchanged: one action, two sentences. Found by the first full replay (step 12 `step_timeout` with `awaiting_menu` stalls).
 
 ## 13. Audit `wf_e6db9470-553`
 
@@ -622,16 +621,16 @@ An adversarial audit of this model (workflow `wf_e6db9470-553`) produced these c
    - the remaining citizen window is §7.12.
 3. **Missing link `bar-right → dock`** (rooms.md T25a): cost 67 → 66 (§8).
 4. **Citations:**
-   - both branches of door 315 (`obj-0315-door.txt [0072]`, `[0080]`–`[008A]` → `global/script-120.txt [0538]`, `[0090]`);
-   - `talk-to-prisoner` (`local-202.txt [0050]` → `[18DE]`–`[19C4]`);
-   - `give-mints-to-prisoner` (`local-202.txt [0546]`, `[1381]`–`[13A9]`);
+   - both branches of door 315 (`obj-0315-door.txt [0072]`, `[0080]` to `[008A]` → `global/script-120.txt [0538]`, `[0090]`);
+   - `talk-to-prisoner` (`local-202.txt [0050]` → `[18DE]` to `[19C4]`);
+   - `give-mints-to-prisoner` (`local-202.txt [0546]`, `[1381]` to `[13A9]`);
    - the initial owners of 566/567/689 (DOBJ, treasure.md (E8)).
 5. **The camera rule** applies only where the walk toward the target brings it on screen (`rules/glitchless.md`). This excludes Walk to 431 from the town half (§2, §10).
    - The current plan's targets were checked against the narrowed rule using CDHD rects:
-     - 435 (x 240–320) is on screen in the mansion half (c = 160);
+     - 435 (x 240 to 320) is on screen in the mansion half (c = 160);
      - 434 and 436 come on screen as the town camera follows ego left within c ∈ [528,640];
      - 315 comes on screen through the bar's camera switch, and the circus tent 621 through room 52's switch at x 228;
-     - the other wide rooms in the plan (33, 35, 53, 64) have follow cameras, and room 51 shows 617–620 (rooms.md §7).
+     - the other wide rooms in the plan (33, 35, 53, 64) have follow cameras, and room 51 shows 617 to 620 (rooms.md §7).
 6. **Risk review** (§7):
    - verified by replay: 7.1, 7.3, 7.6, 7.7 and 7.9;
    - narrowed: 7.2;
@@ -667,9 +666,9 @@ Each pair pushes identical steps and has complementary guards on one fact (`test
 
 | pair | fact | why the duration differs | seed 1 |
 |---|---|---|---|
-| `walk-out-of-bar-from-{left,right}-meanwhile` / `walk-out-of-bar-from-{left,right}` | `lechuck-cutscene-seen` (Bit[446]) | The first Walk to 315 sets Bit[446] and plays global 120, the LeChuck "Meanwhile" cutscene in rooms 70 and 72, before the dock (`room-028-bar/obj-0315-door.txt [0080]`–`[008A]`, `global/script-120.txt [0538]`). Later exits load the dock at once (`[0090]`). Bit[446] is set nowhere else and is clear at segment start (`state-start.json`). | first exit 9,696 / 9,612; a later exit is one room load (no plan has measured one yet) |
-| `walk-into-kitchen` / `walk-into-kitchen-after-provoking-cook` | `cook-provoked` | Unprovoked, the cook stays in the kitchen 1800–3000 jiffies after bar entry (`local-211.txt [000D]`). Provoked, `local-212` brings him out 600 jiffies after the provoke's cutscene (`[0000]`–`[0020]`). | the wait before the push is 2,424 unprovoked and 822 after the provoke; the walk-in is 234 and 42 |
-| `walk-up-ladder-taking-idol` / `walk-up-ladder-taking-idol-last` | `treasure-trial-done` | Bit[85] is set at `room-042-underwate/local-200.txt [0041]`. After it come the walk to the ladder, room 83, and the Elaine rescue scene (`room-083-cu-dock/entry.txt [008E]` → `local-201.txt [0000]`–`[07A0]`). If the treasure is already dug up, the goal holds at `[0041]` and the run ends there: the bridge quits on the first frame the goal holds (`docs/plan.md` C1). | 12,738 to `step_end` against 312 to the goal |
+| `walk-out-of-bar-from-{left,right}-meanwhile` / `walk-out-of-bar-from-{left,right}` | `lechuck-cutscene-seen` (Bit[446]) | The first Walk to 315 sets Bit[446] and plays global 120, the LeChuck "Meanwhile" cutscene in rooms 70 and 72, before the dock (`room-028-bar/obj-0315-door.txt [0080]` to `[008A]`, `global/script-120.txt [0538]`). Later exits load the dock at once (`[0090]`). Bit[446] is set nowhere else and is clear at segment start (`state-start.json`). | first exit 9,696 / 9,612; a later exit is one room load (no plan has measured one yet) |
+| `walk-into-kitchen` / `walk-into-kitchen-after-provoking-cook` | `cook-provoked` | Unprovoked, the cook stays in the kitchen 1800 to 3000 jiffies after bar entry (`local-211.txt [000D]`). Provoked, `local-212` brings him out 600 jiffies after the provoke's cutscene (`[0000]` to `[0020]`). | the wait before the push is 2,424 unprovoked and 822 after the provoke; the walk-in is 234 and 42 |
+| `walk-up-ladder-taking-idol` / `walk-up-ladder-taking-idol-last` | `treasure-trial-done` | Bit[85] is set at `room-042-underwate/local-200.txt [0041]`. After it come the walk to the ladder, room 83, and the Elaine rescue scene (`room-083-cu-dock/entry.txt [008E]` → `local-201.txt [0000]` to `[07A0]`). If the treasure is already dug up, the goal holds at `[0041]` and the run ends there: the bridge quits on the first frame the goal holds (`docs/plan.md` C1). | 12,738 to `step_end` against 312 to the goal |
 
 **Not split: `dig-treasure`.** Bit[86] is set at `room-064-treasure/local-200.txt [0214]`, two opcodes before `endCutscene` (`[021D]`). Whether or not the dig is the last action changes its length by about a frame.
 
@@ -685,7 +684,7 @@ Each pair pushes identical steps and has complementary guards on one fact (`test
 
 The scripts branch on a visit flag in four dialogues. In each, every modelled instance is the first one, by construction:
 
-- **The Fettucini brothers** (`Bit[71]`: the first visit's sales pitch, `room-051-circus-te/local-207.txt [0438]`–`[088D]`; `Bit[72]`: a return visit jumps to M3, `[042B]`).
+- **The Fettucini brothers** (`Bit[71]`: the first visit's sales pitch, `room-051-circus-te/local-207.txt [0438]` to `[088D]`; `Bit[72]`: a return visit jumps to M3, `[042B]`).
   - The tent is entered only by `walk-into-tent-with-pot` (`¬circus-money`) and left only by the helmet (which sets `circus-money`), so the one visit is the first.
   - The two-visit variant stays out (§14.4).
 - **The citizen** (`Bit[16]` first-talk menu, `Bit[475]` pitch heard; `room-035-low-stree/local-218.txt [03D0]`, `[06AA]`). `buy-map` is the only talk with 441 and is one-shot (`¬has treasure-map`). Its list `barber`, `swell gift` fits only the first talk.
@@ -700,7 +699,7 @@ The scripts branch on a visit flag in four dialogues. In each, every modelled in
 
 **Other first-time branches.** The entry scripts of every route room were checked for other one-shot branches. Two are visit-dependent, and neither is a long first-time branch:
 
-- **The kitchen gull.** On the first visit the gull lands once ego is past x 170 (`room-041-kitchen/local-204.txt [000C]`–`[0023]` → `local-205.txt [0000]`–`[0028]`; Bit[424]). It is an actor walk with no cutscene, print or `WaitForMessage`. On seed 1 the kitchen's two actions took 384 and 48 ticks.
+- **The kitchen gull.** On the first visit the gull lands once ego is past x 170 (`room-041-kitchen/local-204.txt [000C]` to `[0023]` → `local-205.txt [0000]` to `[0028]`; Bit[424]). It is an actor walk with no cutscene, print or `WaitForMessage`. On seed 1 the kitchen's two actions took 384 and 48 ticks.
 - **High Street's "Psst"** (`room-034-high-stre/entry.txt [001A]` → `local-203`, while `!Bit[481]`). It is an ambient print, not a one-shot: a context effect (§14.6).
 
 ### 14.3 Re-admitted alternatives
@@ -711,20 +710,20 @@ The scripts branch on a visit flag in four dialogues. In each, every modelled in
   - `provoke-cook`: Open 316 from the right half;
   - `walk-to-kitchen-door-provoking-cook`: the same Open from the left half;
   - then `walk-into-kitchen-after-provoking-cook`.
-- **Script.** Open 316 while `local-211` runs starts `local-214` instead of opening (`room-028-bar/obj-0316-door.txt [0018]`–`[0021]`).
+- **Script.** Open 316 while `local-211` runs starts `local-214` instead of opening (`room-028-bar/obj-0316-door.txt [0018]` to `[0021]`).
   - `local-214` is a short cutscene: the door opens (`[0005]`, 316 alone), `delay(30)`, "Hey! You can't come back here!", the door closes (`[003B]`).
   - It then starts `local-212` (`[004B]`), which waits 600 jiffies and starts `local-216` (`local-212.txt [0020]`): the cook comes out and opens 316 and 570 (`local-216.txt [001B]`).
   - `local-211` keeps running, so a provoke can only make the cook come out earlier.
 - **Guards:**
-  - `cook-timer-fresh`: the provoke is valid only while this bar visit's `local-211` runs. `walk-into-bar` sets the fact (`local-205.txt [0040]`/`[0044]`), and every kitchen entry consumes it: coming back from the kitchen brings the cook out at once (`[0033]`–`[003A]`). One kitchen entry per bar visit follows from this; no route needs two.
+  - `cook-timer-fresh`: the provoke is valid only while this bar visit's `local-211` runs. `walk-into-bar` sets the fact (`local-205.txt [0040]`/`[0044]`), and every kitchen entry consumes it: coming back from the kitchen brings the cook out at once (`[0033]` to `[003A]`). One kitchen entry per bar visit follows from this; no route needs two.
   - `cook-provoked`: only the kitchen walk may follow a provoke (`test_cook_provoked_is_used_at_once`).
-- **Click equivalence.** The step's `until [{not = {actor_room = 6, eq = 28}}]` is the branch of the bar's input script in which a click on 316 runs the door's verb directly (`local-203.txt [003A]`–`[004A]`).
+- **Click equivalence.** The step's `until [{not = {actor_room = 6, eq = 28}}]` is the branch of the bar's input script in which a click on 316 runs the door's verb directly (`local-203.txt [003A]` to `[004A]`).
 - **The left-half variant.** It uses the camera rule: the walk crosses x 320 and the camera pans right (`local-201.txt [0012]`). The cook race of §7.1 does not apply, because the cook is in the kitchen.
-- **Trade-off.** The provoke removes `local-211`'s remaining wait (1800–3000 jiffies from bar entry) and adds `local-214`'s cutscene plus 600 jiffies. On seed 1, from bar entry to the kitchen:
+- **Trade-off.** The provoke removes `local-211`'s remaining wait (1800 to 3000 jiffies from bar entry) and adds `local-214`'s cutscene plus 600 jiffies. On seed 1, from bar entry to the kitchen:
   - plain: curtain 198, wait 2,424, walk-in 234, so 2,856;
   - provoked from the left half: 762, wait 822, walk-in 42, so 1,626.
 
-  That is **−1,230 ticks**. Under unit costs the left-half variant ties with the plain route (3 actions each); Fast Downward kept the plain one.
+  That is −1,230 ticks. Under unit costs the left-half variant ties with the plain route (3 actions each); Fast Downward kept the plain one.
 
 **2. Learning Otis's bad breath by a refused give.** §5 excluded the repellent give as "same cost as Talk to".
 
@@ -734,9 +733,9 @@ The scripts branch on a visit flag in four dialogues. In each, every modelled in
 - **Script.** Every give except the mugs, the opened cake and the mints ends at `room-031-jail/local-203.txt [034C]`, which sets Bit[420] (`[0351]`).
   - The meat has no handler of its own. The repellent is taken only once class 6 is clear (`[011F]`), so before the mints it jumps to the same refusal (`[01EB]` → `[029D]`).
   - The refusal changes no owner: the meat stays the pot's guard and is still needed for the poodles.
-  - The give path runs three things: the walk-to-the-cell cutscene (`[0082]`–`[00B7]`), the refusal ("I don't want anything but my freedom!", "…and maybe a breath mint.", `[02A8]`–`[02F9]`, with an override) and "Man! Talk about bad breath!" (`[035A]`).
-  - The Talk runs the same walk-in (`local-202.txt [001E]`–`[004F]`) and then the halitosis scene: two Otis lines, two of ego's, and a walk (`[18DE]`–`[19C0]`).
-- **Trade-off.** On seed 1 the give takes 1,032 ticks and the talk 1,770, so **−738**. The unit-cost plan now uses `give-meat-to-prisoner`; it is a tie under unit costs.
+  - The give path runs three things: the walk-to-the-cell cutscene (`[0082]` to `[00B7]`), the refusal ("I don't want anything but my freedom!", "…and maybe a breath mint.", `[02A8]` to `[02F9]`, with an override) and "Man! Talk about bad breath!" (`[035A]`).
+  - The Talk runs the same walk-in (`local-202.txt [001E]` to `[004F]`) and then the halitosis scene: two Otis lines, two of ego's, and a walk (`[18DE]` to `[19C0]`).
+- **Trade-off.** On seed 1 the give takes 1,032 ticks and the talk 1,770, so −738. The unit-cost plan now uses `give-meat-to-prisoner`; it is a tie under unit costs.
 
 **3. The storekeeper as guide, instead of buying the map** (treasure.md §7). §5 excluded it as inexpressible and dominated. Rechecked, both reasons fail:
 
@@ -747,30 +746,30 @@ The scripts branch on a visit flag in four dialogues. In each, every modelled in
   - the gate at 215 checks only that 67 runs (`room-058-damnfores/obj-0685-path.txt [005B]`);
   - ego may get ahead of him: a room change ends his walk, because ScummVM's `startScene` hides every actor, and 67 continues.
 
-  On seed 1 the hops took 6–1,308 ticks. The lookout, which he skips (33 → 85), took 1,308 + 120, inside room 85's 3600.
+  On seed 1 the hops took 6 to 1,308 ticks. The lookout, which he skips (33 → 85), took 1,308 + 120, inside room 85's 3600.
 - **The unlock: `talk-to-pirate-leaders`.** Topic 122 needs `Var[199]` (`room-030-store/local-211.txt [00FA]`).
-  - The first meeting with the leaders sets it: "I want to be a pirate." (`room-028-bar/local-220.txt [033D]`), the trials speech (`[03DF]`–`[0910]`), then "Tell me more about mastering the sword." (`[0970]`) and `Var[199] = 1` (`[1036]`), then "I'll just be running along now." (`[0DCD]`).
+  - The first meeting with the leaders sets it: "I want to be a pirate." (`room-028-bar/local-220.txt [033D]`), the trials speech (`[03DF]` to `[0910]`), then "Tell me more about mastering the sword." (`[0970]`) and `Var[199] = 1` (`[1036]`), then "I'll just be running along now." (`[0DCD]`).
   - The talk is guarded to the first meeting with no trial done: `local-220 [0261]` skips the first menu once `Var[196] > 0`.
   - It must also come after this visit's kitchen entry, because `local-211 [0021]` redraws the cook's delay while `local-220` runs.
 - **The store.**
   - `pay-for-shovel-ask-guide` and `pay-for-shovel-and-mints-ask-guide` choose topic 122 after the purchases. It ends the dialogue (`[1138]`): the storekeeper leaves (`[0ED2]`), closes 387 alone (`[1122]`) and starts global 67 for room 34 (`[1131]`).
   - The four plain pay variants require `¬sword-master-asked` (`test_store_menu_with_the_guide_topic`).
-- **Leaving.** `open-store-door-from-inside` (Open 387, `obj-0387-door.txt [004E]`), then `walk-out-of-store`. Its exit branch does not stop 67 (`local-204.txt [0031]`–`[0044]`); only the unpaid branch does (`[0095]`).
+- **Leaving.** `open-store-door-from-inside` (Open 387, `obj-0387-door.txt [004E]`), then `walk-out-of-store`. Its exit branch does not stop 67 (`local-204.txt [0031]` to `[0044]`); only the unpaid branch does (`[0095]`).
 - **The chain:**
   - `walk-follow-guide-to-low-street` (433), `-to-dock` (450), `-to-lookout` (426), `-to-map` (487), `-to-f218` (911), `-to-f215` (685 at 218);
-  - then `walk-forest-gate-215-203-with-guide` (685 at 215). Gate 688 has no script-67 exemption (`obj-0688-path.txt [004F]`–`[0063]`). The gate sets Bit[401] (`obj-0685-path.txt [00C1]`).
-  - On the chain only `pick-up-petal`, `drug-meat-with-petal` and `open-cake` may run (6–78 ticks each).
+  - then `walk-forest-gate-215-203-with-guide` (685 at 215). Gate 688 has no script-67 exemption (`obj-0688-path.txt [004F]` to `[0063]`). The gate sets Bit[401] (`obj-0685-path.txt [00C1]`).
+  - On the chain only `pick-up-petal`, `drug-meat-with-petal` and `open-cake` may run (6 to 78 ticks each).
 - **After the gate.** `forest-gate-open` lets `walk-forest-gate-215-203-open` and `walk-forest-gate-215-220-open` pass without the map. The map gates set the fact too.
 - **Trade-off.** It removes `buy-map` (3,750 on seed 1) and adds:
   - the leaders' talk, 11,670 unskipped. Both long speeches have override points (`[03DF]`, `[0E37]`), so this shrinks most with cutscene skipping;
-  - the guide topic: 7,416 for the guide pay against 4,956–5,544 for the plain one;
+  - the guide topic: 7,416 for the guide pay against 4,956 to 5,544 for the plain one;
   - Open 387, 162;
   - two forest hops, 215 → 203 → 215, 162 + 24.
 
   Unskipped it loses about 10,000 ticks; skipped it is for the measurement to decide. Under unit costs it is +3 against the same plan with the map.
 - **Sword unlock: deferred, not infeasible.** Topic 122 also shows with the paid sword (`Bit[98]`, `local-211.txt [016A]`). Owning the sword changes two later actions, which would need their own splits:
-  - Fester confiscates it (`room-053-foyer/local-217.txt [030F]`–`[0336]`);
-  - the underwater script walks ego to it before Bit[85] (`room-042-underwate/local-203.txt [0030]`–`[008B]`).
+  - Fester confiscates it (`room-053-foyer/local-217.txt [030F]` to `[0336]`);
+  - the underwater script walks ego to it before Bit[85] (`room-042-underwate/local-203.txt [0030]` to `[008B]`).
 
 **4. The treasure before the idol.** The model always allowed this order, at +1 action: 67 with the map, because the petal is picked up on the treasure trip.
 
@@ -784,10 +783,10 @@ The split in §14.1 is what makes the order visible to the costing step.
 | alternative | why, per component |
 |---|---|
 | Talk to the storekeeper; ring the bell 399 | **Replay feasibility.** His presence is random on each entry (`room-030-store/entry.txt [002B]`): Talk to 394 cannot be clicked while he is away (`[0057]`), and the bell is touchable only then (`local-208.txt [000F]`). The plan cannot branch. |
-| Use meat with poodles | **Same ticks, riskier.** The sentence script walks to 467 exactly as for Give (`global/script-002.txt [02DB]` against `[0083]`), and the meat's Use just starts 467's verb 80 (`room-041-kitchen/obj-0566-hunk-of-meat.txt [0098]`/`[00A2]`), the script Give runs. The only difference is the reach check: ≤ 16 (`[02EB]`) instead of ≤ 32 (`[0093]`), with the dogs' boxes locked (`room-036-mansion-e/entry.txt [002B]`–`[0038]`). No faithful cost can prefer it. |
+| Use meat with poodles | **Same ticks, riskier.** The sentence script walks to 467 exactly as for Give (`global/script-002.txt [02DB]` against `[0083]`), and the meat's Use just starts 467's verb 80 (`room-041-kitchen/obj-0566-hunk-of-meat.txt [0098]`/`[00A2]`), the script Give runs. The only difference is the reach check: ≤ 16 (`[02EB]`) instead of ≤ 32 (`[0093]`), with the dogs' boxes locked (`room-036-mansion-e/entry.txt [002B]` to `[0038]`). No faithful cost can prefer it. |
 | Use pot with meat (both on the table) | **Same ticks, worse state.** One sentence, the same two auto pick-ups as `use-meat-with-pot` in the other order (`global/script-002.txt [0229]`/`[0251]`). The pot then comes first, so another guard is needed for the helmet. |
-| The minutes deal (+2) | **Never faster.**<ul><li>It adds a whole dialogue: Talk to 452, the pitch, "two pieces of eight", "running along" (`room-035-low-stree/local-216.txt [0564]`–`[093E]`, `[095B]`).</li><li>Its only goal effect is to make 488 a pot guard. The meat comes with the pot in one sentence and is held through the circus on every route where the circus comes before the poodles.</li><li>The one order it would enable, the poodles before the circus with no guard held, needs a second map round trip.</li><li>It also adds 464 and 488 to the inventory before the payout, which breaks §4.3's bound of at most 7 visible items in 8 slots.</li></ul> |
-| The circus without the pot, "Er… no", return later | **Never faster.** It adds the refusal and "Go get a helmet" (`room-051-circus-te/local-207.txt [0C68]`–`[0D3F]`), a walk-out, a map round trip to the clearing, and "Hello again" on return (`[03EC]`). The return skips only the pitch and M2 (`[042B]`), which the first visit has already played. It removes nothing from a single visit with the pot. |
+| The minutes deal (+2) | **Never faster.**<ul><li>It adds a whole dialogue: Talk to 452, the pitch, "two pieces of eight", "running along" (`room-035-low-stree/local-216.txt [0564]` to `[093E]`, `[095B]`).</li><li>Its only goal effect is to make 488 a pot guard. The meat comes with the pot in one sentence and is held through the circus on every route where the circus comes before the poodles.</li><li>The one order it would enable, the poodles before the circus with no guard held, needs a second map round trip.</li><li>It also adds 464 and 488 to the inventory before the payout, which breaks §4.3's bound of at most 7 visible items in 8 slots.</li></ul> |
+| The circus without the pot, "Er… no", return later | **Never faster.** It adds the refusal and "Go get a helmet" (`room-051-circus-te/local-207.txt [0C68]` to `[0D3F]`), a walk-out, a map round trip to the clearing, and "Hello again" on return (`[03EC]`). The return skips only the pitch and M2 (`[042B]`), which the first visit has already played. It removes nothing from a single visit with the pot. |
 | Re-reading the map; stewed meat without the stew; fish routes | **No goal effect** (treasure.md §3; the dogs refuse fish, `room-036-mansion-e/local-201.txt [01F9]`). They only add ticks. |
 | Walk to 316 from `bar-left` (straight in) | **Replay risk.** It would save the curtain walk (198 ticks on seed 1), but the longer walk widens the cook race (§7.1). It needs an engine measurement of that race (§10). |
 | Walk to 431 from `high-street-town` | **Rules.** The town camera never shows 431 (§2). |
@@ -797,7 +796,7 @@ The split in §14.1 is what makes the order visible to the costing step.
 ### 14.5 Validation
 
 - **The unit-cost plan.** It is still cost 66 (§8 lists the ties). Replayed headless on seed 1, it reaches the goal in 106,412 ticks (`out/runs/20261004T220733Z-run`).
-- **A validation plan.** It is a hand-written 70-action plan that uses every alternative in §14.3 and the idol-last split. It was checked against the domain by STRIPS simulation, then replayed once on seed 1 through `run_engine` with skipping off, in a scratch run directory (not kept). It reached the goal in **106,310** ticks, in room 42 before the Elaine scene. Seed-1 ticks are in brackets:
+- **A validation plan.** It is a hand-written 70-action plan that uses every alternative in §14.3 and the idol-last split. It was checked against the domain by STRIPS simulation, then replayed once on seed 1 through `run_engine` with skipping off, in a scratch run directory (not kept). It reached the goal in 106,310 ticks, in room 42 before the Elaine scene. Seed-1 ticks are in brackets:
 
   ```
    1 open-bar-door                              [354]
@@ -896,8 +895,8 @@ These change an action's duration but depend on where ego is or on ambient scrip
   - `walk-into-foyer` takes 6 ticks right after `open-mansion-door`, whose walk left ego at the door, and 276 from the trail.
   - `walk dock lookout` takes 1,008 from the bar door, 642 from room 83, and 1,308 from the low-street archway.
   - `walk-into-store` and `walk-into-bar` take 6 ticks because their Open walked ego to the door.
-- **The "Psst" on High Street.** `room-034-high-stre/local-203.txt` runs while `!Bit[481]` (before the idol-room visit). When ego is within 150 of the alley (`[0002]`–`[0009]`), it prints and parks on `WaitForMessage` (`[0010]`, `[00F8]`), which can hold the idle test.
-- **The store's random presence and lines** (§8): the pay step took 4,956–7,416 on seed 1, depending on the variant.
+- **The "Psst" on High Street.** `room-034-high-stre/local-203.txt` runs while `!Bit[481]` (before the idol-room visit). When ego is within 150 of the alley (`[0002]` to `[0009]`), it prints and parks on `WaitForMessage` (`[0010]`, `[00F8]`), which can hold the idle test.
+- **The store's random presence and lines** (§8): the pay step took 4,956 to 7,416 on seed 1, depending on the variant.
 - **The map pirates on the 4th map entry** (§7.2). In the treasure-first order that entry is the return from 64.
 - **Where a room change lands, when two exits make it.** `speedrun.positions` names the spot a room change leaves by its rooms and its exit object: `entry:<from>:<to>:<id>`. The exit object is the room object its last sentence walks to; a room change with no such sentence, the helmet's click-only step, leaves `entry:<from>:<to>`.
   - Until §14.8 the token was `entry:<from>:<to>`. Docks 904 and 905 shared `entry:cu-dock:dock` although they land at x 308 and x 566, and `walk dock lookout` measures 642 after one and 876 after the other.
@@ -948,10 +947,10 @@ Phase 7 rebuilt Part I from the scripts alone. Its review is the "Analysis" sect
 |---|---|---|---|---|
 | `walk-f218-f215-via-686` | `walk f218 f215` | Walk to 686 at 218 | 218's entry draws 686 at strip 28, next to 685 at strip 15 (`room-058-damnfores/entry.txt [08E5]`, `[08ED]`). 686 has no Walk to of its own: any verb on it runs `startObject(685,11)` (`obj-0686-path.txt [0010]`), so 685's case for 218 moves ego (`obj-0685-path.txt [0168]`). | 215, at 687's walk point, as the twin |
 | `walk-f220-f210-via-686` | `walk f220 f210` | Walk to 686 at 220 | 220's entry draws 686 at strip 15 and 685 at strip 28 (`entry.txt [09B9]`, `[09C1]`). 685's case for 220 is `[018C]`. | 210, at 687's walk point, as the twin |
-| `walk-cu-dock-dock-via-905` | `walk cu-dock dock` | Walk to 905 | 905 is 904's twin at the east edge of 83. While `!Bit[453]`, which is never set in Part I, it puts ego in room 33 (`room-083-cu-dock/obj-0905-dock.txt [0010]`–`[0020]`). | the dock at (566,132), instead of 904's (308,132) |
+| `walk-cu-dock-dock-via-905` | `walk cu-dock dock` | Walk to 905 | 905 is 904's twin at the east edge of 83. While `!Bit[453]`, which is never set in Part I, it puts ego in room 33 (`room-083-cu-dock/obj-0905-dock.txt [0010]` to `[0020]`). | the dock at (566,132), instead of 904's (308,132) |
 
 - **Guards.** Each alternative carries exactly the generic walk's guards: `¬store-door-open`, `¬cook-provoked` and `¬following-storekeeper`. 685 and 904 carry no other guard at these nodes.
-- **Touchable.** Every forest entry clears class 32 on 685–688 (`entry.txt [01BC]`–`[01D1]`). 905 has no class in the object dump, and no Part I script sets one. Its class 6 (`room-083-cu-dock/local-204.txt [037B]`) matters only in the `Bit[453]` branch.
+- **Touchable.** Every forest entry clears class 32 on 685 to 688 (`entry.txt [01BC]` to `[01D1]`). 905 has no class in the object dump, and no Part I script sets one. Its class 6 (`room-083-cu-dock/local-204.txt [037B]`) matters only in the `Bit[453]` branch.
 - **The camera after 905.** Arriving from 83 starts the dock's local-201 (`room-033-dock/entry.txt [0032]`).
   - At x 566 local-201 pins the camera to `RoomScroll(712,848)` until ego walks below x 566 or past x 726 (`room-033-dock/local-201.txt [0042]`, `[004E]`, `[005F]`). It then sets `RoomScroll(0,848)`, which frees the camera (`[0070]`).
   - While the camera is pinned, the cliffside 426 is off screen. A Walk to 426 crosses x 566 at once, and the follow camera then brings 426 into view. That is the case the camera rule allows (`rules/glitchless.md`, "Camera visibility").
@@ -996,7 +995,7 @@ All three plans were checked against the domain by STRIPS simulation first. All 
 - **686 at 220 saves 84 ticks from the gate.**
 - **905 saves 36 ticks in room 83, but costs 234 on the walk to the cliffside.** It lands 258 px east, so it pays off only when the next dock exit is east of x 566: the bar door 428 or the archway 427. No route needs either after the idol.
 - **The keyed contexts now tell 904 and 905 apart** (§14.6). Under the old token both landings were `entry:cu-dock:dock`, so `walk dock lookout` (642 after one, 876 after the other) was pooled into one context.
-- **The guided hop.** The §14.5 guide plan (70 actions) was replayed in the same way, as G0, and as G1 with `walk-follow-guide-to-f215` replaced by `walk-follow-guide-to-f215-via-686`. Both were checked by STRIPS simulation. All six runs reached the goal (`out/measure/20261005T105719Z`, `…105727Z`). The hop took 216 ticks through 685 and 162 through 686, so **−54** on every seed. No other action changed, so the totals differ by −54 too: 26,228 / 26,234 / 26,348 against 26,174 / 26,180 / 26,294.
+- **The guided hop.** The §14.5 guide plan (70 actions) was replayed in the same way, as G0, and as G1 with `walk-follow-guide-to-f215` replaced by `walk-follow-guide-to-f215-via-686`. Both were checked by STRIPS simulation. All six runs reached the goal (`out/measure/20261005T105719Z`, `…105727Z`). The hop took 216 ticks through 685 and 162 through 686, so −54 on every seed. No other action changed, so the totals differ by −54 too: 26,228 / 26,234 / 26,348 against 26,174 / 26,180 / 26,294.
 
 **3. The `steal-idol` guard.** The hand model required `(has manual) (has lips)`. The scripts do not.
 
