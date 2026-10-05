@@ -40,7 +40,7 @@ from pathlib import Path
 from speedrun import gamedata, measure, paths
 from speedrun.compiler import CompileError, ObjectIndex, compile_plan, load_steps, write_jsonl
 from speedrun.costing import CostingError, CostTable, write_timed
-from speedrun.engine import EngineConfig, EngineResult, run_engine, timing_settings
+from speedrun.engine import EngineConfig, EngineResult, bridge_version, run_engine, timing_settings
 from speedrun.planner import Plan, PlannerError, parse_plan, plan_is_complete, run_planner
 from speedrun.segments import Segment, SegmentError, load_segment
 from speedrun.stats import plan_stats
@@ -293,7 +293,7 @@ def time_plan_inputs(seg: Segment) -> list[Path]:
 
 
 def _engine_mismatch(table_path: Path) -> str | None:
-    """Why the measured costs do not fit the engine's current timing pins, or None."""
+    """Why the measured costs do not fit the engine's current timing pins or bridge, or None."""
     try:
         data = json.loads(table_path.read_text(encoding="utf-8"))
     except (OSError, ValueError) as e:
@@ -302,6 +302,13 @@ def _engine_mismatch(table_path: Path) -> str | None:
     current = timing_settings()
     if measured != current:
         return f"{table_path.name} was measured with engine settings {measured}, but the engine now pins {current}"
+    # A rebuilt bridge can change timing and bumps its marker when it does, so the
+    # costs must come from the bridge that is built now. An unreadable binary
+    # (None) cannot be checked here; the run itself then fails to start.
+    bridges = data.get("bridges") or []
+    built = bridge_version()
+    if bridges and built is not None and bridges != [built]:
+        return f"{table_path.name} was measured with {', '.join(bridges)}, but the built bridge is {built}"
     return None
 
 

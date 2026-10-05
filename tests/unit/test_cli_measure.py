@@ -344,3 +344,30 @@ def test_plan_objective_defaults_to_actions(tree, monkeypatch):
     monkeypatch.setattr(cli, "run_planner", planner)
     assert cli.main(["plan", "toy"]) == 0
     assert seen == [tree["seg"] / "domain.pddl"]
+
+
+def _set_cost_bridges(tree, bridges):
+    data = json.loads(tree["costs"].read_text())
+    data["bridges"] = bridges
+    tree["costs"].write_text(json.dumps(data))
+    touch(tree["costs"], T0 + 3 * 10**9)  # still older than the time plan
+
+
+def test_run_ignores_a_time_plan_measured_with_another_bridge(tree, run_engine, capsys, monkeypatch):
+    write_compiled(tree)
+    write_time_plan(tree, TIME_ACTIONS)
+    _set_cost_bridges(tree, ["speedrun-bridge v1"])
+    monkeypatch.setattr(cli, "bridge_version", lambda: "speedrun-bridge v2")
+    assert cli.main(["run", "toy"]) == 0
+    assert Path(run_engine.calls[0].plan) == tree["jsonl"]
+    out = _output(capsys)
+    assert "objective: actions" in out and "speedrun-bridge v1" in out
+
+
+def test_run_uses_a_time_plan_measured_with_the_current_bridge(tree, run_engine, capsys, monkeypatch):
+    write_compiled(tree)
+    write_time_plan(tree, TIME_ACTIONS)
+    _set_cost_bridges(tree, ["speedrun-bridge v2"])
+    monkeypatch.setattr(cli, "bridge_version", lambda: "speedrun-bridge v2")
+    assert cli.main(["run", "toy"]) == 0
+    assert Path(run_engine.calls[0].plan) == tree["time_jsonl"]
