@@ -247,6 +247,7 @@ After a successful abort, `cutScenePtr[sp] = 0` (`script.cpp:1707`), so the pred
 **Interaction with the plan player.**
 - Inside a cutscene `_userPut <= 0`: the cutscene start script does `UserputSoftOff` (`global/script-018.txt [0007]`). The plan player is not idle there.
 - If an Esc is injected while `_userPut > 0` (a level-0 override with input on), the forwarded key 27 is that frame's input-script action. The plan player should then defer its push, click or answer to the next decision point.
+- **As built (bridge v2):** the bridge never presses Esc with input on. The skip path can still turn input on later in the same frame (`room-051-circus-te/local-207.txt [0894]` → global 32 `UserputOn`, `[0D59]`, global 19 at `endCutscene`), so key 27 reaches the input script as above. In every case the Esc is the frame's input, because `processKeyboard` writes 27 over the frame's mouse state. The plan player therefore defers every action in an Esc frame (`docs/plan.md`, `esc_frame`).
 
 ## 5. `talkspeed` and `VAR_CHARINC` (var 37)
 

@@ -1,4 +1,4 @@
-{"type":"boot","tick":0,"frame":0,"bridge":"speedrun-bridge v1","game":"toygame","variant":"Synthetic","fast":true,"audio_pump":true,"seed":1,"boot_param":0}
+{"type":"boot","tick":0,"frame":0,"bridge":"speedrun-bridge v2","game":"toygame","variant":"Synthetic","fast":true,"audio_pump":true,"seed":1,"boot_param":0}
 {"type":"step_start","step":0,"tick":100,"frame":25,"action":"answer-clerk","room":101}
 {"type":"choice","step":0,"tick":150,"frame":38,"verb_id":121,"text":"goodbye"}
 {"type":"step_end","step":0,"tick":400,"frame":100,"room":101,"changes":{"vars":{},"bits":{},"inventory":{"added":[],"removed":[]},"room":[101,101]}}

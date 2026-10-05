@@ -67,7 +67,7 @@ tests/integration/...                     # real patched ScummVM + real game dat
 tests/conftest.py                         # loud skip banner for integration tests
 ```
 
-The bridge's C++ sources live as new files in `third_party/scummvm/engines/scumm/speedrun/` and are exported into `patches/`. Hooks into existing engine files are limited to `module.mk`, `scumm.h` and `scumm.cpp` (see Phase 1).
+The bridge's C++ sources live as new files in `third_party/scummvm/engines/scumm/speedrun/` and are exported into `patches/`. Hooks into existing engine files are limited to `module.mk`, `scumm.h`, `scumm.cpp` and `input.cpp` (see Phase 1).
 
 Generated artifacts go to `out/` (gitignored):
 
@@ -112,7 +112,7 @@ Boot params use ScummVM's existing `--boot-param=N` command-line option, passed 
 
 **Stamping rule.** `onFrameBegin(delta)` first observes the completed previous frame and stamps every observation-derived record with the counters *before* adding `delta`. That covers the goal check, `segment_start` (when checked there), `stall`, `saveload` and per-frame diffs. Only then does it add `delta` and increment `frame`.
 
-Records emitted from `onDecisionPoint` describe the current frame and use the counters *after* the add. Those are `step_start`, `choice`, `click`, `interrupt` and `interrupt_end`, plus `segment_start` when it is decided at the decision point. `max_ticks` fires once `tick >= max` after the add.
+Records emitted from `onDecisionPoint` describe the current frame and use the counters *after* the add. Those are `step_start`, `choice`, `click`, `interrupt`, `interrupt_end`, `clicks_cleared` and `defer`, plus `segment_start` when it is decided at the decision point. `max_ticks` fires once `tick >= max` after the add.
 
 `skip` records are input for the current frame too: `onFrameBegin` writes them after the add, when it presses the key that `processInput()` reads later in the same frame. They carry the counters *after* the add.
 
@@ -181,7 +181,7 @@ A menu the plan does not answer may be an interrupt (C1 `SPEEDRUN_INTERRUPTS`). 
 ### C5. Trace JSONL (`$SPEEDRUN_OUT/trace.jsonl`)
 
 ```json
-{"type":"boot","tick":0,"frame":0,"bridge":"speedrun-bridge v1","game":"monkey","variant":"Mac","fast":true,"audio_pump":true,"seed":1,"boot_param":0}
+{"type":"boot","tick":0,"frame":0,"bridge":"speedrun-bridge v2","game":"monkey","variant":"Mac","fast":true,"audio_pump":true,"seed":1,"boot_param":0}
 {"type":"segment_start","tick":812,"frame":203,"tick0":812,"room":33}
 {"type":"step_start","step":0,"tick":830,"frame":207,"action":"walk dock lookout","room":33,"sentence":[11,426,0]}
 {"type":"click","step":4,"tick":2000,"frame":400,"verb_id":7}
@@ -192,6 +192,8 @@ A menu the plan does not answer may be an interrupt (C1 `SPEEDRUN_INTERRUPTS`). 
 {"type":"skip","tick":13800,"frame":2300,"kind":"text","step":7,"room":33,"talker":1,"wait_slot":5,"wait_script":14,"talk_delay":54}
 {"type":"interrupt","tick":30543,"frame":5110,"name":"map-pirate","step":56,"room":49,"restart":true}
 {"type":"interrupt_end","tick":30585,"frame":5117,"name":"map-pirate","step":56,"room":85,"restart":true}
+{"type":"clicks_cleared","tick":13405,"frame":2242,"step":12,"room":52,"count":1,"script":202}
+{"type":"defer","tick":13405,"frame":2242,"reason":"clicks_cleared","step":13,"room":52}
 {"type":"goal","tick":90210,"frame":21000,"ticks_from_start":89398}
 {"type":"error","tick":5000,"frame":901,"step":3,"code":"room_mismatch","message":"expected room 41, ego in 28"}
 {"type":"end","tick":90270,"frame":21010,"reason":"goal","room":33,"audio_frames":33169500,"music_timer":12,"vars_fnv1a":"9f3c1a2b"}
@@ -215,10 +217,13 @@ A menu the plan does not answer may be an interrupt (C1 `SPEEDRUN_INTERRUPTS`). 
 - **Phase 8 fields:**
   - `segment_start` carries `var19` (6), `var37` (`VAR_CHARINC`: 0 at talkspeed 255, 7 at 60), `var24` (`VAR_CUTSCENEEXIT_KEY`, 27) and `var57` (`VAR_TALKSTOP_KEY`, 46).
   - `step_end` carries `skips: {"text": n, "cutscene": m}`, the `skip` records whose `step` is this step.
-  - A `step_start` with `"restart": true` is a step an interrupt made start over. Readers keep the first `step_start` of a step: its `step_end` changes, and its duration, count from there.
+  - A `step_start` with `"restart": true` is a step an interrupt made start over. Readers keep the first `step_start` of a step: its `step_end` changes, its `step_end` `ticks` and its duration count from there.
   - A `choice` with `"interrupt": <name>` answered an interrupt's menu, not one of the step's.
   - `skip`: `kind` is `text` or `cutscene`; `step` is the active or pending step (omitted without a plan, or after its last step). Cutscene skips add `level`, `slot`, `script` and `offs` (the override's cutscene level, script slot, script number and recorded PC), `userput` and `var19`. Text skips add `talker` (`VAR_TALK_ACTOR`), `wait_slot`/`wait_script` when a script waits on the message, and `talk_delay`, the jiffies the line still had (an upper bound on the saving).
   - `interrupt` / `interrupt_end`: `name`, `step` (omitted after the last step), `room`, and `restart` (the interrupted step was active, so it starts over).
+- **Input fidelity (bridge v2, "Plan-player semantics as implemented"):**
+  - `clicks_cleared`: in a plan run, a frame in which `clearClickedStatus()` ran between `processInput()` and `checkExecVerbs()`, so a click a player made in that frame was wiped. Fields: `step` (as for `skip`), `room`, `count` (calls in that frame) and `script` (the script running at the first call, omitted if none). On the route the calls come from `doSentence(STOP)`: global 6 at every room entry (`global/script-006.txt [0065]`, `VAR_ENTRY_SCRIPT2`), globals 18 and 19 at a cutscene's start and end (`global/script-018.txt [0010]`, `global/script-019.txt [0054]`), and circus local 202. It is written with or without skips.
+  - `defer`: the plan player had an input action ready (push, click, answer or interrupt), but this frame's input was used up, so the action waits for a later decision point. `reason` is `esc_frame` (a cutscene `skip` in this frame) or `clicks_cleared`; then `step` and `room`. There is at most one per frame, and never a `choice`, `click`, `step_start` or `interrupt` in the same frame.
 - **String escaping:** the bridge writes ASCII JSON. Bytes ≥ 0x80 in game text become `\u00XX`, the byte value in Latin-1. MI1's charset follows the DOS code-page layout, not Mac Roman: "Mêlée" is stored as `M\x88l\x82e` (`room-030-store/local-211.txt [0110]`). Python decodes text fields for display with one shared decoder, `speedrun.text.decode_game_text`: `s.encode("latin-1").decode("cp437")`, with `0x0F` mapped to `™`. Object names in `objects.json` and `steps.toml` are compared raw, as Latin-1 code points, and are never decoded.
 - **Dialogue matching:** `choose` substrings in plans must be pure ASCII, and the compiler rejects anything else. The bridge matches them case-insensitively against the visible verb text's raw bytes, after stripping escapes.
 - **Location:** the trace embeds game text through choice texts, so it lives under `out/` and is gitignored.
@@ -276,16 +281,21 @@ Stall `reason` values are:
 **Plan-player semantics as implemented (Task 1.3, `speedrun_plan.cpp`):**
 - **Dialogue idle.** A visible dialogue menu (verbs 120–128) can be answered whenever the engine's own click gate allows it: userput is on, there is no cutscene, and the input script is not running. Text, sentence and object scripts, fades and ego walking do not block a menu. For example, circus menu 1 is shown while local 205 keeps the brothers talking (`room-051-circus-te/local-207.txt [01F4]`–`[03A3]`). A guard prevents answering the same menu twice.
 - **One engine action per decision point:** a push, a click or an answer.
+- **Only where a player's click would count (bridge v2).** The plan player acts after `checkExecVerbs()` and stands in for a click that `checkExecVerbs()` would have taken. So it takes no input action (no push, click, menu answer or interrupt) in a frame whose input is used up. It sets a blocker and writes a `defer` record instead, and acts at the next decision point that allows it. Bookkeeping such as `step_end` still runs in that frame. A frame's input is used up in two cases:
+  - **`esc_frame`:** the bridge pressed Esc. `processKeyboard()` writes key 27 over the frame's mouse state (`input.cpp:1426`), so a player's earliest action after an Esc is the next frame.
+  - **`clicks_cleared`:** a script called `clearClickedStatus()` after `processInput()`, which zeroes `_mouseAndKeyboardStat` before `checkExecVerbs()` reads it (C5 `clicks_cleared`). Calls before `processInput()` (`parseEvents()` on quit) or after `checkExecVerbs()` (the fade-in in `scummLoop_handleEffects()`, the plan player's own input-script runs) do not count. `processInput()`'s own calls are in `processKeyboard()`: the DOS playback prompt and GUI keys the bot never presses.
+
+  The text skip `.` uses up nothing. It only sets `_talkDelay = 0`, and a click in the same frame still counts. The cost on the time plan (`out/plans/part1.time.jsonl`, seeds 1–10) is 6 `esc_frame` and 4 `clicks_cleared` deferrals per run, one frame (6 ticks) each. The mean total went from 22,331 to 22,393 ticks. Single seeds move by between −54 and +186 ticks, because the shifted frames change NPC and RNG timing: on seed 2 the storekeeper chats before the shovel deal.
 - **Sentence consumption.** A sentence counts as consumed at the first sentence-idle decision point after the push frame.
 - **Untouchable check** (class 32 → `untouchable_target`). Actors and objects in ego's inventory are exempt. Inventory clicks go through slot verbs, and inventory objects can carry class 32 (e.g. the drugged meat).
 - **`objects.json` verb names** are the unexpanded verb text. The rendered sentence line, verb 100, would otherwise duplicate "Walk to".
-- **Timeouts.** The step timeout counts from `step_start`. The post-plan wait counts from the later of the last `step_end` and `tick0`, and is not checked before segment start. A `step_timeout` message ends with `blocked by <reason>`, the reason a `stall` record gives at that decision point (e.g. `awaiting_menu`, `until`).
+- **Timeouts.** The step timeout counts from the latest `step_start`, a restart included. The post-plan wait counts from the later of the last `step_end` and `tick0`, and is not checked before segment start. A `step_timeout` message ends with `blocked by <reason>`, the reason a `stall` record gives at that decision point (e.g. `awaiting_menu`, `until`).
 - **`bad_plan` at load** (parse or range errors) has no `step` field; the message names the line or step.
 - **`unexpected_choice`** also covers a menu with no pending step to answer it.
-- **Extra record fields:** `step_end.ticks`; `click` carries `slot`, `inventory` and `offset`; `stall` carries `step`, `ego_pos` and `ego_box`. Stall reasons also include `until`, `awaiting_menu`, `menu_answered`, `dialog`, and `interrupt` (an interrupt's answers are done, but its `when` still holds).
+- **Extra record fields:** `step_end.ticks`, counted from the step's first `step_start`, like its `changes` (and the trace reader's duration). A step an interrupt made start over also carries `ticks_since_restart`, from its last `step_start`. `click` carries `slot`, `inventory` and `offset`; `stall` carries `step`, `ego_pos` and `ego_box`. Stall reasons also include `until`, `awaiting_menu`, `menu_answered`, `dialog`, `interrupt` (an interrupt's answers are done, but its `when` still holds), `esc_frame` and `clicks_cleared` (an action waited for a frame whose input was not used up).
 - **Goal mid-step.** If the goal fires during the last step, that step has no `step_end`. The goal record closes it.
 - **Interrupts (Task 8.2, `speedrun_interrupts.cpp`).** An interrupt is considered only where the player would otherwise fail with `unexpected_choice`: a menu is visible and the active step has no choose entry left, the pending step does not answer menus, or the plan is done. The first entry whose `when` holds is started: an `interrupt` record, then its `choose` entries answer this menu and the following ones, one per menu (`choice` records with `interrupt`). A menu after they are exhausted is `unexpected_choice`. The interrupt ends on the first sentence-idle decision point after its last answer at which `when` no longer holds; a sentence-idle frame can still come in the interrupt's own room, before the game moves ego back. Then `interrupt_end` is recorded and the plan carries on:
-  - **Active step:** it starts over from the beginning (room check, `until`, then its sentence or clicks again), with a `step_start` that has `"restart": true`. Its `step_end` changes still count from its first start, and its step timeout restarts. This is sound for the steps an interrupt can cut short. The room change into the interrupt kills the room's object scripts (`startScene` → `killScriptsAndResources`), so a map walk whose verb script had not yet loaded the next room never happened, and ego is back where he stood (`global/script-114.txt [006E]`–`[0079]`). Verified on seed 164: the encounter came as ego reached the fork; after the escape, the re-pushed Walk to fork loaded room 218 in 42 ticks, and the next steps ran as planned. If ego ends up elsewhere, the restart fails with `room_mismatch`, which is the honest outcome.
+  - **Active step:** it starts over from the beginning (room check, `until`, then its sentence or clicks again), with a `step_start` that has `"restart": true`. Its `step_end` changes and `ticks` still count from its first start (`ticks_since_restart` from the restart), and its step timeout restarts. This is sound for the steps an interrupt can cut short. The room change into the interrupt kills the room's object scripts (`startScene` → `killScriptsAndResources`), so a map walk whose verb script had not yet loaded the next room never happened, and ego is back where he stood (`global/script-114.txt [006E]`–`[0079]`). Verified on seed 164 (bridge v1; seed 292 since v2): the encounter came as ego reached the fork; after the escape, the re-pushed Walk to fork loaded room 218 in 42 ticks, and the next steps ran as planned. If ego ends up elsewhere, the restart fails with `room_mismatch`, which is the honest outcome.
   - **Pending step** (the previous step completed its sentence): it starts as usual. Nothing was pushed, so there is nothing to redo.
   - **After the last step:** the run goes back to waiting for the goal.
   - The interrupt shares the step timeout, counted from its start.
@@ -476,6 +486,11 @@ The engine facts behind this phase are in `docs/research/engine-bridge.md`, and 
   - in `waitForTimer`, change `if (_fastMode & 2)` to `if ((_fastMode & 2) || (_speedrun && _speedrun->skipWaits()))`
   - first line of `scummLoop`: `if (_speedrun) _speedrun->onFrameBegin(delta);`
   - immediately before `checkAndRunSentenceScript();`: `if (_speedrun) _speedrun->onDecisionPoint();`
+- `input.cpp` (added with bridge v2, for the plan player's input fidelity):
+  - `#include "scumm/speedrun/speedrun_bridge.h"`
+  - first line of `ScummEngine::clearClickedStatus()`: `if (_speedrun) _speedrun->onClearClicked();`
+
+  No hook-free way exists. After `processInput()` in a bridge run, `_keyPressed`, `_mouseAndKeyboardStat` and the `msClicked` bits already hold the values a clear writes, so a clear leaves no trace in them. The only other field it writes, `_mouseWheelFlag`, would need a planted sentinel, and that sentinel dismisses an original-GUI banner (`waitForBannerInput`).
 
 **Switches.** These are the C1 environment variables, read with `getenv` in a file that defines `FORBIDDEN_SYMBOL_EXCEPTION_getenv` (precedent: `engines/director/score.cpp:22`). `SPEEDRUN_SEED` is dropped. The seed is passed as ScummVM's own `--random-seed=N` (`base/commandLine.cpp:980`).
 
@@ -529,7 +544,7 @@ It returns `kIdleDialog` when any visible (`verbid && saveid == 0 && curmode == 
 
 It writes `objects.json` (C6) and quits with `end` reason `dump_done`. Because the process quits right after, loading rooms cannot perturb a measured run.
 
-**Marker.** `speedrun_bridge.cpp` contains `static const char kBridgeMarker[] = "speedrun-bridge v1";` and writes it into the `boot` record. `tests/conftest.py::engine_ready` greps the binary for `speedrun-bridge`.
+**Marker.** `speedrun_bridge.cpp` contains `static const char kBridgeMarker[] = "speedrun-bridge v2";` and writes it into the `boot` record. `tests/conftest.py::engine_ready` greps the binary for `speedrun-bridge`. The version goes up with every change that can move run timing, because measurements of different bridges are never pooled (`speedrun.costing`). v2 added the plan player's input fidelity (`esc_frame`, `clicks_cleared`, "Plan-player semantics as implemented") and moved route totals by a few frames.
 
 **Plan player timeline.** The plan player is active from boot, so it can answer an opening dialogue if the game has one before Part I control. The segment start (C1 `SPEEDRUN_START`, checked on idle frames only) is a timing marker: it records `tick0` and writes `state-start.json`. The goal is checked once per frame in `onFrameBegin`, on the completed previous frame. When every goal condition holds, the bridge writes the `goal` record and `state-end.json`, then quits immediately.
 
@@ -549,7 +564,7 @@ It writes `objects.json` (C6) and quits with `end` reason `dump_done`. Because t
 
 - [ ] TDD (Python unit): update the engine unit tests for the new argv, env and ini (red), then change `engine.py` (green).
 - [ ] TDD (integration, red first): `test_bridge_boots_and_stops_at_max_ticks` runs a patched headless engine with `max_ticks=1800` and `fast=True`. Assert:
-  - `trace.jsonl` has a first record `{"type":"boot",…,"bridge":"speedrun-bridge v1"}`;
+  - `trace.jsonl` has a first record `{"type":"boot",…,"bridge":"speedrun-bridge v2"}` (v1 until the v2 bump);
   - the last record is `{"type":"end","reason":"max_ticks"}` with `tick >= 1800`;
   - the process exited by itself (not timed out);
   - wall time is under 20 s;
@@ -618,7 +633,7 @@ It writes `objects.json` (C6) and quits with `end` reason `dump_done`. Because t
 - [ ] Run `scripts/export-patches.sh`.
 - [ ] Run `scripts/build-scummvm.sh` from a pristine submodule (reset + apply).
 - [ ] Run the full integration suite.
-- [ ] Run `git -C third_party/scummvm diff --stat v2026.3.0`. It must show only `module.mk`, `scumm.h`, `scumm.cpp` and `speedrun/*`.
+- [ ] Run `git -C third_party/scummvm diff --stat v2026.3.0`. It must show only `module.mk`, `scumm.h`, `scumm.cpp`, `speedrun/*` and, from bridge v2 on, `input.cpp`.
 
 **Phase 1 commits:** `feat: add speedrun bridge skeleton with tick clock and tick-locked audio`, `feat: add object, state and goal dumps to speedrun bridge`, `feat: add plan player to speedrun bridge`.
 
@@ -919,7 +934,7 @@ To keep the surrogate faithful:
 - **Injection.** `onFrameBegin` writes `_keyPressed` after `neutraliseInput()`, so `processInput()` reads it later in the same frame through the engine's own key path (`processKeyboard`). Nothing is pressed before `segment_start`. One key per frame: Esc first, `.` only on a frame without Esc. Every press writes a `skip` record (C5 fields), stamped after the add (C2).
 - **Esc** is pressed exactly when `abortCutscene()` would find a live override at the current cutscene level, level 0 included (five route overrides have no enclosing `cutscene()`, `docs/part1/skips.md` §0):
   - var 24 (`VAR_CUTSCENEEXIT_KEY`) is non-zero;
-  - `_userPut <= 0`, so key 27 never reaches an input script. Every route override runs with input off;
+  - `_userPut <= 0` at the press. Every route override runs with input off. Key 27 can still reach an input script when the skip path turns input back on later in the same frame: `room-051-circus-te/local-207.txt [0894]` `startScript(32)` (`UserputOn`), `[0D59]` `UserputOn`, and global 19's `UserputSoftOn` at `endCutscene`. A player's Esc does the same, and it is harmless: input script 4 hands key 27 to script 20, which only sets `Var[105] = 0` (`global/script-004.txt [02B5]`, `global/script-020.txt [001E]`), and dialogue script 14 has no handler for it. But the Esc uses up the frame's input, so the plan player waits for the next frame (`esc_frame`, "Plan-player semantics as implemented");
   - `cutScenePtr[cutSceneStackPointer] != 0`;
   - the script that set the override is alive, in the same slot (same number, `where` and, for room code, room) as when the pointer appeared. A latch makes a stale pointer, whose script ended without `endOverride`, never pressable;
   - the byte at the recorded PC is the override's `goto` (`0x18`).
@@ -984,7 +999,7 @@ Also split one-shot actions whose duration differs from later repeats:
 - **As built.**
   - Skips, `no_skip`, `override_choose`, the `timer_next` check and `SPEEDRUN_STEP_STATES` are in the bridge (Phase 8, "Contracts").
   - Interrupts are in the bridge (C1 `SPEEDRUN_INTERRUPTS`, "Plan-player semantics as implemented") and in `segment.toml` (`map-pirate`).
-  - Tests: `tests/integration/test_skips.py`, `test_interrupts.py` (seed 164 meets the map pirate) and `test_skip_safety.py`, the harness.
+  - Tests: `tests/integration/test_skips.py`, `test_interrupts.py` (seed 292 meets the map pirate; 164 before bridge v2) and `test_skip_safety.py`, the harness.
 
 ### Task 8.3: Measurement and costing (Python, TDD)
 
@@ -1016,6 +1031,19 @@ Also split one-shot actions whose duration differs from later repeats:
    - `pddl/<segment>/measured-costs.json` (committed: the cost table with sample counts, as derived data);
    - `docs/optimization.md` (committed: method, iterations, candidates, per-seed statistics, chosen plan).
 5. `speedrun run`/`demo` use the time-optimal plan when it exists and is fresh, and print which objective they use. `--objective actions|time` overrides this.
+
+**As built: the position-keyed surrogate** (`--keyed`, the default; `--no-keyed` is the pooled-mean surrogate above).
+- **Anchors** (`speedrun.positions`). Every ground action leaves ego at a position token, derived from the PDDL `(at …)` effects and `steps.toml`, failing loudly on ambiguity:
+  - a room change (every `walk*`, cutscenes included) leaves `entry:<from>:<to>`;
+  - otherwise the last sentence step's room object leaves `obj:<room>:<id>`, `obj2` first (global script 2 walks to `obj` only while it lies in the room, and the class-7 auto pick-up chains on to `obj2`);
+  - inventory-only, dialogue-only and click-only actions leave the position unchanged.
+  The segment starts at `start`.
+- **Contexts.** An action's context is the token before it, derived from the plan in Python (`measure` adds it to every instance), never from the engine. The cost table pools samples per (action, context) and saves them under `"contexts"` in `measured-costs.json`.
+- **Keyed domain** (`speedrun.keyed`, `docs/research/fd-costs.md` §4(b) with position tokens): `(ego-pos ?p - pos)`, static `(pos-in-room ?p ?r)` and `(link-entry ?from ?to ?p)`, a `?ctx - pos` parameter and a per-instance cost function on every keyed action. `apply_costs` values every ground instance, so none is silently dropped, and checks the g budget. With every cost at 1, the keyed model plans the unit model's 66 (test).
+- **Unmeasured pairs** cost the action's minimum measured duration: an optimistic guess that makes the loop measure them, not a proven bound.
+- **Selective keying** (`--key-rooms flagged`, the default). Only rooms whose actions vary with the position more than across seeds are keyed; the others share one `any` context and pooled means. On the real model with measured costs (single draws, variable machine load), 9 flagged rooms took 3–4× the unkeyed planning time and full keying 6.5–8.7×: 4.7 / 15 / 31 s on the v1 table, 5.1 / 20 / 44 s on the v2 smoke table. Flagged and full keying found the same plan both times.
+- **Reuse** (`--reuse`). Earlier `out/measure` and `out/optimize` summaries are pooled first, when they share the skips, engine pins and the binary's bridge marker. Runs on the report seeds are never pooled.
+- **Candidates** add the pooled-mean plan and `--perturb 0.1` plans: mean costs each multiplied by U[0.9, 1.1], with a fixed seed.
 
 ### Task 8.5: Replay debugging with skips
 

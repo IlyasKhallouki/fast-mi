@@ -36,7 +36,7 @@ def _write(tmp_path: Path, records: list[dict], name: str = "trace.jsonl") -> Pa
     return path
 
 
-BOOT = {"type": "boot", "tick": 0, "frame": 0, "bridge": "speedrun-bridge v1", "audio_pump": True}
+BOOT = {"type": "boot", "tick": 0, "frame": 0, "bridge": "speedrun-bridge v2", "audio_pump": True}
 
 
 # --- load_trace: the ok trace ------------------------------------------------
@@ -44,7 +44,7 @@ BOOT = {"type": "boot", "tick": 0, "frame": 0, "bridge": "speedrun-bridge v1", "
 
 def test_ok_trace_records():
     t = _load("ok.jsonl")
-    assert t.boot["bridge"] == "speedrun-bridge v1"
+    assert t.boot["bridge"] == "speedrun-bridge v2"
     assert t.boot["audio_pump"] is True
     assert t.segment_start["tick0"] == 1000
     assert t.goal == {"type": "goal", "tick": 2360, "frame": 515, "ticks_from_start": 1360}

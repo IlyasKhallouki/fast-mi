@@ -1,4 +1,4 @@
-{"type":"boot","tick":0,"frame":0,"bridge":"speedrun-bridge v1","game":"toygame","variant":"Synthetic","fast":true,"audio_pump":true,"seed":1,"boot_param":0}
+{"type":"boot","tick":0,"frame":0,"bridge":"speedrun-bridge v2","game":"toygame","variant":"Synthetic","fast":true,"audio_pump":true,"seed":1,"boot_param":0}
 {"type":"segment_start","tick":300,"frame":75,"tick0":300,"room":102}
 {"type":"step_start","step":0,"tick":310,"frame":78,"action":"buy-ledger","room":102,"sentence":[13,511,0]}
 {"type":"choice","step":0,"tick":400,"frame":100,"verb_id":121,"text":"a cr\u0088pe and a caf\u0082"}

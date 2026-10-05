@@ -67,8 +67,8 @@ patched ScummVM (engines/scumm/speedrun/) ──► out/runs/<ts>/trace.jsonl �
 ```
 
 - **Engine bridge.** `patches/0001-scumm-add-speedrun-bridge.patch` adds new files under
-  `engines/scumm/speedrun/` and changes about a dozen lines in `module.mk`, `scumm.h` and
-  `scumm.cpp`. It is configured through `SPEEDRUN_*` environment variables, listed in
+  `engines/scumm/speedrun/` and changes about a dozen lines in `module.mk`, `scumm.h`,
+  `scumm.cpp` and `input.cpp`. It is configured through `SPEEDRUN_*` environment variables, listed in
   `docs/plan.md` C1, and does nothing unless `SPEEDRUN_OUT` is set.
 - **Timing** is in engine ticks (1/60 s jiffies, summed over engine frames), never wall-clock
   time. Audio is advanced in ticks, so headless and windowed runs give the same count. The

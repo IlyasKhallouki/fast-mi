@@ -1,9 +1,15 @@
 """Task 8.2: text and cutscene skips on the real engine (docs/plan.md Phase 8).
 
-Every test replays the same compiled prefix of the Part I plan, from the dock
+Most tests replay the same compiled prefix of the Part I plan, from the dock
 through the first bar exit (the LeChuck "meanwhile" cutscene, global script
 120) to the circus tent, under different skip switches. The runs are shared by
 the module and start in parallel.
+
+The input-fidelity tests also replay the full plan with skips on seeds 1-3: the
+plan player never acts in a frame whose input a player could not use, because an
+Esc took it (processKeyboard() writes key 27 over any click of the frame,
+input.cpp) or a script cleared it before checkExecVerbs() (clicks_cleared, e.g.
+global/script-019.txt [0054] doSentence(STOP) at a cutscene's end).
 """
 
 import json
@@ -11,6 +17,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
+from _pipeline import CompiledRoute, describe, run_route
 
 from speedrun.compiler import ObjectIndex, compile_plan, load_steps, write_jsonl
 from speedrun.engine import EngineConfig, run_engine
@@ -181,7 +188,7 @@ def test_skip_cutscene_shortens_first_bar_exit(runs, prefix_plans):
     (index,) = [i for i, s in enumerate(steps) if s["action"] == MEANWHILE]
     lechuck = [r for r in _skips(runs["cutscenes"], "cutscene") if r.get("step") == index]
     assert [r["script"] for r in lechuck] == [120], lechuck
-    assert lechuck[0]["userput"] <= 0 and lechuck[0]["var19"] == VAR19_EXPECTED, lechuck
+    assert lechuck[0]["var19"] == VAR19_EXPECTED, lechuck
     (end,) = [r for r in _of_type(runs["cutscenes"], "step_end") if r["step"] == index]
     assert end["skips"] == {"text": 0, "cutscene": 1}, end
     assert end["room"] == 33  # global/script-120.txt [0538] loadRoomWithEgo(428,33) on both paths
@@ -216,3 +223,86 @@ def test_skips_deterministic(runs):
     assert _skips(a) == _skips(b)
     assert _of_type(a, "step_end") == _of_type(b, "step_end")
     assert a[-1] == b[-1]
+
+
+# --- Input fidelity: the plan player acts only where a player's click would count ---
+
+ROUTE_SEEDS = (1, 2, 3)
+# The plan player's input actions (docs/plan.md, "Plan-player semantics as implemented").
+ACTIONS = ("choice", "click", "step_start", "interrupt")
+CUTSCENE_END_SCRIPT = 19  # global/script-019.txt [0054] doSentence(STOP) -> clearClickedStatus()
+
+
+@pytest.fixture(scope="module")
+def route_runs(full_route_compiled: CompiledRoute, tmp_path_factory, home_scummvm_guard_factory) -> dict:
+    """The full plan with skips on ROUTE_SEEDS (in parallel): seed -> trace records."""
+    base = tmp_path_factory.mktemp("skips-route")
+
+    def run(seed: int) -> list[dict]:
+        out_dir = base / f"seed-{seed}"
+        trace = run_route(full_route_compiled, out_dir, seed).trace
+        assert trace.reached_goal and trace.errors == [], describe(trace, out_dir)
+        return _read(out_dir)
+
+    with home_scummvm_guard_factory(), ThreadPoolExecutor(max_workers=len(ROUTE_SEEDS)) as pool:
+        return dict(zip(ROUTE_SEEDS, pool.map(run, ROUTE_SEEDS)))
+
+
+def _actions_in(records: list[dict], frames: set[int]) -> list[tuple]:
+    return [(r["frame"], r["type"], r.get("step")) for r in records if r["type"] in ACTIONS and r["frame"] in frames]
+
+
+def _esc_frames(records: list[dict]) -> set[int]:
+    return {r["frame"] for r in _skips(records, "cutscene")}
+
+
+def _cleared_frames(records: list[dict]) -> set[int]:
+    return {r["frame"] for r in _of_type(records, "clicks_cleared")}
+
+
+def _defers(records: list[dict], reason: str) -> list[dict]:
+    return [r for r in _of_type(records, "defer") if r["reason"] == reason]
+
+
+def test_no_plan_action_in_an_esc_frame_prefix(runs):
+    # An Esc is the frame's input: processKeyboard() sets _mouseAndKeyboardStat to key 27
+    # after the mouse state (input.cpp:1426), so a click in the same frame never reaches
+    # checkExecVerbs(). The earliest a player can act after an Esc is the next frame.
+    for name, records in runs.items():
+        assert _actions_in(records, _esc_frames(records)) == [], name
+
+
+@pytest.mark.requires_fd
+@pytest.mark.slow
+@pytest.mark.parametrize("seed", ROUTE_SEEDS)
+def test_no_plan_action_in_an_esc_frame_full_route(route_runs, seed):
+    records = route_runs[seed]
+    esc = _esc_frames(records)
+    assert esc, "no cutscene skips on the full route"
+    assert _actions_in(records, esc) == []
+    # The gate is exercised: some frames had an action ready and waited for the next one.
+    deferred = _defers(records, "esc_frame")
+    assert deferred and {r["frame"] for r in deferred} <= esc, deferred
+
+
+def test_no_plan_action_in_a_frame_whose_clicks_were_cleared_prefix(runs):
+    # With and without skips: global 19 runs at every endCutscene() of a cutscene([...]).
+    for name, records in runs.items():
+        cleared = _of_type(records, "clicks_cleared")
+        assert any(r.get("script") == CUTSCENE_END_SCRIPT for r in cleared), (name, cleared[:5])
+        assert _actions_in(records, _cleared_frames(records)) == [], name
+
+
+@pytest.mark.requires_fd
+@pytest.mark.slow
+@pytest.mark.parametrize("seed", ROUTE_SEEDS)
+def test_no_plan_action_in_a_frame_whose_clicks_were_cleared_full_route(route_runs, seed):
+    # A script that calls clearClickedStatus() between processInput() and checkExecVerbs()
+    # (o5_doSentence(STOP), script_v5.cpp) wipes a click a player made in that frame, so
+    # the plan player, which acts after checkExecVerbs(), must wait for the next frame.
+    records = route_runs[seed]
+    cleared = _of_type(records, "clicks_cleared")
+    assert any(r.get("script") == CUTSCENE_END_SCRIPT for r in cleared), cleared[:5]
+    assert _actions_in(records, _cleared_frames(records)) == []
+    deferred = _defers(records, "clicks_cleared")
+    assert deferred and {r["frame"] for r in deferred} <= _cleared_frames(records), deferred

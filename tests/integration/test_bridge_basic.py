@@ -12,7 +12,7 @@ import pytest
 from speedrun import engine
 from speedrun.engine import EngineConfig, build_argv, build_env, run_engine, write_ini
 
-BRIDGE_VERSION = "speedrun-bridge v1"
+BRIDGE_VERSION = "speedrun-bridge v2"
 END_FINGERPRINT = ("room", "audio_frames", "music_timer", "vars_fnv1a")
 
 

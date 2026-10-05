@@ -1,3 +1,23 @@
+diff --git a/engines/scumm/input.cpp b/engines/scumm/input.cpp
+index ecef09cf..a3302152 100644
+--- a/engines/scumm/input.cpp
++++ b/engines/scumm/input.cpp
+@@ -42,6 +42,7 @@
+ #include "scumm/scumm_v6.h"
+ #include "scumm/scumm_v8.h"
+ #include "scumm/sound.h"
++#include "scumm/speedrun/speedrun_bridge.h"
+ #include "scumm/dialogs.h"
+ 
+ #include "graphics/cursorman.h"
+@@ -375,6 +376,7 @@ void ScummEngine_v90he::processInput() {
+ #endif
+ 
+ void ScummEngine::clearClickedStatus() {
++	if (_speedrun) _speedrun->onClearClicked();
+ 	_keyPressed.reset();
+ 
+ 	_mouseAndKeyboardStat = 0;
 diff --git a/engines/scumm/module.mk b/engines/scumm/module.mk
 index 2cee05ab..a1352c86 100644
 --- a/engines/scumm/module.mk
@@ -110,10 +130,10 @@ index ae7b4bb7..816bf55d 100644
  
 diff --git a/engines/scumm/speedrun/speedrun_bridge.cpp b/engines/scumm/speedrun/speedrun_bridge.cpp
 new file mode 100644
-index 00000000..c8c9b189
+index 00000000..117af1c5
 --- /dev/null
 +++ b/engines/scumm/speedrun/speedrun_bridge.cpp
-@@ -0,0 +1,555 @@
+@@ -0,0 +1,602 @@
 +/* ScummVM - Graphic Adventure Engine
 + *
 + * ScummVM is the legal property of its developers, whose names
@@ -154,8 +174,11 @@ index 00000000..c8c9b189
 +namespace Scumm {
 +
 +// Written into every boot record. The test harness also greps the binary for
-+// "speedrun-bridge" to tell a patched build from a stock one.
-+static const char kBridgeMarker[] = "speedrun-bridge v1";
++// "speedrun-bridge" to tell a patched build from a stock one. Bump the version
++// whenever a change can move run timing: measurements of different bridges
++// are never pooled (speedrun.costing). v2: no plan action in a frame whose
++// input an Esc or a click clear used up (C5 defer).
++static const char kBridgeMarker[] = "speedrun-bridge v2";
 +
 +static const char kTraceName[] = "trace.jsonl";
 +
@@ -364,6 +387,12 @@ index 00000000..c8c9b189
 +}
 +
 +void SpeedrunBridge::onFrameBegin(int delta) {
++	// This frame's input is unused so far (see onClearClicked()).
++	_inputWindow = false;
++	_escThisFrame = false;
++	_clearsThisFrame = 0;
++	_clearScript = -1;
++	_deferWritten = false;
 +	if (_finished)
 +		return;
 +
@@ -383,6 +412,7 @@ index 00000000..c8c9b189
 +	//    delta jiffies of audio play.
 +	neutraliseInput();
 +	maybeInjectSkip(delta);
++	_inputWindow = true; // processInput() comes next
 +	if (_pumpAudio)
 +		pumpAudio(delta);
 +
@@ -424,9 +454,46 @@ index 00000000..c8c9b189
 +	maybeReportStall();
 +}
 +
++void SpeedrunBridge::onClearClicked() {
++	// A player's click of this frame lives in _mouseAndKeyboardStat from
++	// processInput() (which also clears _leftBtnPressed's msClicked) until
++	// checkExecVerbs() reads it. clearClickedStatus() in between, e.g. global
++	// 19's doSentence(STOP) at a cutscene's end (script_v5.cpp
++	// o5_doSentence(); global/script-019.txt [0054]), zeroes it: no click of
++	// this frame counts. The plan player acts after checkExecVerbs(), so it
++	// must wait for the next frame too (C5 clicks_cleared, defer).
++	//
++	// Only calls in that stretch count, so only calls from onFrameBegin() to
++	// onDecisionPoint(). Earlier ones (parseEvents() on quit) and later ones
++	// (the fade-in in scummLoop_handleEffects(); the plan player's own input
++	// script runs) come before the click is read or after it was taken. The
++	// window also holds processInput() itself, whose own calls are in
++	// processKeyboard(): the DOS playback prompt (input.cpp) and GUI keys the
++	// bot never presses (it presses only '.' and Esc).
++	if (_finished || !_inputWindow)
++		return;
++	if (_clearsThisFrame++ == 0) {
++		const int cur = _vm->_currentScript;
++		_clearScript = cur != 0xFF ? (int)_vm->vm.slot[cur].number : -1;
++	}
++}
++
 +void SpeedrunBridge::onDecisionPoint() {
++	_inputWindow = false; // checkExecVerbs() has run
 +	if (_finished)
 +		return;
++
++	// Diagnostic for plan runs: this frame's clicks were cleared before
++	// checkExecVerbs() (onClearClicked()).
++	if (_hasPlan && _clearsThisFrame > 0) {
++		JsonObject rec = record("clicks_cleared");
++		if (errorStep() >= 0)
++			rec.add("step", errorStep());
++		rec.add("room", (int)_vm->_currentRoom).add("count", _clearsThisFrame);
++		if (_clearScript >= 0)
++			rec.add("script", _clearScript);
++		writeRecord(rec);
++	}
 +
 +	// Where checkExecVerbs() has just handled this frame's clicks, so idle
 +	// here means "a click now would be taken in this frame".
@@ -671,10 +738,10 @@ index 00000000..c8c9b189
 +} // End of namespace Scumm
 diff --git a/engines/scumm/speedrun/speedrun_bridge.h b/engines/scumm/speedrun/speedrun_bridge.h
 new file mode 100644
-index 00000000..0538ec8f
+index 00000000..7cce6b1e
 --- /dev/null
 +++ b/engines/scumm/speedrun/speedrun_bridge.h
-@@ -0,0 +1,384 @@
+@@ -0,0 +1,407 @@
 +/* ScummVM - Graphic Adventure Engine
 + *
 + * ScummVM is the legal property of its developers, whose names
@@ -788,6 +855,7 @@ index 00000000..0538ec8f
 + *  - scummLoop(), first statement:            onFrameBegin(delta)
 + *  - scummLoop(), before checkAndRunSentenceScript(): onDecisionPoint()
 + *  - waitForTimer():                          skipWaits()
++ *  - clearClickedStatus() (input.cpp), first statement: onClearClicked()
 + *  - ~ScummEngine(), first statement:         delete
 + *
 + * Environment (contract C1; all read once, in create()):
@@ -831,6 +899,11 @@ index 00000000..0538ec8f
 +	void onDecisionPoint();
 +	/** waitForTimer(): true skips the real-time wait (SPEEDRUN_FAST). */
 +	bool skipWaits() const { return _skipWaits; }
++	/**
++	 * First statement of clearClickedStatus(). Counts the calls that wipe a
++	 * click a player made this frame (speedrun_bridge.cpp).
++	 */
++	void onClearClicked();
 +
 +private:
 +	enum IdleKind { kNotIdle, kIdleSentence, kIdleDialog };
@@ -934,6 +1007,14 @@ index 00000000..0538ec8f
 +	const Common::String &chooseAt(const SpeedrunStep &st, uint i) const;
 +	/** Answer the visible menu with @p needle; records a choice (with @p interrupt if set). */
 +	bool clickChoice(const Common::String &needle, const char *interrupt);
++	/**
++	 * Called right before an input action (push, click, answer, interrupt).
++	 * True if this frame's input is used up, as it is for a player: Esc was
++	 * pressed (esc_frame), or a script cleared the clicks before
++	 * checkExecVerbs() (clicks_cleared). Then it sets that blocker and
++	 * writes a defer record (once per frame), and the action waits.
++	 */
++	bool inputUsedUp();
 +
 +	// Interrupts (speedrun_interrupts.cpp)
 +	/**
@@ -1016,7 +1097,9 @@ index 00000000..0538ec8f
 +	bool _planDone = false;
 +	uint64 _planDoneTick = 0;
 +	uint64 _stepWaitSince = 0;      // when the pending step became next
-+	uint64 _stepStartTick = 0;
++	uint64 _stepStartTick = 0;      // the latest step_start (restarts too): the step timeout counts from here
++	uint64 _stepFirstStartTick = 0; // the step's first step_start: step_end ticks count from here
++	bool _stepRestarted = false;    // an interrupt made the active step start over
 +	uint _clickIndex = 0;           // next click of the active step
 +	uint _chooseIndex = 0;          // next choose entry of the active step
 +	bool _menuAnswered = false;     // an answered menu has not gone away yet
@@ -1030,6 +1113,13 @@ index 00000000..0538ec8f
 +	// Interrupts
 +	int _interrupt = -1;            // the running interrupt, or -1
 +	uint _interruptChoose = 0;      // its next choose entry
++
++	// This frame's input (C5 clicks_cleared, defer; speedrun_bridge.cpp)
++	bool _inputWindow = false;      // from onFrameBegin() to onDecisionPoint(): processInput() .. checkExecVerbs()
++	bool _escThisFrame = false;     // maybeInjectSkip() pressed Esc this frame
++	int _clearsThisFrame = 0;       // clearClickedStatus() calls in the window
++	int _clearScript = -1;          // the script running at the first of them, or -1
++	bool _deferWritten = false;     // a defer record for this frame is written
 +
 +	// Skips
 +	struct OverrideSeen {           // the live override at the current cutscene level
@@ -1355,10 +1445,10 @@ index 00000000..f60caba5
 +} // End of namespace Scumm
 diff --git a/engines/scumm/speedrun/speedrun_interrupts.cpp b/engines/scumm/speedrun/speedrun_interrupts.cpp
 new file mode 100644
-index 00000000..cef4a81d
+index 00000000..5b6823f9
 --- /dev/null
 +++ b/engines/scumm/speedrun/speedrun_interrupts.cpp
-@@ -0,0 +1,133 @@
+@@ -0,0 +1,137 @@
 +/* ScummVM - Graphic Adventure Engine
 + *
 + * ScummVM is the legal property of its developers, whose names
@@ -1416,6 +1506,10 @@ index 00000000..cef4a81d
 +	for (uint i = 0; i < _interrupts.size(); i++) {
 +		if (!allHold(_interrupts[i].when))
 +			continue;
++		// Its answer is this decision point's action: with the frame's input
++		// used up, the interrupt starts next frame (nothing recorded yet).
++		if (inputUsedUp())
++			return true;
 +		_interrupt = (int)i;
 +		_interruptChoose = 0;
 +		if (_stepActive) {
@@ -1796,10 +1890,10 @@ index 00000000..6976afbc
 +#endif
 diff --git a/engines/scumm/speedrun/speedrun_plan.cpp b/engines/scumm/speedrun/speedrun_plan.cpp
 new file mode 100644
-index 00000000..14f3275f
+index 00000000..19bf16e8
 --- /dev/null
 +++ b/engines/scumm/speedrun/speedrun_plan.cpp
-@@ -0,0 +1,490 @@
+@@ -0,0 +1,530 @@
 +/* ScummVM - Graphic Adventure Engine
 + *
 + * ScummVM is the legal property of its developers, whose names
@@ -1922,6 +2016,8 @@ index 00000000..14f3275f
 +void SpeedrunBridge::runPlan() {
 +	// One engine action (push, click or answer) per decision point: each
 +	// must be seen by checkAndRunSentenceScript() and the next frame first.
++	// None in a frame whose input is used up (inputUsedUp()); bookkeeping
++	// such as completeStep() still runs there.
 +	const IdleKind kind = _lastIdle.kind;
 +	if (kind != kIdleDialog)
 +		_menuAnswered = false;
@@ -1952,7 +2048,8 @@ index 00000000..14f3275f
 +			return;
 +		}
 +		if (_clickIndex < st.clicks.size()) {
-+			performClick();
++			if (!inputUsedUp())
++				performClick();
 +			return;
 +		}
 +		// Sentence-idle after the push frame: the queue has drained, so the
@@ -2000,7 +2097,34 @@ index 00000000..14f3275f
 +	}
 +	if (_idleStreak < kIdleStreakRequired)
 +		return false;
++	if (inputUsedUp())
++		return false;
 +	startStep();
++	return true;
++}
++
++bool SpeedrunBridge::inputUsedUp() {
++	// A player's click counts only if it is still in _mouseAndKeyboardStat
++	// when checkExecVerbs() runs, and the plan player stands in for that
++	// click. In two cases no click of this frame can get there:
++	// - Esc: processKeyboard() writes key 27 over the frame's mouse state
++	//   (input.cpp), so the earliest click after an Esc is the next frame.
++	//   The key itself may reach the input script when the skip path turns
++	//   input back on in this frame (speedrun_skips.cpp).
++	// - A script cleared the clicks after processInput() (onClearClicked()).
++	const char *reason = _escThisFrame ? "esc_frame" : (_clearsThisFrame > 0 ? "clicks_cleared" : nullptr);
++	if (!reason)
++		return false;
++	setBlocker(reason);
++	if (!_deferWritten) {
++		JsonObject rec = record("defer");
++		rec.add("reason", reason);
++		if (errorStep() >= 0)
++			rec.add("step", errorStep());
++		rec.add("room", (int)_vm->_currentRoom);
++		writeRecord(rec);
++		_deferWritten = true;
++	}
 +	return true;
 +}
 +
@@ -2061,9 +2185,14 @@ index 00000000..14f3275f
 +	}
 +
 +	// A step an interrupt cut short starts over from its first action, but
-+	// its step_end changes still count from its first start.
-+	if (!_restartStep)
++	// its step_end changes and ticks still count from its first start.
++	if (!_restartStep) {
 +		takeSnapshot();
++		_stepFirstStartTick = _ticks;
++		_stepRestarted = false;
++	} else {
++		_stepRestarted = true;
++	}
 +	JsonObject rec = record("step_start");
 +	rec.add("step", (int)_stepIndex).add("action", st.action).add("room", (int)e._currentRoom);
 +	if (st.hasVerb)
@@ -2074,7 +2203,7 @@ index 00000000..14f3275f
 +	_restartStep = false;
 +
 +	_stepActive = true;
-+	_stepStartTick = _ticks;
++	_stepStartTick = _ticks; // the step timeout counts from the latest start
 +	_clickIndex = 0;
 +	_chooseIndex = 0;
 +	markProgress();
@@ -2092,8 +2221,10 @@ index 00000000..14f3275f
 +	JsonObject rec = record("step_end");
 +	rec.add("step", (int)_stepIndex)
 +	   .add("room", (int)_vm->_currentRoom)
-+	   .add("ticks", _ticks - _stepStartTick)
-+	   .addRaw("changes", changesJson())
++	   .add("ticks", _ticks - _stepFirstStartTick);
++	if (_stepRestarted)
++		rec.add("ticks_since_restart", _ticks - _stepStartTick);
++	rec.addRaw("changes", changesJson())
 +	   .addRaw("skips", JsonObject().add("text", _stepSkips[0]).add("cutscene", _stepSkips[1]).str());
 +	writeRecord(rec);
 +	_stepSkips[0] = _stepSkips[1] = 0;
@@ -2105,6 +2236,7 @@ index 00000000..14f3275f
 +		return false;
 +
 +	_stepActive = false;
++	_stepRestarted = false;
 +	_stepIndex++;
 +	_stepWaitSince = _ticks;
 +	markProgress();
@@ -2192,6 +2324,8 @@ index 00000000..14f3275f
 +}
 +
 +bool SpeedrunBridge::clickChoice(const Common::String &choice, const char *interrupt) {
++	if (inputUsedUp())
++		return false; // answered next frame
 +	const Common::String needle = asciiLower(choice);
 +	int match = -1, matches = 0;
 +	Common::String matchText;
@@ -2585,10 +2719,10 @@ index 00000000..a8c6f042
 +} // End of namespace Scumm
 diff --git a/engines/scumm/speedrun/speedrun_skips.cpp b/engines/scumm/speedrun/speedrun_skips.cpp
 new file mode 100644
-index 00000000..a3463db9
+index 00000000..4c794710
 --- /dev/null
 +++ b/engines/scumm/speedrun/speedrun_skips.cpp
-@@ -0,0 +1,228 @@
+@@ -0,0 +1,238 @@
 +/* ScummVM - Graphic Adventure Engine
 + *
 + * ScummVM is the legal property of its developers, whose names
@@ -2689,9 +2823,18 @@ index 00000000..a3463db9
 +	// Disabled Esc would reach the input script as a plain key (input.cpp).
 +	if (e.VAR_CUTSCENEEXIT_KEY == 0xFF || e._scummVars[e.VAR_CUTSCENEEXIT_KEY] == 0)
 +		return false;
-+	// With input on, Esc also hands key 27 to the input script
++	// Not while input is on: Esc would also hand key 27 to the input script
 +	// (verbs.cpp checkExecVerbs()). Every override on the route runs with
-+	// input off (docs/part1/skips.md section 2), so the bot never does that.
++	// input off (docs/part1/skips.md section 2), so this refuses none of
++	// them. But the skip path can turn input back on later in the same
++	// frame (room-051-circus-te/local-207.txt [0894] startScript(32), which
++	// does UserputOn; [0D59] UserputOn; global 19's UserputSoftOn at
++	// endCutscene()), and then key 27 does reach the input script. A
++	// player's Esc does the same, and it is harmless: input script 4 hands
++	// it to script 20, which only sets Var[105] = 0 (global/script-004.txt
++	// [02B5], global/script-020.txt [001E]); dialogue script 14 has no
++	// handler for it. Either way the Esc is the frame's input, so the plan
++	// player waits for the next frame (inputUsedUp(), esc_frame).
 +	if (e._userPut > 0)
 +		return false;
 +	if (!_override.ptr || _override.stale)
@@ -2748,6 +2891,7 @@ index 00000000..a3463db9
 +	// a whole override region; a line still showing gets '.' next frame.
 +	if (_skipCutscenes && !stepForbidsCutsceneSkip() && cutsceneSkipEffective()) {
 +		e._keyPressed = Common::KeyState(Common::KEYCODE_ESCAPE, Common::ASCII_ESCAPE, 0);
++		_escThisFrame = true; // the frame's input: the plan player waits (esc_frame)
 +		const int32 var19 = e._scummVars[e.VAR_TIMER_NEXT];
 +		JsonObject rec = record("skip");
 +		rec.add("kind", "cutscene");

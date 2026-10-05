@@ -24,7 +24,11 @@ from speedrun.trace import load_trace
 pytestmark = [pytest.mark.integration, pytest.mark.slow]
 
 TAG = "v1-unit-cost"
-KNOWN_TOTALS = {1: 107660, 2: 107054, 3: 106874}  # current bridge, no skips, talkspeed 60
+# Current bridge (v2), no skips, talkspeed 60. Bridge v1 gave 107660, 107054 and 106874: v2's
+# plan player waits a frame where a click would be lost (docs/plan.md, "Plan-player semantics as
+# implemented"), 5 deferrals on seed 1, and the shifted frames flip the store's RNG draws
+# (room-030-store/entry.txt [002B]).
+KNOWN_TOTALS = {1: 107018, 2: 107120, 3: 106790}
 TAG_TALKSPEED = 60  # the pin before Phase 8 moved it to the maximum
 
 PINNED_PLAN = """\

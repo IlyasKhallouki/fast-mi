@@ -41,7 +41,7 @@ RANDOM_VAR, RANDOM_VALUE = 20, 7  # toy randomized_vars; the value is what the f
 T0 = 1_700_000_000 * 10**9  # a fixed mtime base, in ns
 SENTINEL = '{"action":"sentinel"}\n'  # a jsonl that only a recompile would replace
 
-BOOT = {"type": "boot", "tick": 0, "frame": 0, "bridge": "speedrun-bridge v1", "audio_pump": True}
+BOOT = {"type": "boot", "tick": 0, "frame": 0, "bridge": "speedrun-bridge v2", "audio_pump": True}
 
 
 def _touch(path: Path, t: int) -> None:
