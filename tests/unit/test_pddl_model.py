@@ -23,6 +23,7 @@ import tomllib
 import pytest
 
 from speedrun import paths
+from speedrun.citations import citation_problem
 from speedrun.compiler import ObjectIndex, compile_plan
 from speedrun.planner import Plan, run_planner
 from speedrun.segments import load_segment
@@ -37,6 +38,7 @@ INDEX = SCRIPTS / "index.json"
 SRC_RE = re.compile(r"^\s*; src: data/scripts/(\S+) \[([0-9A-F]{4})\]")
 ACTION_LINE_RE = re.compile(r"^\s*\(:action\s+(\S+)", re.IGNORECASE)
 LINK_LINE_RE = re.compile(r"\(link\s+(\S+)\s+(\S+)\)")
+_SCRIPT_TEXT: dict = {}  # cited script files already read (citation_problem's cache)
 ALLOWED_REQUIREMENTS = {":strips", ":typing", ":negative-preconditions", ":action-costs", ":equality"}
 # Features astar(lmcut()) rejects or that compile to axioms (docs/research/fast-downward.md section 6).
 FORBIDDEN_KEYWORDS = {"when", "forall", "exists", "or", "imply", ":derived", "either"}
@@ -214,11 +216,8 @@ def _check_src_line(line: str, where: str) -> None:
     assert m, f"{where}: malformed citation {line.strip()!r}"
     if SCRIPTS.is_dir():
         rel, offset = m.groups()
-        path = SCRIPTS / rel
-        assert path.is_file(), f"{where}: cited file {rel} does not exist"
-        assert f"[{offset}]" in path.read_text(encoding="utf-8", errors="replace"), (
-            f"{where}: offset [{offset}] does not occur in {rel}"
-        )
+        problem = citation_problem(SCRIPTS, rel, offset, _SCRIPT_TEXT)
+        assert problem is None, f"{where}: {problem}"
 
 
 def test_every_action_is_cited():

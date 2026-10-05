@@ -2,7 +2,9 @@
 
 The pipeline is ``dump-objects`` -> ``plan`` -> ``compile`` -> ``run``/``demo``;
 ``measure`` replays a plan on many seeds and ``optimize`` searches for the
-time-optimal plan (Phase 8).
+time-optimal plan (Phase 8). ``extract-check``, ``extract-merge`` and
+``pddl-diff`` validate, merge and compare the extracted model (Phase 7,
+``speedrun.citations``, ``speedrun.extract``, ``speedrun.pddl_diff``).
 Each later command brings its inputs up to date first: ``compile`` dumps the
 objects if ``out/objects.json`` is missing and re-plans if the ``.sas_plan`` is
 older than the model or incomplete, and ``run``/``demo`` recompile if the
@@ -37,7 +39,8 @@ from collections.abc import Iterable
 from datetime import UTC, datetime
 from pathlib import Path
 
-from speedrun import gamedata, measure, paths
+from speedrun import extract, gamedata, measure, paths, pddl_diff
+from speedrun.citations import check_fragments, filter_fragments, parse_fragment
 from speedrun.compiler import CompileError, ObjectIndex, compile_plan, load_steps, write_jsonl
 from speedrun.costing import CostingError, CostTable, write_timed
 from speedrun.engine import EngineConfig, EngineResult, bridge_version, run_engine, timing_settings
@@ -199,6 +202,22 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--reuse", action=argparse.BooleanOptionalAction, default=True,
                    help="pool earlier out/measure and out/optimize summaries of the same bridge, skips and "
                         "engine pins before the first iteration (default: reuse)")  # fmt: skip
+
+    p = sub.add_parser("extract-check", help="validate the extraction fragments out/extract/<segment>/*.pddl")
+    p.add_argument("segment", help="segment name, e.g. part1")
+
+    p = sub.add_parser(
+        "extract-merge",
+        help="merge the accepted fragments into out/extract/<segment>/domain.pddl and problem.pddl",
+    )
+    p.add_argument("segment", help="segment name, e.g. part1")
+    p.add_argument("--state", type=Path, metavar="FILE",
+                   help="segment-start state dump for :init (C7 state-start.json; default: the newest "
+                        "out/runs/*/state-start.json without a boot param)")  # fmt: skip
+
+    p = sub.add_parser("pddl-diff", help="compare the hand-written model with the extracted one")
+    p.add_argument("segment", help="segment name, e.g. part1")
+    p.add_argument("--out", type=Path, metavar="FILE", help="report path (default: docs/extraction-diff.md)")
 
     # The top-level help lists every command with its options, not just the names.
     usages = [
@@ -887,6 +906,137 @@ def _cmd_extract(args: argparse.Namespace) -> int:
     return 0
 
 
+# --- extraction checks, merge and diff (Phase 7) --------------------------------
+
+
+def _extract_dir(name: str) -> Path:
+    """Where extraction fragments, and the model merged from them, live."""
+    return paths.OUT_DIR / "extract" / name
+
+
+def _scripts_dir() -> Path:
+    return paths.DATA_DIR / "scripts"
+
+
+def _fragments(name: str) -> dict[str, str]:
+    directory = _extract_dir(name)
+    try:
+        frags = extract.load_fragments(directory)
+    except (OSError, UnicodeDecodeError) as e:
+        raise CommandError(f"cannot read the fragments in {directory}: {e}") from e
+    if not frags:
+        raise CommandError(f"no extraction fragments in {directory} (<group>.pddl files, format: speedrun/citations.py)")
+    return frags
+
+
+def _cmd_extract_check(args: argparse.Namespace) -> int:
+    directory = _extract_dir(args.segment)
+    frags = _fragments(args.segment)
+    issues = check_fragments(frags, _scripts_dir())
+    for issue in issues:
+        print(issue)
+    actions = sum(len(parse_fragment(text).actions) for text in frags.values())
+    print(f"{directory}: {len(frags)} fragment(s), {actions} action(s), {len(issues)} issue(s)")
+    return 1 if issues else 0
+
+
+def _latest_state_dump() -> Path:
+    """The newest ``RUNS_DIR/*/state-start.json`` of a run without a boot param (a real segment start)."""
+    for path in sorted(paths.RUNS_DIR.glob("*/state-start.json"), key=lambda p: p.parent.name, reverse=True):
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if isinstance(data, dict) and not data.get("boot_param"):
+            return path
+    raise CommandError(
+        f"no segment-start state dump (state-start.json without a boot param) under {paths.RUNS_DIR}: "
+        "run `speedrun run <segment>` first, or pass --state FILE"
+    )
+
+
+def _cmd_extract_merge(args: argparse.Namespace) -> int:
+    seg = _segment(args.segment)
+    directory = _extract_dir(args.segment)
+    frags = _fragments(args.segment)
+    accepted, rejected = filter_fragments(frags, _scripts_dir())
+    rejected_path = directory / "rejected.json"
+    entries = [
+        {"fragment": src, "action": name, "issues": [{"code": i.code, "line": i.line, "message": i.message}
+                                                     for i in issues]}
+        for src, name, issues in rejected
+    ]  # fmt: skip
+    rejected_path.write_text(json.dumps(entries, indent=2) + "\n", encoding="utf-8")
+    for src, name, issues in rejected:
+        print(f"rejected {src}: {name}")
+        for issue in issues:
+            print(f"  line {issue.line}: {issue.message} [{issue.code}]")
+    kept = sum(len(parse_fragment(text).actions) for text in accepted.values())
+    if not kept:
+        raise CommandError(f"every extracted action was rejected; see {rejected_path}")
+
+    state_path = args.state or _latest_state_dump()
+    print(f"state dump: {state_path}")
+    try:
+        domain, problem = extract.merge(accepted, state_path, seg.goal, name=f"{seg.name}-extracted")
+    except extract.ExtractError as e:
+        raise CommandError(str(e)) from e
+    domain_path, problem_path = directory / "domain.pddl", directory / "problem.pddl"
+    domain_path.write_text(domain, encoding="utf-8")
+    problem_path.write_text(problem, encoding="utf-8")
+    print(f"wrote {domain_path} ({kept} actions), {problem_path} and {rejected_path} ({len(rejected)} rejected)")
+    return 0
+
+
+def _diff_index() -> ObjectIndex:
+    """The engine's object dump if there is one, else the script dump's index."""
+    objects_path = _objects_path()
+    index_path = _scripts_dir() / "index.json"
+    try:
+        if objects_path.is_file():
+            return ObjectIndex.from_dump(objects_path)
+        if index_path.is_file():
+            return pddl_diff.index_from_script_dump(index_path)
+    except (OSError, ValueError, KeyError, CompileError) as e:
+        raise CommandError(f"cannot read the object index: {e}") from e
+    raise CommandError(f"no object index: neither {objects_path} (`speedrun dump-objects`) "
+                       f"nor {index_path} (scripts/dump-scripts.sh)")  # fmt: skip
+
+
+def _relative(path: Path) -> Path:
+    """``path`` relative to the repository, for text that gets committed; absolute if it lies outside."""
+    try:
+        return path.relative_to(paths.ROOT)
+    except ValueError:
+        return path
+
+
+def _cmd_pddl_diff(args: argparse.Namespace) -> int:
+    seg = _segment(args.segment)
+    frags = _fragments(args.segment)
+    accepted, rejected = filter_fragments(frags, _scripts_dir())
+    index = _diff_index()
+    try:
+        report = pddl_diff.diff(seg.domain, seg.problem, load_steps(seg.steps), index, accepted)
+    except (OSError, ValueError, CompileError, extract.ExtractError) as e:
+        raise CommandError(f"cannot compare the models: {e}") from e
+    notes = [
+        (
+            f"Hand model: `{seg.domain.name}`, `{seg.problem.name}`, `{seg.steps.name}` of segment `{seg.name}`. "
+            f"Extracted model: the accepted fragments in `{_relative(_extract_dir(args.segment))}`."
+        )
+    ]
+    if rejected:
+        notes.append(f"{len(rejected)} extracted action(s) rejected by the validator are not compared "
+                     f"(`speedrun extract-check {args.segment}`).")  # fmt: skip
+    out = args.out or paths.DOCS_DIR / "extraction-diff.md"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(report.to_markdown(title=f"Extraction diff: {seg.name}", notes=notes), encoding="utf-8")
+    print(f"wrote {out}: {len(report.matched)} matched, {len(report.hand_only)} hand-only and "
+          f"{len(report.extracted_only)} extracted-only signatures")  # fmt: skip
+    return 0
+
+
 COMMANDS = {
     "extract": _cmd_extract,
     "dump-objects": _cmd_dump_objects,
@@ -896,6 +1046,9 @@ COMMANDS = {
     "demo": _cmd_demo,
     "measure": _cmd_measure,
     "optimize": _cmd_optimize,
+    "extract-check": _cmd_extract_check,
+    "extract-merge": _cmd_extract_merge,
+    "pddl-diff": _cmd_pddl_diff,
 }
 
 
