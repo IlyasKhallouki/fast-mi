@@ -187,3 +187,71 @@ def test_unreadable_toml_raises_segment_error(tmp_path):
         assert "Permission denied" in _error(tmp_path)
     finally:
         (seg_dir / "segment.toml").chmod(0o644)
+
+
+# --- interrupts (docs/plan.md C9; C1 SPEEDRUN_INTERRUPTS) ---------------------------
+
+INTERRUPT = '{name = "map-pirate", when = [{room = 49}], choose = ["on my way"], cite = "road local-200 [0325]"}'
+
+
+def test_toy_fixture_has_an_interrupt():
+    seg = load_segment("toy", base=SEGMENTS)
+    assert seg.interrupts == [{
+        "name": "toll-troll",
+        "when": [{"room": 104}],
+        "choose": ["pay the toll", "thanks"],
+        "cite": "synthetic: the toy troll stops ego on the bridge at random",
+    }]  # fmt: skip
+
+
+def test_interrupts_default_to_none(tmp_path):
+    _write_segment(tmp_path, VALID_TOML)
+    assert load_segment("seg", base=tmp_path).interrupts == []
+
+
+def test_interrupt_round_trips_with_normalised_conditions(tmp_path):
+    _write_segment(tmp_path, VALID_TOML + f"interrupts = [{INTERRUPT}]\n")
+    (interrupt,) = load_segment("seg", base=tmp_path).interrupts
+    assert interrupt == {"name": "map-pirate", "when": [{"room": 49}], "choose": ["on my way"],
+                         "cite": "road local-200 [0325]"}  # fmt: skip
+    assert list(interrupt) == ["name", "when", "choose", "cite"]
+
+
+@pytest.mark.parametrize(
+    "interrupts",
+    [
+        "{}",  # not a list
+        '[{when = [{room = 49}], choose = ["x"], cite = "c"}]',  # name missing
+        '[{name = "", when = [{room = 49}], choose = ["x"], cite = "c"}]',
+        '[{name = "p", choose = ["x"], cite = "c"}]',  # when missing
+        '[{name = "p", when = [], choose = ["x"], cite = "c"}]',  # when empty: it would match any menu
+        '[{name = "p", when = [{room = 49, eq = 1}], choose = ["x"], cite = "c"}]',  # bad condition
+        '[{name = "p", when = [{room = 49}], cite = "c"}]',  # choose missing
+        '[{name = "p", when = [{room = 49}], choose = [], cite = "c"}]',
+        '[{name = "p", when = [{room = 49}], choose = [""], cite = "c"}]',
+        '[{name = "p", when = [{room = 49}], choose = ["caf\\u00e9"], cite = "c"}]',  # not ASCII
+        '[{name = "p", when = [{room = 49}], choose = "x", cite = "c"}]',
+        '[{name = "p", when = [{room = 49}], choose = ["x"]}]',  # cite missing
+        '[{name = "p", when = [{room = 49}], choose = ["x"], cite = ""}]',
+        '[{name = "p", when = [{room = 49}], choose = ["x"], cite = "c", note = "n"}]',  # extra key
+        '["p"]',
+    ],
+    ids=repr,
+)
+def test_invalid_interrupts_raise(tmp_path, interrupts):
+    _write_segment(tmp_path, VALID_TOML + f"interrupts = {interrupts}\n")
+    assert _error(tmp_path).startswith("interrupts")
+
+
+def test_duplicate_interrupt_names_raise(tmp_path):
+    _write_segment(tmp_path, VALID_TOML + f"interrupts = [{INTERRUPT}, {INTERRUPT}]\n")
+    assert "map-pirate" in _error(tmp_path)
+
+
+def test_part1_has_the_cited_map_pirate_interrupt():
+    seg = load_segment("part1")
+    (pirate,) = seg.interrupts
+    assert pirate["name"] == "map-pirate"
+    assert pirate["when"] == [{"room": 49}]
+    assert pirate["choose"] == ["on my way"]
+    assert "room-049-road/local-200.txt [0325]" in pirate["cite"]

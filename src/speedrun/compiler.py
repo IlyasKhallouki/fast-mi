@@ -10,6 +10,11 @@ list, or neither (a dialogue-only step, which needs ``choose``). Click entries
 are ``{verb = "<keyword>"}`` (resolved like sentence verbs) or
 ``{inventory = {room, name[, id]}[, offset = <int>]}`` (resolved like ``obj``;
 ``offset`` shifts the clicked slot, see docs/plan.md C4).
+
+A template may also carry ``override_choose`` (answers for menus inside a
+cutscene override region, expected only when that cutscene plays) and
+``no_skip = true`` (no cutscene skip during the step); both are omitted from
+the output at their defaults (C4, Phase 8).
 """
 
 import json
@@ -21,8 +26,9 @@ from pathlib import Path
 from speedrun.conditions import MAX_ACTOR, ConditionError, parse_conditions
 from speedrun.planner import Plan
 
-C4_KEYS = ("action", "verb", "obj", "obj2", "room", "click", "choose", "until")
-STEP_KEYS = frozenset({"verb", "obj", "obj2", "room", "click", "choose", "until"})
+# override_choose and no_skip are optional: omitted when empty / false (docs/plan.md C4).
+C4_KEYS = ("action", "verb", "obj", "obj2", "room", "click", "choose", "override_choose", "until", "no_skip")
+STEP_KEYS = frozenset({"verb", "obj", "obj2", "room", "click", "choose", "override_choose", "until", "no_skip"})
 CLICK_KEYS = ("verb", "inventory")  # each click entry has exactly one of these
 ACTION_KEYS = frozenset({"cite", "steps"})
 
@@ -261,25 +267,42 @@ def _compile_step(action: str, tmpl: object, verbs: Mapping, objects: ObjectInde
     if "click" in tmpl:
         step["click"] = _compile_click(tmpl["click"], verbs, objects)
 
-    choose = tmpl.get("choose", [])
-    if not isinstance(choose, list) or not all(isinstance(c, str) and c for c in choose):
-        raise TemplateError(f"choose must be a list of non-empty strings, got {choose!r}")
-    for c in choose:
-        # The bridge matches against the game's raw text bytes, which are not Unicode (C5).
-        if not c.isascii():
-            raise TemplateError(
-                f"choose entry {c!r} is not ASCII; the bridge matches it against the game's raw "
-                "text bytes, so use an ASCII substring of the choice (docs/plan.md C5)"
-            )
+    choose = _choices(tmpl, "choose")
     if "verb" not in step and "click" not in step and not choose:
         raise TemplateError("a step without a verb or click must answer a dialogue (non-empty choose)")
-    step["choose"] = list(choose)
+    step["choose"] = choose
+    # Answers for menus inside a cutscene override region, used only when that
+    # cutscene is played through (docs/part1/skips.md section 4.3).
+    override_choose = _choices(tmpl, "override_choose")
+    if override_choose:
+        step["override_choose"] = override_choose
 
     try:
         step["until"] = parse_conditions(tmpl.get("until", []))
     except ConditionError as e:
         raise TemplateError(f"until: {e}") from e
+
+    no_skip = tmpl.get("no_skip", False)
+    if not isinstance(no_skip, bool):
+        raise TemplateError(f"no_skip must be true or false, got {no_skip!r}")
+    if no_skip:
+        step["no_skip"] = True
     return step
+
+
+def _choices(tmpl: Mapping, key: str) -> list[str]:
+    """A ``choose``-style list: non-empty ASCII strings."""
+    choices = tmpl.get(key, [])
+    if not isinstance(choices, list) or not all(isinstance(c, str) and c for c in choices):
+        raise TemplateError(f"{key} must be a list of non-empty strings, got {choices!r}")
+    for c in choices:
+        # The bridge matches against the game's raw text bytes, which are not Unicode (C5).
+        if not c.isascii():
+            raise TemplateError(
+                f"{key} entry {c!r} is not ASCII; the bridge matches it against the game's raw "
+                "text bytes, so use an ASCII substring of the choice (docs/plan.md C5)"
+            )
+    return list(choices)
 
 
 def _add_context(e: CompileError, where: str) -> None:

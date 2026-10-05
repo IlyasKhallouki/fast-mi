@@ -34,6 +34,8 @@ TOY_ACTIONS = [("take-widget",), ("walk", "workshop", "office")]
 TOY_START = [{"room": 101}]
 TOY_GOAL = [{"bit": 7, "eq": 1}, {"not": {"has": 500}}]
 TOY_INVENTORY = {"verb_first": 300, "count": 4, "var_first": 60}  # segment.toml minus cite
+TOY_INTERRUPTS = [{"name": "toll-troll", "when": [{"room": 104}], "choose": ["pay the toll", "thanks"],
+                   "cite": "synthetic: the toy troll stops ego on the bridge at random"}]  # fmt: skip
 RANDOM_VAR, RANDOM_VALUE = 20, 7  # toy randomized_vars; the value is what the fake engine dumps
 
 T0 = 1_700_000_000 * 10**9  # a fixed mtime base, in ns
@@ -564,6 +566,7 @@ def test_run_engine_config(compiled, fakes):
     assert cfg.dump_objects is False
     assert cfg.timeout_s == 1800
     assert cfg.out_dir.parent == compiled.runs and cfg.out_dir.name.endswith("-run")
+    assert cfg.interrupts == TOY_INTERRUPTS
 
 
 def test_run_no_goal_returns_1(compiled, fakes, capsys):
@@ -778,6 +781,7 @@ class ConfigWithoutInventory:
     boot_param: int | None = None
     max_ticks: int | None = None
     timeout_s: float = 600.0
+    interrupts: list = dataclasses.field(default_factory=list)
 
 
 @dataclasses.dataclass

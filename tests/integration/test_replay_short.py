@@ -128,6 +128,26 @@ def test_bad_plan(engine_ready, tmp_path, home_scummvm_guard):
 
 
 @pytest.mark.integration
+@pytest.mark.parametrize(
+    ("extra", "fragment"),
+    [
+        ({"no_skip": 1}, "'no_skip' must be a boolean"),
+        ({"override_choose": []}, "'override_choose' must not be empty"),
+        ({"override_choose": ["caf\u00e9"]}, "override_choose 0 must be a non-empty ASCII string"),
+    ],
+    ids=repr,
+)
+def test_bad_plan_skip_keys(engine_ready, tmp_path, home_scummvm_guard, extra, fragment):
+    plan = _write_plan(tmp_path / "plan.jsonl", [_step(verb=11, obj=428, obj2=0, **extra)])
+    cfg = EngineConfig(out_dir=tmp_path / "run", plan=plan, max_ticks=DOCK_MAX_TICKS, timeout_s=20)
+    result = run_engine(cfg)
+    assert not result.timed_out and result.returncode != 0
+    records = _read_trace(cfg.out_dir)
+    assert [r["type"] for r in records] == ["error", "end"], records
+    assert records[0]["code"] == "bad_plan" and fragment in records[0]["message"], records[0]
+
+
+@pytest.mark.integration
 def test_bad_plan_range_error_names_no_step(engine_ready, tmp_path, home_scummvm_guard):
     # Ranges are checked at load, before any step runs: the error record must
     # not claim step 0. The message names the offending step instead.

@@ -24,6 +24,7 @@ from _fakerun import T0, SyntheticEngine, make_tree, touch
 
 from speedrun import cli, costing, measure, optimize
 from speedrun.planner import parse_plan
+from speedrun.segments import load_segment
 
 RACE_DOMAIN = """\
 ;; Toy race domain for the optimiser tests (src: nothing (synthetic)).
@@ -151,6 +152,15 @@ def _actions_in(path: Path) -> list[str]:
 
 
 # --- the optimistic loop ------------------------------------------------------------
+
+
+def test_every_measured_run_gets_the_segment_interrupts(tree, planner, engine):
+    # The optimiser measures through speedrun.measure, so every run carries the
+    # segment's interrupts (here the toy segment's), like `speedrun run` and `measure`.
+    assert _optimize() == 0
+    expected = load_segment("toy", base=tree["seg"].parent).interrupts
+    assert expected and engine.calls
+    assert all(cfg.interrupts == expected for cfg in engine.calls)
 
 
 def test_optimistic_loop_converges_and_stops(tree, planner, engine):

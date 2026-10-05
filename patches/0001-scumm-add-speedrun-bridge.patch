@@ -1,17 +1,19 @@
 diff --git a/engines/scumm/module.mk b/engines/scumm/module.mk
-index 2cee05ab..ff9d432a 100644
+index 2cee05ab..a1352c86 100644
 --- a/engines/scumm/module.mk
 +++ b/engines/scumm/module.mk
-@@ -97,6 +97,14 @@ MODULE_OBJS := \
+@@ -97,6 +97,16 @@ MODULE_OBJS := \
  	vars.o \
  	verbs.o
  
 +MODULE_OBJS += \
 +	speedrun/speedrun_bridge.o \
 +	speedrun/speedrun_conditions.o \
++	speedrun/speedrun_interrupts.o \
 +	speedrun/speedrun_json.o \
 +	speedrun/speedrun_plan.o \
 +	speedrun/speedrun_plan_parser.o \
++	speedrun/speedrun_skips.o \
 +	speedrun/speedrun_state.o
 +
  ifdef USE_IMGUI
@@ -108,10 +110,10 @@ index ae7b4bb7..816bf55d 100644
  
 diff --git a/engines/scumm/speedrun/speedrun_bridge.cpp b/engines/scumm/speedrun/speedrun_bridge.cpp
 new file mode 100644
-index 00000000..7099d07a
+index 00000000..c8c9b189
 --- /dev/null
 +++ b/engines/scumm/speedrun/speedrun_bridge.cpp
-@@ -0,0 +1,516 @@
+@@ -0,0 +1,555 @@
 +/* ScummVM - Graphic Adventure Engine
 + *
 + * ScummVM is the legal property of its developers, whose names
@@ -238,9 +240,20 @@ index 00000000..7099d07a
 +			_envError = Common::String::format("invalid SPEEDRUN_MAX_TICKS '%s'", maxTicks);
 +	}
 +
-+	const char *dumpObjects = envValue("SPEEDRUN_DUMP_OBJECTS");
-+	if (dumpObjects && !Common::parseBool(dumpObjects, _dumpObjects) && _envError.empty())
-+		_envError = Common::String::format("invalid SPEEDRUN_DUMP_OBJECTS '%s'", dumpObjects);
++	static const struct {
++		const char *name;
++		bool SpeedrunBridge::*flag;
++	} kBoolVars[] = {
++		{"SPEEDRUN_DUMP_OBJECTS", &SpeedrunBridge::_dumpObjects},
++		{"SPEEDRUN_SKIP_TEXT", &SpeedrunBridge::_skipText},
++		{"SPEEDRUN_SKIP_CUTSCENES", &SpeedrunBridge::_skipCutscenes},
++		{"SPEEDRUN_STEP_STATES", &SpeedrunBridge::_stepStates},
++	};
++	for (const auto &var : kBoolVars) {
++		const char *value = envValue(var.name);
++		if (value && !Common::parseBool(value, this->*var.flag) && _envError.empty())
++			_envError = Common::String::format("invalid %s '%s'", var.name, value);
++	}
 +
 +	const char *stepTimeout = envValue("SPEEDRUN_STEP_TIMEOUT");
 +	if (stepTimeout && !parseUint64(stepTimeout, _stepTimeout) && _envError.empty())
@@ -260,6 +273,14 @@ index 00000000..7099d07a
 +		Common::String error;
 +		if (json && !parseSpeedrunConditions(json, this->*var.list, error) && _envError.empty())
 +			_envError = Common::String::format("invalid %s: %s", var.name, error.c_str());
++	}
++
++	// Ranges of the `when` conditions are checked in onBoot().
++	const char *interrupts = envValue("SPEEDRUN_INTERRUPTS");
++	if (interrupts) {
++		Common::String error;
++		if (!parseSpeedrunInterrupts(interrupts, _interrupts, error) && _envError.empty())
++			_envError = "invalid SPEEDRUN_INTERRUPTS: " + error;
 +	}
 +
 +	// Read and parsed in onBoot(), once object and variable counts are known.
@@ -311,6 +332,8 @@ index 00000000..7099d07a
 +
 +	checkConditionRanges(_start, "SPEEDRUN_START", "bad_env");
 +	checkConditionRanges(_goal, "SPEEDRUN_GOAL", "bad_env");
++	for (const SpeedrunInterrupt &it : _interrupts)
++		checkConditionRanges(it.when, ("SPEEDRUN_INTERRUPTS " + it.name + " when").c_str(), "bad_env");
 +	if (_inventory.valid && _inventory.varFirst + _inventory.count > _vm->_numVariables)
 +		raiseError("bad_env", Common::String::format("SPEEDRUN_INVENTORY: vars %d..%d out of range", _inventory.varFirst, _inventory.varFirst + _inventory.count - 1));
 +	if (_hasPlan)
@@ -355,8 +378,11 @@ index 00000000..7099d07a
 +		_ticks += (uint64)delta;
 +	_frames++;
 +
-+	// 3. Prepare this frame: pin input, then let delta jiffies of audio play.
++	// 3. Prepare this frame: pin input, press '.' or Esc if that has an effect
++	//    now (processInput() reads the key later in this frame), then let
++	//    delta jiffies of audio play.
 +	neutraliseInput();
++	maybeInjectSkip(delta);
 +	if (_pumpAudio)
 +		pumpAudio(delta);
 +
@@ -382,7 +408,8 @@ index 00000000..7099d07a
 +	// The goal is judged on the state after a whole frame: scripts, the
 +	// sentence script, walking and room changes have all run.
 +	if (_segmentStarted && !_goal.empty() && allHold(_goal)) {
-+		reachGoal();
++		if (!timerNextChanged("the goal"))
++			reachGoal();
 +		return;
 +	}
 +
@@ -423,8 +450,13 @@ index 00000000..7099d07a
 +		return;
 +	}
 +
-+	if (!_segmentStarted && _lastIdle.kind == kIdleSentence && allHold(_start))
-+		startSegment();
++	// Control is back with the player after a cutscene skip: every legitimate
++	// var 19 writer has restored it by now (speedrun_skips.cpp).
++	if (_speedCheckPending && _lastIdle.kind != kNotIdle && timerNextChanged("the first idle frame after a cutscene skip"))
++		return;
++
++	if (!_segmentStarted && _lastIdle.kind == kIdleSentence && allHold(_start) && !startSegment())
++		return;
 +
 +	if (_hasPlan && !_finished)
 +		runPlan();
@@ -434,11 +466,20 @@ index 00000000..7099d07a
 +
 +#pragma mark - Run control
 +
-+void SpeedrunBridge::startSegment() {
++bool SpeedrunBridge::startSegment() {
 +	_segmentStarted = true;
 +	_tick0 = _ticks;
 +	writeFile("state-start.json", stateJson());
-+	writeRecord(record("segment_start").add("tick0", _tick0).add("room", (int)_vm->_currentRoom));
++	// The speed and key settings skips depend on (docs/research/skips-engine.md
++	// sections 1.1, 5 and 6): var 19 (VAR_TIMER_NEXT) is the frame length in
++	// jiffies; var 37 (VAR_CHARINC) the per-character text delay, 0 at the
++	// maximum talk speed; vars 24 (VAR_CUTSCENEEXIT_KEY) and 57
++	// (VAR_TALKSTOP_KEY) enable Esc and '.'.
++	const int32 *v = _vm->_scummVars;
++	writeRecord(record("segment_start").add("tick0", _tick0).add("room", (int)_vm->_currentRoom)
++	            .add("var19", (int)v[_vm->VAR_TIMER_NEXT]).add("var37", (int)v[_vm->VAR_CHARINC])
++	            .add("var24", (int)v[_vm->VAR_CUTSCENEEXIT_KEY]).add("var57", (int)v[_vm->VAR_TALKSTOP_KEY]));
++	return !timerNextChanged("the segment start");
 +}
 +
 +void SpeedrunBridge::reachGoal() {
@@ -630,10 +671,10 @@ index 00000000..7099d07a
 +} // End of namespace Scumm
 diff --git a/engines/scumm/speedrun/speedrun_bridge.h b/engines/scumm/speedrun/speedrun_bridge.h
 new file mode 100644
-index 00000000..1c4907d8
+index 00000000..0538ec8f
 --- /dev/null
 +++ b/engines/scumm/speedrun/speedrun_bridge.h
-@@ -0,0 +1,306 @@
+@@ -0,0 +1,384 @@
 +/* ScummVM - Graphic Adventure Engine
 + *
 + * ScummVM is the legal property of its developers, whose names
@@ -710,7 +751,18 @@ index 00000000..1c4907d8
 +	int32 room = 0;
 +	Common::Array<SpeedrunClick> clicks;
 +	Common::Array<Common::String> choose; // ASCII substrings, matched case-insensitively
++	// Answers for menus inside a cutscene override region: expected after
++	// `choose` only when that cutscene is played through (docs/plan.md C4).
++	Common::Array<Common::String> overrideChoose;
 +	SpeedrunConditions until;
++	bool noSkip = false; // no cutscene skip while this step is active or pending
++};
++
++/** One SPEEDRUN_INTERRUPTS entry: a cited escape from a random dialogue (docs/plan.md C1). */
++struct SpeedrunInterrupt {
++	Common::String name;
++	SpeedrunConditions when;              // checked when an unexpected menu is visible
++	Common::Array<Common::String> choose; // one entry per menu, in order
 +};
 +
 +/**
@@ -719,6 +771,9 @@ index 00000000..1c4907d8
 + * and sets @p error. In speedrun_plan_parser.cpp.
 + */
 +bool parseSpeedrunPlan(const Common::String &text, Common::Array<SpeedrunStep> &out, Common::String &error);
++
++/** Parse SPEEDRUN_INTERRUPTS: a JSON array of {"name", "when", "choose"}. In speedrun_plan_parser.cpp. */
++bool parseSpeedrunInterrupts(const Common::String &text, Common::Array<SpeedrunInterrupt> &out, Common::String &error);
 +
 +/**
 + * Speedrun bridge: lets an external harness run the game headless, on a
@@ -743,7 +798,13 @@ index 00000000..1c4907d8
 + *  - SPEEDRUN_START=<json>       segment start conditions, checked on sentence-idle frames
 + *  - SPEEDRUN_GOAL=<json>        goal conditions, checked once the segment has started;
 + *                                unset or [] means no goal
-+ *  - SPEEDRUN_PLAN, SPEEDRUN_INVENTORY, SPEEDRUN_STEP_TIMEOUT: stored for the plan player
++ *  - SPEEDRUN_PLAN, SPEEDRUN_INVENTORY, SPEEDRUN_STEP_TIMEOUT, SPEEDRUN_INTERRUPTS:
++ *                                stored for the plan player
++ *  - SPEEDRUN_SKIP_TEXT=1        after the segment start, press '.' on the first frame
++ *                                a real line can be cut short (speedrun_skips.cpp)
++ *  - SPEEDRUN_SKIP_CUTSCENES=1   after the segment start, press Esc on the first frame
++ *                                an override is live, except during no_skip steps
++ *  - SPEEDRUN_STEP_STATES=1      diagnostic: state-step-NNN.json at every step_end
 + * The RNG seed is ScummVM's own --random-seed (ConfMan "random_seed").
 + *
 + * Record stamping (contract C2): records about the completed previous frame
@@ -799,7 +860,27 @@ index 00000000..1c4907d8
 +	IdleState evaluateIdle() const;
 +	bool verbVisible(int slot) const;
 +	bool anyVisibleVerb(int firstId, int lastId) const;
++	/**
++	 * The code a script slot runs, read through the raw resource pointers
++	 * (no LRU update). @p offs indexes it like ScriptSlot::offs. False if
++	 * the slot's code is not loaded.
++	 */
++	bool slotCode(int slot, const byte *&code, uint32 &size) const;
 +	bool slotWaitsForMessage(int slot) const;
++
++	// Skips (speedrun_skips.cpp)
++	/** onFrameBegin, after neutraliseInput(): press '.' or Esc if it has an effect now. */
++	void maybeInjectSkip(int delta);
++	/** Track the live override of the current cutscene level (stale-pointer guard). */
++	void trackOverride();
++	bool cutsceneSkipEffective() const;
++	/** Some slot parked on WaitForMessage, or -1. */
++	int messageWaitSlot() const;
++	bool textSkipEffective(int delta, int &waitSlot) const;
++	/** No cutscene skips for the active or pending step (C4 no_skip). */
++	bool stepForbidsCutsceneSkip() const;
++	/** Var 19 (VAR_TIMER_NEXT) is not 6 (@p when names the check): fails the run with timer_next. */
++	bool timerNextChanged(const char *when);
 +
 +	// Conditions (speedrun_conditions.cpp)
 +	bool conditionHolds(const SpeedrunCondition &cond) const;
@@ -824,7 +905,8 @@ index 00000000..1c4907d8
 +	bool writeFile(const char *name, const Common::String &contents);
 +
 +	// Run control
-+	void startSegment();
++	/** False if the run failed (timer_next) at the segment start. */
++	bool startSegment();
 +	void reachGoal();
 +	void maybeReportStall();
 +	/** What kept the run from progressing at this decision point (nullptr: nothing). */
@@ -843,9 +925,25 @@ index 00000000..1c4907d8
 +	const char *activeStepBlocker() const;
 +	const char *pendingStepBlocker() const;
 +	void startStep();
-+	void completeStep();
++	/** False if the run failed (timer_next) at this step_end. */
++	bool completeStep();
 +	void performClick();
 +	void answerChoice();
++	/** The step's choose entries in effect: `choose`, plus `override_choose` when its cutscenes play. */
++	uint chooseCount(const SpeedrunStep &st) const;
++	const Common::String &chooseAt(const SpeedrunStep &st, uint i) const;
++	/** Answer the visible menu with @p needle; records a choice (with @p interrupt if set). */
++	bool clickChoice(const Common::String &needle, const char *interrupt);
++
++	// Interrupts (speedrun_interrupts.cpp)
++	/**
++	 * A menu is visible that the plan does not answer (would be
++	 * unexpected_choice): start the first interrupt whose `when` holds and
++	 * answer the menu. False if none matches (nothing recorded).
++	 */
++	bool tryStartInterrupt();
++	/** The decision point while an interrupt runs. True if it consumed it; false once the interrupt ended. */
++	bool runInterrupt();
 +	/** Visible dialogue choices, by verb id, as "id: text" for messages. */
 +	Common::String visibleChoices() const;
 +	void takeSnapshot();
@@ -890,6 +988,10 @@ index 00000000..1c4907d8
 +		int32 verbFirst = 0, count = 0, varFirst = 0;
 +	} _inventory;
 +	uint64 _stepTimeout = 36000;    // ticks; 10 minutes of game time
++	bool _skipText = false;         // SPEEDRUN_SKIP_TEXT
++	bool _skipCutscenes = false;    // SPEEDRUN_SKIP_CUTSCENES
++	bool _stepStates = false;       // SPEEDRUN_STEP_STATES
++	Common::Array<SpeedrunInterrupt> _interrupts; // SPEEDRUN_INTERRUPTS
 +	Common::String _envError;       // first invalid variable, reported once the trace is open
 +
 +	// Run clock (contract C2): ticks = sum of unclamped deltas since boot
@@ -922,6 +1024,23 @@ index 00000000..1c4907d8
 +	Common::Array<byte> _snapBits;
 +	Common::Array<int> _snapInventory;
 +	int _snapRoom = 0;
++	uint _stepSkips[2] = {0, 0};    // skip records of the active/pending step: text, cutscene
++	bool _restartStep = false;      // an interrupt ended the active step: start it again
++
++	// Interrupts
++	int _interrupt = -1;            // the running interrupt, or -1
++	uint _interruptChoose = 0;      // its next choose entry
++
++	// Skips
++	struct OverrideSeen {           // the live override at the current cutscene level
++		int level = -1;
++		uint32 ptr = 0;
++		int slot = -1, number = -1, where = -1, room = -1;
++		bool stale = false;         // its script died or the slot changed hands since
++	} _override;
++	bool _speedCheckPending = false; // a cutscene skip whose var 19 effect is not judged yet
++	uint64 _speedCheckTick = 0;      // the latest cutscene skip, named by timer_next errors
++	int _speedCheckScript = -1;
 +
 +	// Tick-locked audio (null mixer, --disable-sdl-audio)
 +	static const uint kAudioChunkFrames = 512;
@@ -1234,6 +1353,145 @@ index 00000000..f60caba5
 +}
 +
 +} // End of namespace Scumm
+diff --git a/engines/scumm/speedrun/speedrun_interrupts.cpp b/engines/scumm/speedrun/speedrun_interrupts.cpp
+new file mode 100644
+index 00000000..cef4a81d
+--- /dev/null
++++ b/engines/scumm/speedrun/speedrun_interrupts.cpp
+@@ -0,0 +1,133 @@
++/* ScummVM - Graphic Adventure Engine
++ *
++ * ScummVM is the legal property of its developers, whose names
++ * are too numerous to list here. Please refer to the COPYRIGHT
++ * file distributed with this source distribution.
++ *
++ * This program is free software: you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License as published by
++ * the Free Software Foundation, either version 3 of the License, or
++ * (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
++ *
++ */
++
++// Interrupts (docs/plan.md C1 SPEEDRUN_INTERRUPTS, C5 interrupt records): a
++// fixed, cited answer to a dialogue the game opens at random, such as a
++// wandering pirate on the island map forcing an encounter on the road
++// (room-085-melee/local-202.txt [018A]-[01A2], global/script-114.txt).
++//
++// An interrupt is considered only where the plan player would otherwise fail
++// with unexpected_choice: a menu is visible and the active step has no choose
++// entry left, the pending step does not answer menus, or the plan is done.
++// The first interrupt whose `when` holds answers this menu and the following
++// ones, one choose entry per menu. It ends on the first sentence-idle
++// decision point after its last answer where `when` no longer holds (the
++// road's input script is back on before ego is moved back to the map, so
++// "sentence-idle" alone could still be in room 49).
++//
++// Then the plan carries on:
++// - If the step was active, it starts over from its beginning: room check,
++//   until, then its sentence or clicks again, with a step_start that says
++//   "restart". This is sound for the steps an interrupt can cut short: the
++//   room change into the interrupt kills the room's object scripts (room.cpp
++//   startScene -> killScriptsAndResources), so a map walk whose verb script
++//   had not loaded the next room yet never happened, and ego is back where
++//   it stood (global/script-114.txt [006E]-[0079]). If ego ends up elsewhere,
++//   the restart fails with room_mismatch, which is the honest outcome.
++// - If the step was pending (the previous step had completed its sentence),
++//   it simply starts as usual once the interrupt has ended.
++// - After the last step, the run goes back to waiting for the goal.
++
++#include "scumm/scumm.h"
++#include "scumm/speedrun/speedrun_bridge.h"
++
++namespace Scumm {
++
++bool SpeedrunBridge::tryStartInterrupt() {
++	for (uint i = 0; i < _interrupts.size(); i++) {
++		if (!allHold(_interrupts[i].when))
++			continue;
++		_interrupt = (int)i;
++		_interruptChoose = 0;
++		if (_stepActive) {
++			_stepActive = false;
++			_restartStep = true;
++		}
++		// The interrupt and the step's (re)start share one step timeout.
++		_stepWaitSince = _ticks;
++
++		JsonObject rec = record("interrupt");
++		rec.add("name", _interrupts[i].name);
++		if (errorStep() >= 0)
++			rec.add("step", errorStep());
++		rec.add("room", (int)_vm->_currentRoom).add("restart", _restartStep);
++		writeRecord(rec);
++		markProgress();
++
++		runInterrupt(); // answers the visible menu: this decision point's action
++		return true;
++	}
++	return false;
++}
++
++bool SpeedrunBridge::runInterrupt() {
++	const SpeedrunInterrupt &it = _interrupts[_interrupt];
++	const IdleKind kind = _lastIdle.kind;
++
++	if (_segmentStarted && _ticks - MAX(_stepWaitSince, _tick0) >= _stepTimeout) {
++		const char *blocker = kind == kNotIdle ? _lastIdle.blocker : nullptr;
++		fail("step_timeout", Common::String::format(
++			"interrupt %s did not end within %llu ticks: choices %u/%u, %s%s", it.name.c_str(),
++			(unsigned long long)_stepTimeout, _interruptChoose, it.choose.size(),
++			blocker ? "blocked by " : "not idle-blocked at the deadline", blocker ? blocker : ""));
++		return true;
++	}
++	if (kind == kNotIdle)
++		return true; // the idle blocker, with its script slot, is already set
++
++	if (kind == kIdleDialog) {
++		if (_menuAnswered) {
++			setBlocker("menu_answered");
++			return true;
++		}
++		if (_interruptChoose >= it.choose.size()) {
++			fail("unexpected_choice", Common::String::format("interrupt %s has no choose entry left for this menu: %s",
++			                                                 it.name.c_str(), visibleChoices().c_str()));
++			return true;
++		}
++		if (clickChoice(it.choose[_interruptChoose], it.name.c_str()))
++			_interruptChoose++;
++		return true;
++	}
++
++	// Sentence-idle.
++	if (_interruptChoose < it.choose.size()) {
++		setBlocker("awaiting_menu");
++		return true;
++	}
++	if (allHold(it.when)) {
++		setBlocker("interrupt");
++		return true;
++	}
++
++	JsonObject rec = record("interrupt_end");
++	rec.add("name", it.name);
++	if (errorStep() >= 0)
++		rec.add("step", errorStep());
++	rec.add("room", (int)_vm->_currentRoom).add("restart", _restartStep);
++	writeRecord(rec);
++	_interrupt = -1;
++	_stepWaitSince = _ticks;
++	markProgress();
++	return false;
++}
++
++} // End of namespace Scumm
 diff --git a/engines/scumm/speedrun/speedrun_json.cpp b/engines/scumm/speedrun/speedrun_json.cpp
 new file mode 100644
 index 00000000..647cf78f
@@ -1538,10 +1796,10 @@ index 00000000..6976afbc
 +#endif
 diff --git a/engines/scumm/speedrun/speedrun_plan.cpp b/engines/scumm/speedrun/speedrun_plan.cpp
 new file mode 100644
-index 00000000..82beb275
+index 00000000..14f3275f
 --- /dev/null
 +++ b/engines/scumm/speedrun/speedrun_plan.cpp
-@@ -0,0 +1,446 @@
+@@ -0,0 +1,490 @@
 +/* ScummVM - Graphic Adventure Engine
 + *
 + * ScummVM is the legal property of its developers, whose names
@@ -1668,6 +1926,11 @@ index 00000000..82beb275
 +	if (kind != kIdleDialog)
 +		_menuAnswered = false;
 +
++	// A running interrupt answers its menus first. Once it has ended, the
++	// step it interrupted starts (over) below, at this same decision point.
++	if (_interrupt >= 0 && runInterrupt())
++		return;
++
 +	if (_stepActive) {
 +		const SpeedrunStep &st = _plan[_stepIndex];
 +		const char *blocker = activeStepBlocker();
@@ -1675,7 +1938,7 @@ index 00000000..82beb275
 +			fail("step_timeout", Common::String::format(
 +				"step %u (%s) did not complete within %llu ticks: clicks %u/%u, choices %u/%u, %s",
 +				_stepIndex, st.action.c_str(), (unsigned long long)_stepTimeout, _clickIndex, st.clicks.size(),
-+				_chooseIndex, st.choose.size(), blockedBy(blocker).c_str()));
++				_chooseIndex, chooseCount(st), blockedBy(blocker).c_str()));
 +			return;
 +		}
 +		if (kind == kNotIdle)
@@ -1694,11 +1957,12 @@ index 00000000..82beb275
 +		}
 +		// Sentence-idle after the push frame: the queue has drained, so the
 +		// sentence (and anything it queued) ran.
-+		completeStep();
++		if (!completeStep())
++			return;
 +	}
 +
 +	if (_planDone) {
-+		if (kind == kIdleDialog)
++		if (kind == kIdleDialog && !tryStartInterrupt())
 +			fail("unexpected_choice", "dialogue menu after the last step: " + visibleChoices());
 +		return;
 +	}
@@ -1723,8 +1987,9 @@ index 00000000..82beb275
 +	}
 +
 +	if (kind == kIdleDialog && !isDialogOnly(st)) {
-+		fail("unexpected_choice", Common::String::format("dialogue menu before step %u (%s), which does not answer one: %s",
-+		                                                 _stepIndex, st.action.c_str(), visibleChoices().c_str()));
++		if (!tryStartInterrupt())
++			fail("unexpected_choice", Common::String::format("dialogue menu before step %u (%s), which does not answer one: %s",
++			                                                 _stepIndex, st.action.c_str(), visibleChoices().c_str()));
 +		return false;
 +	}
 +	if (kind == kNotIdle)
@@ -1751,7 +2016,7 @@ index 00000000..82beb275
 +		return _menuAnswered ? "menu_answered" : nullptr;
 +	case kIdleSentence:
 +		// The sentence ran, but the menu this step answers has not come up.
-+		return (_clickIndex >= st.clicks.size() && _chooseIndex < st.choose.size()) ? "awaiting_menu" : nullptr;
++		return (_clickIndex >= st.clicks.size() && _chooseIndex < chooseCount(st)) ? "awaiting_menu" : nullptr;
 +	}
 +	return nullptr;
 +}
@@ -1795,12 +2060,18 @@ index 00000000..82beb275
 +		}
 +	}
 +
-+	takeSnapshot();
++	// A step an interrupt cut short starts over from its first action, but
++	// its step_end changes still count from its first start.
++	if (!_restartStep)
++		takeSnapshot();
 +	JsonObject rec = record("step_start");
 +	rec.add("step", (int)_stepIndex).add("action", st.action).add("room", (int)e._currentRoom);
 +	if (st.hasVerb)
 +		rec.addRaw("sentence", JsonArray().add(st.verb).add(st.obj).add(st.obj2).str());
++	if (_restartStep)
++		rec.add("restart", true);
 +	writeRecord(rec);
++	_restartStep = false;
 +
 +	_stepActive = true;
 +	_stepStartTick = _ticks;
@@ -1817,13 +2088,21 @@ index 00000000..82beb275
 +	}
 +}
 +
-+void SpeedrunBridge::completeStep() {
++bool SpeedrunBridge::completeStep() {
 +	JsonObject rec = record("step_end");
 +	rec.add("step", (int)_stepIndex)
 +	   .add("room", (int)_vm->_currentRoom)
 +	   .add("ticks", _ticks - _stepStartTick)
-+	   .addRaw("changes", changesJson());
++	   .addRaw("changes", changesJson())
++	   .addRaw("skips", JsonObject().add("text", _stepSkips[0]).add("cutscene", _stepSkips[1]).str());
 +	writeRecord(rec);
++	_stepSkips[0] = _stepSkips[1] = 0;
++	// Diagnostic (SPEEDRUN_STEP_STATES): the whole state, as state-start.json
++	// has it, for comparing runs step by step (the skip-safety harness).
++	if (_stepStates)
++		writeFile(Common::String::format("state-step-%03u.json", _stepIndex).c_str(), stateJson());
++	if (timerNextChanged("a step_end"))
++		return false;
 +
 +	_stepActive = false;
 +	_stepIndex++;
@@ -1833,6 +2112,7 @@ index 00000000..82beb275
 +		_planDone = true;
 +		_planDoneTick = _ticks;
 +	}
++	return true;
 +}
 +
 +void SpeedrunBridge::performClick() {
@@ -1889,12 +2169,30 @@ index 00000000..82beb275
 +
 +void SpeedrunBridge::answerChoice() {
 +	const SpeedrunStep &st = _plan[_stepIndex];
-+	if (_chooseIndex >= st.choose.size()) {
-+		fail("unexpected_choice", Common::String::format("step %u (%s) has no choose entry left for this menu: %s",
-+		                                                 _stepIndex, st.action.c_str(), visibleChoices().c_str()));
++	if (_chooseIndex >= chooseCount(st)) {
++		if (!tryStartInterrupt())
++			fail("unexpected_choice", Common::String::format("step %u (%s) has no choose entry left for this menu: %s",
++			                                                 _stepIndex, st.action.c_str(), visibleChoices().c_str()));
 +		return;
 +	}
-+	const Common::String needle = asciiLower(st.choose[_chooseIndex]);
++	if (clickChoice(chooseAt(st, _chooseIndex), nullptr))
++		_chooseIndex++;
++}
++
++uint SpeedrunBridge::chooseCount(const SpeedrunStep &st) const {
++	// Menus inside an override region show only when that cutscene plays:
++	// with cutscene skips on, the Esc on the override's first frame jumps
++	// past them (docs/part1/skips.md section 4.3).
++	const bool played = !_skipCutscenes || st.noSkip;
++	return st.choose.size() + (played ? st.overrideChoose.size() : 0);
++}
++
++const Common::String &SpeedrunBridge::chooseAt(const SpeedrunStep &st, uint i) const {
++	return i < st.choose.size() ? st.choose[i] : st.overrideChoose[i - st.choose.size()];
++}
++
++bool SpeedrunBridge::clickChoice(const Common::String &choice, const char *interrupt) {
++	const Common::String needle = asciiLower(choice);
 +	int match = -1, matches = 0;
 +	Common::String matchText;
 +	for (int slot = 1; slot < _vm->_numVerbs; slot++) {
@@ -1910,22 +2208,26 @@ index 00000000..82beb275
 +	}
 +	if (matches == 0) {
 +		fail("choice_not_found", Common::String::format("no visible choice contains \"%s\"; visible: %s",
-+		                                                st.choose[_chooseIndex].c_str(), visibleChoices().c_str()));
-+		return;
++		                                                choice.c_str(), visibleChoices().c_str()));
++		return false;
 +	}
 +	if (matches > 1) {
 +		fail("choice_ambiguous", Common::String::format("\"%s\" matches %d visible choices: %s",
-+		                                                st.choose[_chooseIndex].c_str(), matches, visibleChoices().c_str()));
-+		return;
++		                                                choice.c_str(), matches, visibleChoices().c_str()));
++		return false;
 +	}
 +
 +	_vm->runInputScript(kVerbClickArea, match, 1);
 +	JsonObject rec = record("choice");
-+	rec.add("step", (int)_stepIndex).add("verb_id", match).add("text", matchText);
++	if (errorStep() >= 0)
++		rec.add("step", errorStep());
++	rec.add("verb_id", match).add("text", matchText);
++	if (interrupt)
++		rec.add("interrupt", interrupt);
 +	writeRecord(rec);
-+	_chooseIndex++;
 +	_menuAnswered = true; // the next answer needs a new menu
 +	markProgress();
++	return true;
 +}
 +
 +Common::String SpeedrunBridge::visibleChoices() const {
@@ -1990,10 +2292,10 @@ index 00000000..82beb275
 +} // End of namespace Scumm
 diff --git a/engines/scumm/speedrun/speedrun_plan_parser.cpp b/engines/scumm/speedrun/speedrun_plan_parser.cpp
 new file mode 100644
-index 00000000..a24bb1df
+index 00000000..a8c6f042
 --- /dev/null
 +++ b/engines/scumm/speedrun/speedrun_plan_parser.cpp
-@@ -0,0 +1,205 @@
+@@ -0,0 +1,287 @@
 +/* ScummVM - Graphic Adventure Engine
 + *
 + * ScummVM is the legal property of its developers, whose names
@@ -2017,7 +2319,8 @@ index 00000000..a24bb1df
 +
 +// Parses SPEEDRUN_PLAN (docs/plan.md contract C4): JSONL, one step per line,
 +// with exactly the keys of src/speedrun/compiler.py C4_KEYS. Ranges that need
-+// the game's counts are checked later, in SpeedrunBridge::loadPlan().
++// the game's counts are checked later, in SpeedrunBridge::loadPlan(). Also
++// parses SPEEDRUN_INTERRUPTS (C1), whose ranges onBoot() checks.
 +
 +#include "common/formats/json.h"
 +
@@ -2060,13 +2363,34 @@ index 00000000..a24bb1df
 +	return true;
 +}
 +
++// A list of dialogue choice substrings: non-empty ASCII strings (docs/plan.md C5).
++bool readChoices(const Common::JSONValue *value, const char *key, Common::Array<Common::String> &out, Common::String &error) {
++	if (!value->isArray()) {
++		error = Common::String::format("'%s' must be an array of strings", key);
++		return false;
++	}
++	for (uint i = 0; i < value->asArray().size(); i++) {
++		const Common::JSONValue *c = value->asArray()[i];
++		bool ascii = c->isString() && !c->asString().empty();
++		for (uint k = 0; ascii && k < c->asString().size(); k++)
++			ascii = (byte)c->asString()[k] < 0x80;
++		if (!ascii) {
++			error = Common::String::format("%s %u must be a non-empty ASCII string (docs/plan.md C5)", key, i);
++			return false;
++		}
++		out.push_back(c->asString());
++	}
++	return true;
++}
++
 +bool parseStep(const Common::JSONValue *value, SpeedrunStep &step, Common::String &error) {
 +	if (!value || !value->isObject()) {
 +		error = "a step must be a JSON object";
 +		return false;
 +	}
 +	const Common::JSONObject &obj = value->asObject();
-+	static const char *const kKeys[] = {"action", "verb", "obj", "obj2", "room", "click", "choose", "until"};
++	static const char *const kKeys[] = {"action", "verb", "obj", "obj2", "room", "click", "choose", "override_choose",
++	                                    "until", "no_skip"};
 +	for (Common::JSONObject::const_iterator it = obj.begin(); it != obj.end(); ++it) {
 +		bool known = false;
 +		for (const char *key : kKeys)
@@ -2132,23 +2456,23 @@ index 00000000..a24bb1df
 +		return false;
 +	}
 +
-+	if (obj.contains("choose")) {
-+		const Common::JSONValue *choose = obj.getVal("choose");
-+		if (!choose->isArray()) {
-+			error = "'choose' must be an array of strings";
++	if (obj.contains("choose") && !readChoices(obj.getVal("choose"), "choose", step.choose, error))
++		return false;
++	if (obj.contains("override_choose")) {
++		if (!readChoices(obj.getVal("override_choose"), "override_choose", step.overrideChoose, error))
++			return false;
++		if (step.overrideChoose.empty()) {
++			error = "'override_choose' must not be empty (omit it instead)";
 +			return false;
 +		}
-+		for (uint i = 0; i < choose->asArray().size(); i++) {
-+			const Common::JSONValue *c = choose->asArray()[i];
-+			bool ascii = c->isString() && !c->asString().empty();
-+			for (uint k = 0; ascii && k < c->asString().size(); k++)
-+				ascii = (byte)c->asString()[k] < 0x80;
-+			if (!ascii) {
-+				error = Common::String::format("choose %u must be a non-empty ASCII string (docs/plan.md C5)", i);
-+				return false;
-+			}
-+			step.choose.push_back(c->asString());
++	}
++	if (obj.contains("no_skip")) {
++		const Common::JSONValue *noSkip = obj.getVal("no_skip");
++		if (!noSkip->isBool()) {
++			error = "'no_skip' must be a boolean";
++			return false;
 +		}
++		step.noSkip = noSkip->asBool();
 +	}
 +
 +	if (obj.contains("until") && !parseSpeedrunConditionArray(obj.getVal("until"), step.until, error)) {
@@ -2198,13 +2522,307 @@ index 00000000..a24bb1df
 +	return true;
 +}
 +
++bool parseSpeedrunInterrupts(const Common::String &text, Common::Array<SpeedrunInterrupt> &out, Common::String &error) {
++	// [{"name": "map-pirate", "when": [<C3>...], "choose": ["on my way"]}, ...]:
++	// segment.toml `interrupts` without `cite` (src/speedrun/segments.py).
++	out.clear();
++	Common::JSONValue *root = Common::JSON::parse(text);
++	if (!root || !root->isArray()) {
++		delete root;
++		error = "expected a JSON array of {\"name\", \"when\", \"choose\"} objects";
++		return false;
++	}
++	const Common::JSONArray &items = root->asArray();
++	bool ok = true;
++	for (uint i = 0; ok && i < items.size(); i++) {
++		const Common::JSONValue *v = items[i];
++		const bool shape = v->isObject() && v->asObject().size() == 3 && v->asObject().contains("name") &&
++		                   v->asObject().contains("when") && v->asObject().contains("choose");
++		if (!shape) {
++			error = Common::String::format("interrupt %u must have exactly the keys name, when and choose", i);
++			ok = false;
++			break;
++		}
++		const Common::JSONObject &obj = v->asObject();
++		SpeedrunInterrupt it;
++		if (!obj.getVal("name")->isString() || obj.getVal("name")->asString().empty()) {
++			error = Common::String::format("interrupt %u: 'name' must be a non-empty string", i);
++			ok = false;
++			break;
++		}
++		it.name = obj.getVal("name")->asString();
++		for (uint k = 0; k < out.size(); k++) {
++			if (out[k].name == it.name) {
++				error = Common::String::format("interrupt %u: name '%s' is used twice", i, it.name.c_str());
++				ok = false;
++			}
++		}
++		if (ok && !parseSpeedrunConditionArray(obj.getVal("when"), it.when, error)) {
++			error = Common::String::format("interrupt %u (%s): when: %s", i, it.name.c_str(), error.c_str());
++			ok = false;
++		}
++		if (ok && it.when.empty()) {
++			error = Common::String::format("interrupt %u (%s): 'when' must not be empty", i, it.name.c_str());
++			ok = false;
++		}
++		if (ok && !readChoices(obj.getVal("choose"), "choose", it.choose, error)) {
++			error = Common::String::format("interrupt %u (%s): %s", i, it.name.c_str(), error.c_str());
++			ok = false;
++		}
++		if (ok && it.choose.empty()) {
++			error = Common::String::format("interrupt %u (%s): 'choose' must not be empty", i, it.name.c_str());
++			ok = false;
++		}
++		if (ok)
++			out.push_back(it);
++	}
++	delete root;
++	if (!ok)
++		out.clear();
++	return ok;
++}
++
++} // End of namespace Scumm
+diff --git a/engines/scumm/speedrun/speedrun_skips.cpp b/engines/scumm/speedrun/speedrun_skips.cpp
+new file mode 100644
+index 00000000..a3463db9
+--- /dev/null
++++ b/engines/scumm/speedrun/speedrun_skips.cpp
+@@ -0,0 +1,228 @@
++/* ScummVM - Graphic Adventure Engine
++ *
++ * ScummVM is the legal property of its developers, whose names
++ * are too numerous to list here. Please refer to the COPYRIGHT
++ * file distributed with this source distribution.
++ *
++ * This program is free software: you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License as published by
++ * the Free Software Foundation, either version 3 of the License, or
++ * (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
++ *
++ */
++
++// Text and cutscene skips (docs/plan.md Phase 8: SPEEDRUN_SKIP_TEXT,
++// SPEEDRUN_SKIP_CUTSCENES, C4 no_skip, C5 skip records;
++// docs/research/skips-engine.md sections 2-4 and 7).
++//
++// A skip is a key press through the engine's own key path: onFrameBegin()
++// writes _keyPressed after neutraliseInput() has erased any human key, and
++// processInput() reads it later in the same frame (input.cpp, '.' and Esc in
++// processKeyboard()). Keys are pressed only after the segment start, so the
++// logo speed glitch (an Esc at the Lucasfilm logo) can never happen, and only
++// on a frame where the press has an effect.
++
++#include "common/keyboard.h"
++
++#include "scumm/scumm.h"
++#include "scumm/script.h"
++#include "scumm/speedrun/speedrun_bridge.h"
++
++namespace Scumm {
++
++namespace {
++
++// beginOverride() records the PC of the goto that follows it, and
++// abortCutscene() resumes the script there (script.cpp). In v5 that goto is
++// o5_jumpRelative (script_v5.cpp opcode table).
++const byte kOpJumpRelative = 0x18;
++
++// _stepSkips indices, and the kinds of C5 skip records.
++const int kSkipText = 0, kSkipCutscene = 1;
++
++// scummLoop() clamps delta to 15 before it lowers _talkDelay (scumm.cpp).
++const int kMaxDelta = 15;
++
++} // End of anonymous namespace
++
++void SpeedrunBridge::trackOverride() {
++	// The override abortCutscene() would jump to, and whose it is.
++	// beginOverride() does not count as a cutscene for stopScript() and
++	// stopObjectCode(), and nothing that kills a script clears the pointer:
++	// an override at level 0 whose script ends without endOverride() leaves a
++	// stale pointer, and Esc would then rewind whatever script now has that
++	// slot. So remember the owner when the pointer appears, and latch it
++	// stale if that script dies or the slot changes hands.
++	const ScummEngine &e = *_vm;
++	const int level = e.vm.cutSceneStackPointer;
++	const uint32 ptr = level < kMaxCutsceneNum ? e.vm.cutScenePtr[level] : 0;
++	if (!ptr) {
++		_override = OverrideSeen();
++		return;
++	}
++	const int slot = e.vm.cutSceneScript[level];
++	const ScriptSlot *ss = slot < NUM_SCRIPT_SLOT ? &e.vm.slot[slot] : nullptr;
++	const bool roomCode = ss && (ss->where == WIO_LOCAL || ss->where == WIO_ROOM);
++	const int room = roomCode ? (int)e._roomResource : -1;
++	if (level != _override.level || ptr != _override.ptr) {
++		_override = OverrideSeen();
++		_override.level = level;
++		_override.ptr = ptr;
++		_override.slot = slot;
++		_override.stale = !ss || ss->status == ssDead;
++		if (ss) {
++			_override.number = ss->number;
++			_override.where = ss->where;
++			_override.room = room;
++		}
++		return;
++	}
++	if (!ss || ss->status == ssDead || ss->number != _override.number || ss->where != _override.where ||
++	    room != _override.room)
++		_override.stale = true;
++}
++
++bool SpeedrunBridge::cutsceneSkipEffective() const {
++	// Esc has an effect exactly when abortCutscene() finds a live override at
++	// the current cutscene level (script.cpp). Level 0 counts: five route
++	// overrides have no enclosing cutscene() (docs/part1/skips.md section 0).
++	const ScummEngine &e = *_vm;
++	// Disabled Esc would reach the input script as a plain key (input.cpp).
++	if (e.VAR_CUTSCENEEXIT_KEY == 0xFF || e._scummVars[e.VAR_CUTSCENEEXIT_KEY] == 0)
++		return false;
++	// With input on, Esc also hands key 27 to the input script
++	// (verbs.cpp checkExecVerbs()). Every override on the route runs with
++	// input off (docs/part1/skips.md section 2), so the bot never does that.
++	if (e._userPut > 0)
++		return false;
++	if (!_override.ptr || _override.stale)
++		return false;
++	const byte *code = nullptr;
++	uint32 size = 0;
++	return slotCode(_override.slot, code, size) && _override.ptr < size && code[_override.ptr] == kOpJumpRelative;
++}
++
++int SpeedrunBridge::messageWaitSlot() const {
++	for (int i = 0; i < NUM_SCRIPT_SLOT; i++) {
++		if (_vm->vm.slot[i].status != ssDead && slotWaitsForMessage(i))
++			return i;
++	}
++	return -1;
++}
++
++bool SpeedrunBridge::textSkipEffective(int delta, int &waitSlot) const {
++	// '.' sets _talkDelay = 0 and nothing else (input.cpp; stopTalk() only
++	// for talkies, which Mac MI1 is not). displayDialog() then ends the line,
++	// or moves to its next part, through the same code a timeout uses
++	// (string.cpp). So the press matters only while a line is showing and
++	// would not end in this frame anyway.
++	const ScummEngine &e = *_vm;
++	waitSlot = -1;
++	if (e.VAR_TALKSTOP_KEY == 0xFF || e._scummVars[e.VAR_TALKSTOP_KEY] == 0)
++		return false; // disabled '.' would reach the input script as key 46
++	if (!e._haveMsg || e._talkDelay <= CLIP(delta, 0, kMaxDelta))
++		return false;
++	// Only a real line, the idle rule's text test (speedrun_state.cpp): an
++	// actor talking (print(255) sets VAR_TALK_ACTOR to 0xFF), or a script
++	// waiting for the message. Never the island map's hover label, which
++	// global script 24 reprints every frame and nothing waits on
++	// (global/script-024.txt [0057], [0069]).
++	const int talker = e.VAR_TALK_ACTOR != 0xFF ? e._scummVars[e.VAR_TALK_ACTOR] : 0;
++	waitSlot = messageWaitSlot();
++	return (talker > 0 && talker < 0x80) || waitSlot >= 0;
++}
++
++bool SpeedrunBridge::stepForbidsCutsceneSkip() const {
++	// _stepIndex is the active step, or the next one to start, so no_skip
++	// covers the step and the wait (until, idle) before it.
++	return !_plan.empty() && !_planDone && _plan[_stepIndex].noSkip;
++}
++
++void SpeedrunBridge::maybeInjectSkip(int delta) {
++	trackOverride();
++	if (_finished || !_segmentStarted || (!_skipText && !_skipCutscenes))
++		return;
++
++	ScummEngine &e = *_vm;
++	const int step = errorStep(); // -1 without a plan, and once it is done
++	// One key per frame (the engine reads one): Esc first, since it removes
++	// a whole override region; a line still showing gets '.' next frame.
++	if (_skipCutscenes && !stepForbidsCutsceneSkip() && cutsceneSkipEffective()) {
++		e._keyPressed = Common::KeyState(Common::KEYCODE_ESCAPE, Common::ASCII_ESCAPE, 0);
++		const int32 var19 = e._scummVars[e.VAR_TIMER_NEXT];
++		JsonObject rec = record("skip");
++		rec.add("kind", "cutscene");
++		if (step >= 0)
++			rec.add("step", step);
++		rec.add("room", (int)e._currentRoom)
++		   .add("level", _override.level)
++		   .add("slot", _override.slot)
++		   .add("script", _override.number)
++		   .add("offs", (uint64)_override.ptr)
++		   .add("userput", (int)e._userPut)
++		   .add("var19", (int)var19);
++		writeRecord(rec);
++		if (step >= 0)
++			_stepSkips[kSkipCutscene]++;
++		_speedCheckPending = true; // judged at the next idle decision point
++		_speedCheckTick = _ticks;
++		_speedCheckScript = _override.number;
++		return;
++	}
++
++	int waitSlot = -1;
++	if (_skipText && textSkipEffective(delta, waitSlot)) {
++		e._keyPressed = Common::KeyState(Common::KEYCODE_PERIOD, '.', 0);
++		JsonObject rec = record("skip");
++		rec.add("kind", "text");
++		if (step >= 0)
++			rec.add("step", step);
++		rec.add("room", (int)e._currentRoom)
++		   .add("talker", e.VAR_TALK_ACTOR != 0xFF ? (int)e._scummVars[e.VAR_TALK_ACTOR] : 0);
++		if (waitSlot >= 0)
++			rec.add("wait_slot", waitSlot).add("wait_script", (int)e.vm.slot[waitSlot].number);
++		// Upper bound on the jiffies saved: what was left after this frame.
++		rec.add("talk_delay", (int)e._talkDelay - CLIP(delta, 0, kMaxDelta));
++		writeRecord(rec);
++		if (step >= 0)
++			_stepSkips[kSkipText]++;
++	}
++}
++
++bool SpeedrunBridge::timerNextChanged(const char *when) {
++	// The logo speed glitch family (rules/glitchless.md, banned item 2): an
++	// override path that skips a var 19 (VAR_TIMER_NEXT, the frame length in
++	// jiffies) write, or that leads to killing a script between its var 19
++	// set and restore, leaves every later frame shorter or longer
++	// (docs/research/skips-engine.md section 6). MI1 sets 6 at boot
++	// (global/script-001.txt [07B3]) and the logo restores 6
++	// (room-010-logo/local-204.txt [0097]). Mid-game writers only change it
++	// inside scripts that run with input off and restore it before they hand
++	// control back: the circus cannon, room-051-circus-te/local-208.txt
++	// [0005] sets 1 and [005F] restores it (docs/part1/skips.md section 3);
++	// global scripts 44 and 100 save and restore it (off-route). So var 19
++	// must be 6 whenever control is with the player: at the segment start,
++	// at every step_end, at the goal, and at the first idle decision point
++	// after a cutscene skip (which names the skip).
++	static const int32 kTimerNext = 6;
++	_speedCheckPending = false;
++	const int32 now = _vm->_scummVars[_vm->VAR_TIMER_NEXT];
++	if (now == kTimerNext)
++		return false;
++	Common::String message = Common::String::format("var 19 (VAR_TIMER_NEXT) is %d at %s, not %d", now, when, kTimerNext);
++	if (_speedCheckScript >= 0)
++		message += Common::String::format("; last cutscene skip: script %d at tick %llu", _speedCheckScript,
++		                                  (unsigned long long)_speedCheckTick);
++	fail("timer_next", message);
++	return true;
++}
++
 +} // End of namespace Scumm
 diff --git a/engines/scumm/speedrun/speedrun_state.cpp b/engines/scumm/speedrun/speedrun_state.cpp
 new file mode 100644
-index 00000000..6763d245
+index 00000000..85355f2f
 --- /dev/null
 +++ b/engines/scumm/speedrun/speedrun_state.cpp
-@@ -0,0 +1,497 @@
+@@ -0,0 +1,510 @@
 +/* ScummVM - Graphic Adventure Engine
 + *
 + * ScummVM is the legal property of its developers, whose names
@@ -2337,12 +2955,11 @@ index 00000000..6763d245
 +	return false;
 +}
 +
-+bool SpeedrunBridge::slotWaitsForMessage(int i) const {
-+	// A script blocked in WaitForMessage() re-executes o5_wait every frame:
-+	// o5_wait rewinds _scriptPointer to its own opcode before breakHere()
-+	// (script_v5.cpp), so the slot's offs points at "AE 02". Read the code
-+	// through the raw resource pointers: getResourceAddress() would update
-+	// LRU counters and so change what expireResources() evicts later.
++bool SpeedrunBridge::slotCode(int i, const byte *&code, uint32 &size) const {
++	// The code base a slot's offs is relative to (script.cpp
++	// getScriptBaseAddress()), read through the raw resource pointers:
++	// getResourceAddress() would update LRU counters and so change what
++	// expireResources() evicts later.
 +	const ScummEngine &e = *_vm;
 +	const ScriptSlot &ss = e.vm.slot[i];
 +	ResType type = rtInvalid;
@@ -2378,9 +2995,23 @@ index 00000000..6763d245
 +	if (type == rtInvalid || idx < 0 || idx >= (int)e._res->_types[type].size())
 +		return false;
 +	const ResourceManager::Resource &res = e._res->_types[type][idx];
-+	if (!res._address || ss.offs + 1 >= res._size)
++	if (!res._address)
 +		return false;
-+	return res._address[ss.offs] == kOpWait && (res._address[ss.offs + 1] & 0x1F) == kWaitForMessage;
++	code = res._address;
++	size = res._size;
++	return true;
++}
++
++bool SpeedrunBridge::slotWaitsForMessage(int i) const {
++	// A script blocked in WaitForMessage() re-executes o5_wait every frame:
++	// o5_wait rewinds _scriptPointer to its own opcode before breakHere()
++	// (script_v5.cpp), so the slot's offs points at "AE 02".
++	const ScriptSlot &ss = _vm->vm.slot[i];
++	const byte *code = nullptr;
++	uint32 size = 0;
++	if (!slotCode(i, code, size) || ss.offs + 1 >= size)
++		return false;
++	return code[ss.offs] == kOpWait && (code[ss.offs + 1] & 0x1F) == kWaitForMessage;
 +}
 +
 +SpeedrunBridge::IdleState SpeedrunBridge::evaluateIdle() const {

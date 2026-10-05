@@ -159,6 +159,8 @@ An Esc between those two points leaves 630 in a cell before the idol-room items.
 | A50 `steal-idol` | `could have it`, `Uh`, `Um`, `Blfft` | `could have it` | The last three menus are inside the level-0 override `global/script-119.txt [0000]`→`[08A1]` (`[01BB]`, `[038E]`, `[05D2]`). Their branches set nothing (`[0294]`–`[02BC]`, `[046A]`–`[0492]`, `[06B3]`–`[06DB]`). |
 | A51 `walk-past-fester-to-underwater` | `Buzz off` | none | The menu `[006E]`–`[01FF]` is inside the level-0 override `room-053-foyer/local-217.txt [000F]`→`[034B]`. Its replies set nothing on the route; the sword handover `[030F]`–`[0336]` is redone by the fix-up `[0364]`–`[0370]`. |
 
+**As implemented (Task 8.2).** The templates keep both lists through the C4 key `override_choose` (`docs/plan.md`): `steal-idol` has `choose = ["could have it"]` and `override_choose = ["Uh", "Um", "Blfft"]`, and `walk-past-fester-to-underwater` has `override_choose = ["Buzz off"]`. The bridge expects the `override_choose` entries only when cutscene skips are off or the step is `no_skip`. One compiled plan thus replays strictly in both modes.
+
 All other `choose` lists of the plan answer menus that lie outside override regions (§5). The menus actually answered on seed 1, from `choice` records, are:
 
 - A11: `ahem`, `I'll do it`, `Of course`;
@@ -188,6 +190,13 @@ The harness compares each step with and without skips. These differences are exp
 | all | scratch Var[100], Var[141], Var[142], Var[194]; RNG-driven values | | | §7.2 |
 
 Bits, owners and the inventory order must otherwise be identical at every `step_end`. Var 19 must be identical everywhere (§3).
+
+**Measured (Task 8.2).** `tests/integration/test_skip_safety.py` compares, at every `step_end` on seeds 1–3, bits, inventory, the owner of every object, the room and var 19, with skips against without. It finds exactly three differences:
+- Bit[561], from the LeChuck exit on (A7, above);
+- the owner of 630, from `enter-idol-room` on (A38, above);
+- Bit[324], from the store on. This is RNG drift, not an override. Whether the storekeeper is away at a store entry is drawn at `room-030-store/entry.txt [002B]`; `local-204.txt [02F4]` sets the bit when he comes back and catches ego. Its readers only pick a line (`local-200.txt [017D]`, `local-204.txt [02EF]`, `local-212.txt [00ED]`).
+
+The inventory is identical at every step, so the first-frame Esc of §4.2 lands in time.
 
 ## 5. Route cutscenes, in plan order
 

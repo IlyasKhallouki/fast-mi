@@ -39,3 +39,24 @@ randomized_vars = []
 # (docs/part1/input-scripts.md section 6; the earlier count = 6 was the range
 # the circus input script accepts, not the display size).
 inventory = {verb_first = 200, count = 8, var_first = 133, cite = "data/scripts/global/script-009.txt [0092]"}
+
+# Random dialogues the plan cannot schedule, answered with a fixed, cited escape
+# (C9; the bridge's SPEEDRUN_INTERRUPTS is this minus the cites). Considered only
+# when a menu shows that the plan does not answer; the interrupted step then
+# starts over (docs/plan.md, "Plan-player semantics as implemented").
+#
+# map-pirate: from the 4th map entry on, a wandering pirate walks the map
+# (room-085-melee/entry.txt [009B]-[00A9], Var[290] > 2), and if ego stands
+# still within distance 2 of him, global script 114 forces an encounter on the
+# road, room 49 (room-085-melee/local-202.txt [018A]-[01A2]; global/script-114.txt
+# [0035]-[005B]). Its menu always offers "Sorry to bother you. I'll be on my way."
+# as verb 124 (room-049-road/local-200.txt [0325]; the other lines depend on
+# Var[271], Bit[501], Bit[19] and money). Var[194] == 124 jumps straight to the
+# end (local-200 [0465] -> [06E1]); global 73 then restores the verb script and
+# input ([00F9]-[0104]) and global 114 puts ego back on the map where he stood
+# ([006E]-[0079] putActorInRoom(ego,85), putActor, actorFollowCamera). Leaving
+# room 85 killed the map's object scripts, so the interrupted map walk did not
+# happen and is pushed again.
+interrupts = [
+  {name = "map-pirate", when = [{room = 49}], choose = ["on my way"], cite = "data/scripts/room-049-road/local-200.txt [0325] verb 124 \"Sorry to bother you.  I'll be on my way.\"; [0465] Var[194] == 124 -> [06E1] stopObjectCode; global/script-114.txt [006E]-[0079] ego back on the map (room 85) where he stood"},
+]

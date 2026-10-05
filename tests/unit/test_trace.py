@@ -412,3 +412,41 @@ def test_summary_goal_without_segment_start(tmp_path):
         "TOTAL: unknown (goal reached, but the trace has no segment_start record)",
         "  error engine_error at tick 171: late error",
     ]
+
+
+# --- interrupts and restarted steps (C5 interrupt / interrupt_end) ---------------------
+
+# Step 1 is cut short by a random dialogue: an interrupt answers its menu, then the
+# step starts over (a second step_start with "restart") and ends normally.
+INTERRUPTED = [
+    BOOT,
+    {"type": "segment_start", "tick": 100, "frame": 10, "tick0": 100, "room": 85},
+    {"type": "step_start", "step": 0, "tick": 110, "frame": 11, "action": "walk a b", "room": 85},
+    {"type": "step_end", "step": 0, "tick": 200, "frame": 20, "room": 85, "changes": {}},
+    {"type": "step_start", "step": 1, "tick": 210, "frame": 21, "action": "walk b c", "room": 85},
+    {"type": "interrupt", "tick": 300, "frame": 30, "name": "map-pirate", "step": 1, "room": 49, "restart": True},
+    {"type": "choice", "step": 1, "tick": 330, "frame": 33, "verb_id": 124, "text": "on my way", "interrupt": "map-pirate"},
+    {"type": "interrupt_end", "tick": 400, "frame": 40, "name": "map-pirate", "step": 1, "room": 85, "restart": True},
+    {"type": "step_start", "step": 1, "tick": 400, "frame": 40, "action": "walk b c", "room": 85, "restart": True},
+    {"type": "step_end", "step": 1, "tick": 500, "frame": 50, "room": 58, "changes": {"room": [85, 58]}},
+    {"type": "goal", "tick": 520, "frame": 52, "ticks_from_start": 420},
+    {"type": "end", "tick": 520, "frame": 52, "reason": "goal"},
+]
+
+
+def test_a_restarted_step_keeps_its_first_start(tmp_path):
+    t = load_trace(_write(tmp_path, INTERRUPTED))
+    assert [s.index for s in t.steps] == [0, 1]
+    step = t.steps[1]
+    assert step.start_tick == 210  # the first step_start; the interrupt counts towards the step
+    assert step.end_tick == 500 and step.duration == 290
+    assert step.restarts == 1 and t.steps[0].restarts == 0
+    assert step.room_start == 85 and step.room_end == 58
+    assert step.choices == []  # the interrupt's answer is not one of the plan's choices
+
+
+def test_interrupt_records_are_collected(tmp_path):
+    t = load_trace(_write(tmp_path, INTERRUPTED))
+    assert [(r["type"], r["name"], r["step"]) for r in t.interrupts] == [
+        ("interrupt", "map-pirate", 1), ("interrupt_end", "map-pirate", 1)]
+    assert t.total_ticks == 420

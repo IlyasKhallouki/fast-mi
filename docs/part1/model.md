@@ -278,6 +278,8 @@ Each substring is matched case-insensitively against the visible lines of one me
 | `Um` | Not `Er`, which also matches "Jeepers". |
 | `Blfft` | Unique. |
 | `Buzz off` | Unique. |
+
+**Skips and menus.** The `Uh`, `Um`, `Blfft` (steal-idol) and `Buzz off` (Fester) menus lie inside level-0 override regions: `global/script-119.txt [0000]` → `[08A1]` and `room-053-foyer/local-217.txt [000F]` → `[034B]`. With cutscene skips on, the default for every v1 run, the Esc lands first and those menus never show (`docs/part1/skips.md` §4.3). Their templates therefore list them as `override_choose`, which the bridge expects only when the cutscene plays: skips off, or a `no_skip` step (`docs/plan.md` C4). The same compiled plan replays with and without skips (`--no-skips`), and both are tested (`tests/integration/test_skip_safety.py`).
 | `Sword Master` | Unique in the store menu: the topic 122 line "I'm looking for the Sword Master of Mêlée Island™." (`local-211.txt [0110]`). |
 | `be a pirate` | The leaders' first menu: "I mean to kill you all!", "I want to be a pirate.", "I want to be a fireman." |
 | `mastering the sword` | Not a substring of "Tell me more about mastering the art of thievery." |
@@ -372,7 +374,8 @@ These come from `rules/glitchless.md` and the analysis notes.
    - The cook must walk from x ≤ 310 back past the door to (660,123) before he closes it, so ego should normally win. It did on seeds 1–5.
 2. **Map pirates: one idle frame on the 4th map entry.** The plan enters the map 4 times. The 4th entry (step 55, lookout → map, then step 56 → fork) can spawn a wandering pirate (`room-085-melee/entry.txt [009B]`, `Var[290] > 2`).
    - An encounter needs ego standing still near the pirate (`room-085-melee/local-202.txt [018A]`–`[01A2]`). On the map ego stands still for about one frame: it arrives, and the bridge pushes Walk to fork on the first idle frame.
-   - Whether a pirate reaches ego in that frame is deterministic per seed. It did not happen on seeds 1–5.
+   - Whether a pirate reaches ego in that frame is deterministic per seed. It did not happen on seeds 1–5 without skips.
+   - **Handled since Task 8.2.** It does happen on some seeds: seed 2 without skips at talkspeed 255, and seeds 164, 166 and 196 among 1–267 with skips. The encounter comes as ego reaches the fork, with the pirate heading there too. `segment.toml`'s `map-pirate` interrupt answers the road menu with "Sorry to bother you. I'll be on my way." (`room-049-road/local-200.txt [0325]`). Global 114 then puts ego back on the map where he stood, and the bridge restarts the interrupted Walk to fork (`docs/plan.md`, "Plan-player semantics as implemented"; `tests/integration/test_interrupts.py`).
    - Four entries is the minimum for this goal: two for the circus round trip, then either a separate petal trip plus the treasure trip, or the treasure trip plus the exit from 64.
 3. **Map idle detection.** **Verified.** Global 24 prints a blank label every frame on the map (input-scripts.md §4.6), but the bridge still sees idle frames on room 85: every map step in every replay ends in its destination room.
 4. **The troll trigger on the clearing walk.** Settled; see "Settled" below.

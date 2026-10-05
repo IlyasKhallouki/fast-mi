@@ -26,8 +26,9 @@ from speedrun.planner import Plan
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
 TOY_STEPS = FIXTURES / "segments" / "toy" / "steps.toml"
 
-# C4 key order, written out independently of the implementation.
-C4_KEYS = ["action", "verb", "obj", "obj2", "room", "click", "choose", "until"]
+# C4 key order, written out independently of the implementation. `override_choose`
+# and `no_skip` are optional and omitted at their defaults (empty, false).
+C4_KEYS = ["action", "verb", "obj", "obj2", "room", "click", "choose", "override_choose", "until", "no_skip"]
 C4_INT_KEYS = {"verb", "obj", "obj2", "room"}
 
 VERBS = {"walk_to": "Walk to", "pick_up": "Pick up", "talk_to": "Talk to", "give": "Give", "open": "Open"}
@@ -73,6 +74,10 @@ def _assert_c4(step: dict) -> None:
     for k in C4_INT_KEYS & set(step):
         assert type(step[k]) is int, (k, step[k])
     assert all(isinstance(c, str) for c in step["choose"])
+    if "override_choose" in step:
+        assert step["override_choose"] and all(isinstance(c, str) and c.isascii() for c in step["override_choose"])
+    if "no_skip" in step:
+        assert step["no_skip"] is True
 
 
 # --- object resolution -------------------------------------------------------
@@ -390,12 +395,77 @@ def test_output_key_order_and_keys_match_c4(index):
         {"choose": ["b"], "until": [{"has": 500}]},
         {"until": [{"has": 500}], "choose": ["c"], "click": [{"verb": "open"}], "room": 101},
     )
-    assert list(out[0]) == [k for k in C4_KEYS if k != "click"]
-    assert list(out[1]) == [k for k in C4_KEYS if k not in ("room", "click")]
+    optional = ("override_choose", "no_skip")
+    assert list(out[0]) == [k for k in C4_KEYS if k not in ("click", *optional)]
+    assert list(out[1]) == [k for k in C4_KEYS if k not in ("room", "click", *optional)]
     assert list(out[2]) == ["action", "choose", "until"]
     assert list(out[3]) == ["action", "room", "click", "choose", "until"]
     for step in out:
         _assert_c4(step)
+
+
+def test_output_key_order_with_override_choose_and_no_skip(index):
+    out = _compile_one(
+        index,
+        {
+            "no_skip": True,
+            "until": [{"room": 102}],
+            "override_choose": ["uh", "um"],
+            "choose": ["ledger"],
+            "room": 102,
+            "obj": {"room": 102, "name": "clerk"},
+            "verb": "talk_to",
+        },
+    )
+    assert list(out[0]) == [k for k in C4_KEYS if k != "click"]
+    _assert_c4(out[0])
+
+
+# --- no_skip and override_choose (docs/plan.md C4, Phase 8) ------------------------
+
+
+def test_no_skip_true_passes_through(index):
+    out = _compile_one(index, {"verb": "walk_to", "obj": {"room": 101, "name": "door"}, "no_skip": True})
+    assert out[0]["no_skip"] is True
+    assert list(out[0])[-1] == "no_skip"
+
+
+def test_no_skip_false_is_omitted(index):
+    out = _compile_one(index, {"verb": "walk_to", "obj": {"room": 101, "name": "door"}, "no_skip": False})
+    assert "no_skip" not in out[0]
+
+
+@pytest.mark.parametrize("value", [1, 0, "true", None, [True]], ids=repr)
+def test_no_skip_must_be_a_boolean(index, value):
+    with pytest.raises(TemplateError, match="no_skip"):
+        _compile_one(index, {"verb": "walk_to", "obj": {"room": 101, "name": "door"}, "no_skip": value})
+
+
+def test_override_choose_passes_through_after_choose(index):
+    out = _compile_one(
+        index,
+        {"verb": "talk_to", "obj": {"room": 102, "name": "clerk"}, "choose": ["ledger"], "override_choose": ["uh"]},
+    )
+    assert out[0]["choose"] == ["ledger"] and out[0]["override_choose"] == ["uh"]
+    _assert_c4(out[0])
+
+
+def test_empty_override_choose_is_omitted(index):
+    out = _compile_one(index, {"verb": "talk_to", "obj": {"room": 102, "name": "clerk"}, "override_choose": []})
+    assert "override_choose" not in out[0]
+
+
+@pytest.mark.parametrize("value", ["uh", ["uh", 3], [""], ["caf\u00e9"]], ids=repr)
+def test_bad_override_choose_is_template_error(index, value):
+    with pytest.raises(TemplateError, match="override_choose"):
+        _compile_one(index, {"verb": "talk_to", "obj": {"room": 102, "name": "clerk"}, "override_choose": value})
+
+
+def test_dialogue_only_step_needs_choose_not_only_override_choose(index):
+    # A step without a sentence or clicks answers a menu the game opens by itself; with
+    # cutscene skips on, override_choose entries are never used, so they cannot be all it has.
+    with pytest.raises(TemplateError):
+        _compile_one(index, {"override_choose": ["uh"]})
 
 
 # --- click steps -------------------------------------------------------------

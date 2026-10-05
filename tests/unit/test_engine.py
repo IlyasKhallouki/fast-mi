@@ -140,8 +140,35 @@ def test_env_defaults_omit_optional_vars(tmp_path):
         "SPEEDRUN_MAX_TICKS",
         "SPEEDRUN_STEP_TIMEOUT",
         "SPEEDRUN_INVENTORY",
+        "SPEEDRUN_INTERRUPTS",
+        "SPEEDRUN_STEP_STATES",
     ):
         assert absent not in env
+
+
+def test_env_interrupts_without_cite(tmp_path):
+    # segment.toml's interrupts carry citations; the bridge gets name, when and choose (C1).
+    interrupts = [
+        {"name": "map-pirate", "when": [{"room": 49}], "choose": ["on my way"], "cite": "road [0325]"},
+        {"name": "troll", "when": [{"room": 104}, {"bit": 3, "eq": 1}], "choose": ["pay", "thanks"], "cite": "c"},
+    ]
+    env = engine.build_env(_cfg(tmp_path, interrupts=interrupts), base_env={})
+    assert json.loads(env["SPEEDRUN_INTERRUPTS"]) == [
+        {"name": "map-pirate", "when": [{"room": 49}], "choose": ["on my way"]},
+        {"name": "troll", "when": [{"room": 104}, {"bit": 3, "eq": 1}], "choose": ["pay", "thanks"]},
+    ]
+    assert interrupts[0]["cite"]  # the caller's dicts are not modified
+
+
+def test_env_no_interrupts_omits_the_variable(tmp_path):
+    assert "SPEEDRUN_INTERRUPTS" not in engine.build_env(_cfg(tmp_path, interrupts=[]), base_env={})
+    assert _cfg(tmp_path).interrupts == []
+
+
+def test_env_step_states(tmp_path):
+    assert _cfg(tmp_path).step_states is False
+    env = engine.build_env(_cfg(tmp_path, step_states=True), base_env={})
+    assert env["SPEEDRUN_STEP_STATES"] == "1"
 
 
 def test_env_strips_inherited_speedrun_vars(tmp_path):

@@ -23,7 +23,7 @@ bridge pumps on game ticks) and ``--random-seed=<seed>``; the config pins
 The patched engine's bridge is configured through ``SPEEDRUN_*`` env vars
 (contract C1) and is inert unless ``SPEEDRUN_OUT`` is set. Text and cutscene
 skips (``SPEEDRUN_SKIP_TEXT`` / ``SPEEDRUN_SKIP_CUTSCENES``, Phase 8) are on
-by default; a bridge that predates them ignores the variables.
+by default.
 """
 
 import json
@@ -73,6 +73,11 @@ class EngineConfig:
     # Phase 8 skips (C1): inject `.` / Esc after the segment start. On by default.
     skip_text: bool = True
     skip_cutscenes: bool = True
+    # Random dialogues answered with a fixed escape (segment.toml `interrupts`); each
+    # entry's `cite` is dropped for SPEEDRUN_INTERRUPTS.
+    interrupts: list[dict] = field(default_factory=list)
+    # Diagnostic: state-step-NNN.json (C7) at every step_end (the skip-safety harness).
+    step_states: bool = False
     timeout_s: float = 600.0
     extra_args: list[str] = field(default_factory=list)
 
@@ -133,7 +138,8 @@ def _ini_text(cfg: EngineConfig) -> str:
             ("language", "en"),
             ("copy_protection", "false"),
             ("autosave_period", "0"),
-            # Not cosmetic: scripts read VAR_NOSUBTITLES from ConfMan.
+            # MI1's boot forces subtitles on anyway (global/script-001.txt [0005] writes
+            # VAR_NOSUBTITLES = 0, which writeVar stores in ConfMan); pinned for clarity.
             ("subtitles", "true"),
             ("original_gui", "false"),
             ("enhancements", "0"),
@@ -198,6 +204,11 @@ def build_env(cfg: EngineConfig, base_env: Mapping[str, str] | None = None) -> d
         env["SPEEDRUN_SKIP_TEXT"] = "1"
     if cfg.skip_cutscenes:
         env["SPEEDRUN_SKIP_CUTSCENES"] = "1"
+    if cfg.interrupts:
+        keep = ("name", "when", "choose")
+        env["SPEEDRUN_INTERRUPTS"] = json.dumps([{k: i[k] for k in keep} for i in cfg.interrupts])
+    if cfg.step_states:
+        env["SPEEDRUN_STEP_STATES"] = "1"
 
     # Keep ScummVM's unconditional data/cache dirs out of $HOME (see module doc).
     env["XDG_DATA_HOME"] = str(_xdg_data_dir(cfg))

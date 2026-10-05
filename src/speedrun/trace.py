@@ -1,9 +1,11 @@
 """Parse the bridge's ``trace.jsonl`` (contract C5) and report on it.
 
 ``load_trace`` groups the records into a ``Trace``: the ``boot``,
-``segment_start``, ``goal`` and ``end`` records, the ``error`` and ``stall``
-records, and one ``StepRecord`` per plan step (``step_start`` + ``step_end``,
-plus that step's ``choice`` and ``click`` records). Unknown record types and
+``segment_start``, ``goal`` and ``end`` records, the ``error``, ``stall`` and
+``interrupt``/``interrupt_end`` records, and one ``StepRecord`` per plan step
+(``step_start`` + ``step_end``, plus that step's ``choice`` and ``click``
+records). A step an interrupt made start over has a second ``step_start``; the
+first one counts. Unknown record types and
 unknown fields are ignored, so the bridge can grow new records without
 breaking old readers.
 
@@ -49,8 +51,11 @@ class StepRecord:
     start_tick: int | None = None
     end_tick: int | None = None
     changes: dict = field(default_factory=dict)
-    choices: list[str] = field(default_factory=list)  # decoded choice texts, in order
+    choices: list[str] = field(default_factory=list)  # decoded choice texts, in order (the plan's own)
     clicks: list[int] = field(default_factory=list)  # clicked verb ids, in order
+    # How often an interrupt made the step start over. ``start_tick`` stays the first
+    # start, so the interrupt counts towards the step.
+    restarts: int = 0
 
     @property
     def duration(self) -> int | None:
@@ -71,6 +76,7 @@ class Trace:
     goal: dict | None = None
     errors: list[dict] = field(default_factory=list)
     stalls: list[dict] = field(default_factory=list)
+    interrupts: list[dict] = field(default_factory=list)  # interrupt and interrupt_end records, in order
     end: dict | None = None
 
     @property
@@ -143,6 +149,8 @@ def load_trace(path: Path) -> Trace:
             trace.errors.append({**r, "message": decode_game_text(r.get("message"))})
         elif kind == "stall":
             trace.stalls.append(r)
+        elif kind in ("interrupt", "interrupt_end"):
+            trace.interrupts.append(r)
         # Anything else is a record type this reader does not know: ignore it.
 
     trace.steps = [steps[i] for i in sorted(steps)]
@@ -154,6 +162,9 @@ _STEP_RECORDS = frozenset({"step_start", "step_end", "choice", "click"})
 
 def _apply_step_record(s: StepRecord, kind: str, r: dict) -> None:
     if kind == "step_start":
+        if s.start_tick is not None:  # an interrupt made the step start over
+            s.restarts += 1
+            return
         s.action = r.get("action")
         s.room_start = r.get("room")
         s.start_tick = r.get("tick")
@@ -166,7 +177,8 @@ def _apply_step_record(s: StepRecord, kind: str, r: dict) -> None:
             room = pair[1] if isinstance(pair, list) and len(pair) == 2 else None
         s.room_end = room
     elif kind == "choice":
-        s.choices.append(decode_game_text(r.get("text")))
+        if "interrupt" not in r:
+            s.choices.append(decode_game_text(r.get("text")))
     else:  # click
         s.clicks.append(r.get("verb_id"))
 

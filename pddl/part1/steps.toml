@@ -437,7 +437,11 @@ steps = [{room = 51, until = [{var = 32, eq = 200}], click = [{verb = "use"}, {i
 [actions."walk-past-fester-to-underwater"]
 cite = "data/scripts/room-053-foyer/obj-0633-door.txt [0018] Open 633 owning idol 635 runs local-217 (menu [01C1]); [0391] room 83; global/script-065.txt [023A] room 42"
 # Waits for room 53: the theft before it ends with a room-23 close-up (global 119).
-steps = [{verb = "open", obj = {room = 53, name = "door", id = 633}, room = 53, until = [{room = 53}], choose = ["Buzz off"]}]
+# The "Buzz off" menu ([006E]-[01FF]) lies inside local-217's level-0 override
+# [000F] -> [034B]: with cutscene skips on, the Esc lands first and the menu never
+# shows, so it is an override_choose answer (docs/part1/skips.md section 4.3). Its
+# replies set nothing on the route; the fix-up [0364]-[0370] redoes the sword handover.
+steps = [{verb = "open", obj = {room = 53, name = "door", id = 633}, room = 53, until = [{room = 53}], override_choose = ["Buzz off"]}]
 
 [actions."walk-up-ladder-taking-idol"]
 cite = "data/scripts/room-042-underwate/obj-0578-fabulous-idol.txt [001B] Pick up 578 -> local-203 [0024] -> local-200 [0041] startScript(71,[2]) (Bit[85]); then room 83 and the Elaine scene (room-083-cu-dock/entry.txt [008E])"
@@ -692,7 +696,11 @@ steps = [{verb = "open", obj = {room = 31, name = "cake"}}]
 cite = "data/scripts/room-053-foyer/obj-0637-gaping-hole.txt [0021] local-211 theft; local-212.txt [02BE] Fester menu; global/script-119.txt [01BB] Elaine menus"
 # Menu 1 (Fester): all lines are equivalent (they only set Var[273]); menus 2-4
 # (Elaine) have empty branches. "Um", not "Er" ("Er" also matches "Jeepers").
-steps = [{verb = "walk_to", obj = {room = 53, name = "gaping hole"}, room = 53, until = [{room = 53}], choose = ["could have it", "Uh", "Um", "Blfft"]}]
+# Menu 1 comes after local-212's endCutscene [0294], outside any override. Menus 2-4
+# ([01BB], [038E], [05D2]) lie inside global 119's level-0 override [0000] -> [08A1]:
+# they show only when that close-up plays, so they are override_choose answers
+# (docs/part1/skips.md section 4.3).
+steps = [{verb = "walk_to", obj = {room = 53, name = "gaping hole"}, room = 53, until = [{room = 53}], choose = ["could have it"], override_choose = ["Uh", "Um", "Blfft"]}]
 
 # =====================================================================
 # Treasure.

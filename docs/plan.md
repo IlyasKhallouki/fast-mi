@@ -100,6 +100,9 @@ The bridge is inert unless `SPEEDRUN_OUT` is set.
 | `SPEEDRUN_MAX_TICKS=<int>` | Safety cap, counted from boot. On reaching it, write `end` with reason `max_ticks`, then quit. |
 | `SPEEDRUN_INVENTORY=<json>` | Inventory slot layout for `click` inventory entries: `{"verb_first": 200, "count": 8, "var_first": 133}`, meaning slot verb `verb_first+k` shows the object in `Var[var_first+k]`. It comes from `segment.toml` and is cited. |
 | `SPEEDRUN_STEP_TIMEOUT=<int>` | Ticks a step may take before it fails (default 36000 = 10 min of game time). |
+| `SPEEDRUN_SKIP_TEXT=1` / `SPEEDRUN_SKIP_CUTSCENES=1` | Text and cutscene skips after the segment start (Phase 8, "Contracts"). |
+| `SPEEDRUN_INTERRUPTS=<json>` | Fixed answers to dialogues the game opens at random: `[{"name": "map-pirate", "when": [<C3>...], "choose": ["on my way"]}]`. It is `segment.toml`'s `interrupts` (C9) without `cite`. `when` and `choose` must be non-empty, and names unique; anything else is `bad_env`. Semantics: "Plan-player semantics as implemented". |
+| `SPEEDRUN_STEP_STATES=1` | Diagnostic. At every `step_end`, also write `state-step-NNN.json` (C7 schema, NNN = step index). Used by the skip-safety harness (Task 8.2). |
 
 Boot params use ScummVM's existing `--boot-param=N` command-line option, passed through by `speedrun run/demo --boot-param N`. Any non-zero boot param forces ScummVM debug mode (`scumm.cpp:272`, var 39), and MI1's boot script then uses debug starts that set trial bits directly (`docs/part1/goal-flags.md`). Boot params are therefore never used for measured runs (rules/glitchless.md, rule 4). The RNG seed is ScummVM's own `--random-seed=N` (default 1).
 
@@ -109,7 +112,9 @@ Boot params use ScummVM's existing `--boot-param=N` command-line option, passed 
 
 **Stamping rule.** `onFrameBegin(delta)` first observes the completed previous frame and stamps every observation-derived record with the counters *before* adding `delta`. That covers the goal check, `segment_start` (when checked there), `stall`, `saveload` and per-frame diffs. Only then does it add `delta` and increment `frame`.
 
-Records emitted from `onDecisionPoint` describe the current frame and use the counters *after* the add. Those are `step_start`, `choice` and `click`, plus `segment_start` when it is decided at the decision point. `max_ticks` fires once `tick >= max` after the add.
+Records emitted from `onDecisionPoint` describe the current frame and use the counters *after* the add. Those are `step_start`, `choice`, `click`, `interrupt` and `interrupt_end`, plus `segment_start` when it is decided at the decision point. `max_ticks` fires once `tick >= max` after the add.
+
+`skip` records are input for the current frame too: `onFrameBegin` writes them after the add, when it presses the key that `processInput()` reads later in the same frame. They carry the counters *after* the add.
 
 `segment_start` carries `tick0`. Reported times are `tick - tick0`.
 
@@ -141,13 +146,18 @@ There is one step per line. Unknown keys are an error.
 ```json
 {"action": "pick-up-pot", "verb": 9, "obj": 316, "obj2": 0, "room": 41, "choose": [], "until": []}
 {"action": "wear-pot-helmet", "room": 51, "click": [{"verb": 7}, {"inventory": 567, "offset": -1}], "choose": [], "until": [{"var": 32, "eq": 200}]}
+{"action": "steal-idol", "verb": 11, "obj": 637, "obj2": 0, "room": 53, "choose": ["could have it"], "override_choose": ["Uh", "Um", "Blfft"], "until": [{"room": 53}]}
 ```
+
+Keys appear in this order: `action, verb, obj, obj2, room, click, choose, override_choose, until, no_skip`. `override_choose` is omitted when empty and `no_skip` when false.
 
 - `action` (string): the PDDL ground action this step came from. Echoed in the trace.
 - `verb` (int, optional) / `obj` (int) / `obj2` (int, 0 = none): the sentence pushed into the queue. If `verb` is absent, the step only answers a dialogue that the game opens by itself.
 - `room` (int, optional): the engine's `_currentRoom` must equal this when the step starts. Otherwise the run fails with `room_mismatch`. In the forest, `startScene` sets `_currentRoom` to the pseudo-room number 201–220 (the scripts call `loadRoom` with those numbers, and they share room 58's resources). Forest steps therefore omit `room` and check the pseudo-room with `until: [{"var": 4, "eq": 215}]` (`docs/part1/model.md`).
 - `choose` (list of strings): dialogue choices to pick, in order, each time a dialogue menu is visible during this step. A choice matches when it is a case-insensitive substring of exactly one visible choice. Zero or several matches fails with `choice_not_found`/`choice_ambiguous`. A menu that appears after `choose` is exhausted fails with `unexpected_choice`.
+- `override_choose` (list of strings, optional): answers for menus that lie *inside* a cutscene override region (`docs/part1/skips.md` §4.3). They are expected after `choose` only when that cutscene is played through: when `SPEEDRUN_SKIP_CUTSCENES` is off, or the step is `no_skip`. With cutscene skips on, the Esc on the override's first frame jumps past those menus, so the entries are not used, and a menu after `choose` is exhausted is `unexpected_choice` as usual. The same plan therefore replays strictly with and without skips. Matching is as for `choose`.
 - `until` (list of C3 conditions): the step waits, while sentence-idle, until all of these hold before it starts. This covers things like waiting for an NPC to leave.
+- `no_skip` (boolean, optional, default false): no cutscene skip while this step is active, or pending (from the previous `step_end`, or `tick0`, through this step's `step_end`). Text skips still apply. Every use carries a citation in its `steps.toml` template.
 - `click` (list, optional): coordinate-free verb-slot clicks, performed in order through the game's own input script. Each entry is clicked at its own decision point via `runInputScript(kVerbClickArea, verbid, 1)`, which is exactly what the engine does for a click on that verb, and which dialogue choices already use. A `click` step has no `verb`/`obj`. Entries:
   - `{"verb": 7}` clicks the visible verb slot with verb id 7, e.g. "Use".
   - `{"inventory": 567}` clicks the visible inventory slot that currently shows object 567. The bridge resolves the slot at runtime from the `inventory` description in `segment.toml`, passed as `SPEEDRUN_INVENTORY`.
@@ -162,9 +172,11 @@ The flow for each step:
 1. Wait for sentence-idle and for `until`.
 2. Record `step_start`.
 3. Push the sentence.
-4. Answer menus from `choose`.
-5. The step completes on the first sentence-idle frame after the sentence was consumed, provided no `choose` entries are left.
+4. Answer menus from `choose` (then `override_choose`, when its cutscenes play).
+5. The step completes on the first sentence-idle frame after the sentence was consumed, provided no choose entries are left.
 6. Record `step_end` with state changes.
+
+A menu the plan does not answer may be an interrupt (C1 `SPEEDRUN_INTERRUPTS`). The step then starts over from 1 once the interrupt has ended ("Plan-player semantics as implemented").
 
 ### C5. Trace JSONL (`$SPEEDRUN_OUT/trace.jsonl`)
 
@@ -176,6 +188,10 @@ The flow for each step:
 {"type":"choice","step":0,"tick":990,"frame":250,"verb_id":121,"text":"..."}
 {"type":"step_end","step":0,"tick":1204,"frame":290,"room":38,"changes":{"vars":{"34":[0,1]},"bits":{"512":[0,1]},"inventory":{"added":[],"removed":[]},"room":[33,38]}}
 {"type":"stall","tick":5000,"frame":900,"reason":"sentence_script","slot":3,"script":2,"room":28,"not_idle_ticks":3600}
+{"type":"skip","tick":13700,"frame":2290,"kind":"cutscene","step":6,"room":28,"level":1,"slot":4,"script":120,"offs":22,"userput":0,"var19":6}
+{"type":"skip","tick":13800,"frame":2300,"kind":"text","step":7,"room":33,"talker":1,"wait_slot":5,"wait_script":14,"talk_delay":54}
+{"type":"interrupt","tick":30543,"frame":5110,"name":"map-pirate","step":56,"room":49,"restart":true}
+{"type":"interrupt_end","tick":30585,"frame":5117,"name":"map-pirate","step":56,"room":85,"restart":true}
 {"type":"goal","tick":90210,"frame":21000,"ticks_from_start":89398}
 {"type":"error","tick":5000,"frame":901,"step":3,"code":"room_mismatch","message":"expected room 41, ego in 28"}
 {"type":"end","tick":90270,"frame":21010,"reason":"goal","room":33,"audio_frames":33169500,"music_timer":12,"vars_fnv1a":"9f3c1a2b"}
@@ -194,7 +210,15 @@ The flow for each step:
   - `untouchable_target`;
   - `step_timeout`;
   - `bad_plan`;
-  - `dump_not_reached`: `max_ticks` was hit before the first idle frame in dump mode.
+  - `dump_not_reached`: `max_ticks` was hit before the first idle frame in dump mode;
+  - `timer_next`: var 19 (`VAR_TIMER_NEXT`, the frame length) is not 6 at the segment start, at a `step_end`, at the goal, or at the first idle decision point after a cutscene skip. That is the logo speed glitch family (Phase 8, "Contracts").
+- **Phase 8 fields:**
+  - `segment_start` carries `var19` (6), `var37` (`VAR_CHARINC`: 0 at talkspeed 255, 7 at 60), `var24` (`VAR_CUTSCENEEXIT_KEY`, 27) and `var57` (`VAR_TALKSTOP_KEY`, 46).
+  - `step_end` carries `skips: {"text": n, "cutscene": m}`, the `skip` records whose `step` is this step.
+  - A `step_start` with `"restart": true` is a step an interrupt made start over. Readers keep the first `step_start` of a step: its `step_end` changes, and its duration, count from there.
+  - A `choice` with `"interrupt": <name>` answered an interrupt's menu, not one of the step's.
+  - `skip`: `kind` is `text` or `cutscene`; `step` is the active or pending step (omitted without a plan, or after its last step). Cutscene skips add `level`, `slot`, `script` and `offs` (the override's cutscene level, script slot, script number and recorded PC), `userput` and `var19`. Text skips add `talker` (`VAR_TALK_ACTOR`), `wait_slot`/`wait_script` when a script waits on the message, and `talk_delay`, the jiffies the line still had (an upper bound on the saving).
+  - `interrupt` / `interrupt_end`: `name`, `step` (omitted after the last step), `room`, and `restart` (the interrupted step was active, so it starts over).
 - **String escaping:** the bridge writes ASCII JSON. Bytes ≥ 0x80 in game text become `\u00XX`, the byte value in Latin-1. MI1's charset follows the DOS code-page layout, not Mac Roman: "Mêlée" is stored as `M\x88l\x82e` (`room-030-store/local-211.txt [0110]`). Python decodes text fields for display with one shared decoder, `speedrun.text.decode_game_text`: `s.encode("latin-1").decode("cp437")`, with `0x0F` mapped to `™`. Object names in `objects.json` and `steps.toml` are compared raw, as Latin-1 code points, and are never decoded.
 - **Dialogue matching:** `choose` substrings in plans must be pure ASCII, and the compiler rejects anything else. The bridge matches them case-insensitively against the visible verb text's raw bytes, after stripping escapes.
 - **Location:** the trace embeds game text through choice texts, so it lives under `out/` and is gitignored.
@@ -258,8 +282,14 @@ Stall `reason` values are:
 - **Timeouts.** The step timeout counts from `step_start`. The post-plan wait counts from the later of the last `step_end` and `tick0`, and is not checked before segment start. A `step_timeout` message ends with `blocked by <reason>`, the reason a `stall` record gives at that decision point (e.g. `awaiting_menu`, `until`).
 - **`bad_plan` at load** (parse or range errors) has no `step` field; the message names the line or step.
 - **`unexpected_choice`** also covers a menu with no pending step to answer it.
-- **Extra record fields:** `step_end.ticks`; `click` carries `slot`, `inventory` and `offset`; `stall` carries `step`, `ego_pos` and `ego_box`. Stall reasons also include `until`, `awaiting_menu`, `menu_answered` and `dialog`.
+- **Extra record fields:** `step_end.ticks`; `click` carries `slot`, `inventory` and `offset`; `stall` carries `step`, `ego_pos` and `ego_box`. Stall reasons also include `until`, `awaiting_menu`, `menu_answered`, `dialog`, and `interrupt` (an interrupt's answers are done, but its `when` still holds).
 - **Goal mid-step.** If the goal fires during the last step, that step has no `step_end`. The goal record closes it.
+- **Interrupts (Task 8.2, `speedrun_interrupts.cpp`).** An interrupt is considered only where the player would otherwise fail with `unexpected_choice`: a menu is visible and the active step has no choose entry left, the pending step does not answer menus, or the plan is done. The first entry whose `when` holds is started: an `interrupt` record, then its `choose` entries answer this menu and the following ones, one per menu (`choice` records with `interrupt`). A menu after they are exhausted is `unexpected_choice`. The interrupt ends on the first sentence-idle decision point after its last answer at which `when` no longer holds; a sentence-idle frame can still come in the interrupt's own room, before the game moves ego back. Then `interrupt_end` is recorded and the plan carries on:
+  - **Active step:** it starts over from the beginning (room check, `until`, then its sentence or clicks again), with a `step_start` that has `"restart": true`. Its `step_end` changes still count from its first start, and its step timeout restarts. This is sound for the steps an interrupt can cut short. The room change into the interrupt kills the room's object scripts (`startScene` → `killScriptsAndResources`), so a map walk whose verb script had not yet loaded the next room never happened, and ego is back where he stood (`global/script-114.txt [006E]`–`[0079]`). Verified on seed 164: the encounter came as ego reached the fork; after the escape, the re-pushed Walk to fork loaded room 218 in 42 ticks, and the next steps ran as planned. If ego ends up elsewhere, the restart fails with `room_mismatch`, which is the honest outcome.
+  - **Pending step** (the previous step completed its sentence): it starts as usual. Nothing was pushed, so there is nothing to redo.
+  - **After the last step:** the run goes back to waiting for the goal.
+  - The interrupt shares the step timeout, counted from its start.
+- **`override_choose`** entries count towards the step's choose list only when its cutscenes play (`SPEEDRUN_SKIP_CUTSCENES` off, or `no_skip`).
 
 **Idle rules as implemented** (`speedrun_state.cpp`):
 - **Text** blocks only while a real actor talks (`VAR_TALK_ACTOR` in 1..0x7F) or a script slot is parked on `WaitForMessage`. The island map reprints a hover label every frame through `print`, which sets `_haveMsg` and `_talkDelay`.
@@ -295,7 +325,10 @@ goal = [{bit = 0, eq = 1}]  # replaced in Phase 3 with cited goal flags
 goal_cite = ["global script N line L ...", "..."]
 randomized_vars = []        # var indices randomised at boot, with cites
 inventory = {verb_first = 200, count = 8, var_first = 133, cite = "data/scripts/global/script-009.txt [0092]"}
+interrupts = [{name = "map-pirate", when = [{room = 49}], choose = ["on my way"], cite = "data/scripts/room-049-road/local-200.txt [0325] ..."}]
 ```
+
+`interrupts` is optional. Each entry has exactly `name` (unique), `when` (non-empty C3), `choose` (non-empty ASCII strings) and `cite`. `speedrun run`/`demo`/`measure`/`optimize` pass it to the bridge as `SPEEDRUN_INTERRUPTS` (C1).
 
 ---
 
@@ -882,6 +915,29 @@ To keep the surrogate faithful:
 {"type":"skip","tick":T,"frame":F,"kind":"text"|"cutscene","step":i}
 ```
 
+**As implemented (Task 8.2, `speedrun_skips.cpp`; `docs/research/skips-engine.md` §2–§4, §7).**
+- **Injection.** `onFrameBegin` writes `_keyPressed` after `neutraliseInput()`, so `processInput()` reads it later in the same frame through the engine's own key path (`processKeyboard`). Nothing is pressed before `segment_start`. One key per frame: Esc first, `.` only on a frame without Esc. Every press writes a `skip` record (C5 fields), stamped after the add (C2).
+- **Esc** is pressed exactly when `abortCutscene()` would find a live override at the current cutscene level, level 0 included (five route overrides have no enclosing `cutscene()`, `docs/part1/skips.md` §0):
+  - var 24 (`VAR_CUTSCENEEXIT_KEY`) is non-zero;
+  - `_userPut <= 0`, so key 27 never reaches an input script. Every route override runs with input off;
+  - `cutScenePtr[cutSceneStackPointer] != 0`;
+  - the script that set the override is alive, in the same slot (same number, `where` and, for room code, room) as when the pointer appeared. A latch makes a stale pointer, whose script ended without `endOverride`, never pressable;
+  - the byte at the recorded PC is the override's `goto` (`0x18`).
+
+  The press lands on the first frame the override is live, which the idol room requires (`docs/part1/skips.md` §4.2). The abort clears the pointer, so it is never pressed twice. `no_skip` (C4) turns it off for its step.
+- **`.`** is pressed when var 57 (`VAR_TALKSTOP_KEY`) is non-zero, a message is showing (`_haveMsg`), the line would not end in this frame anyway (`_talkDelay > min(delta, 15)`), and it is a real line: an actor talks (`VAR_TALK_ACTOR` in 1..127), or a script waits on the message (`WaitForMessage`). That is the idle rule's text test. The island map's hover label (talker 255, nothing waits on it) is never skipped.
+- **Menus inside overrides.** With Esc on, two route steps never show some of their menus (`docs/part1/skips.md` §4.3). Their answers are C4 `override_choose`, so the same plan replays with and without skips.
+- **Speed (`timer_next`).** Var 19 (`VAR_TIMER_NEXT`) must be 6 at `segment_start`, at every `step_end`, at the goal, and at the first idle decision point after a cutscene skip. Otherwise the run fails with `timer_next`, naming the last cutscene skip. MI1 does write var 19 mid-game, but only inside scripts that run with input off and restore it before control returns. The circus cannon, `room-051-circus-te/local-208.txt [0005]`/`[005F]`, is on the route; globals 44 and 100 are off-route. So "6 whenever control is with the player" holds on a run without skips, and a skip that dropped a restore breaks it. `segment_start` records `var19`, `var37`, `var24` and `var57`. Var 37 is 0 at talkspeed 255; the tests assert it, rather than the bridge, because `tests/integration/test_measure_engine.py` replays the v1 tag at talkspeed 60.
+- **Results (seed 1, compiled current plan).**
+  - The first bar exit (LeChuck, global 120) drops from 3,456 to 456 ticks with cutscene skips.
+  - The circus step drops from 3,836 to 2,396 ticks with text skips alone.
+  - The whole route drops from 57,098 to 23,888 ticks.
+- **Skip-safety harness** (`tests/integration/test_skip_safety.py`, seeds 1–3). The only differences at `step_end` are the three listed there:
+  - Bit[561] from the LeChuck exit on, and the owner of vase 630 from `enter-idol-room` on. Both are `docs/part1/skips.md` §4.4 items.
+  - Bit[324] from the store on. It is RNG drift: whether the storekeeper is away at a store entry.
+
+  So no template needs `no_skip`. Inventory, rooms and the owners of every other object are identical, and var 19 is 6 everywhere.
+
 **Pinned settings change.**
 - `talkspeed` is set to its maximum, verified against the engine source.
 - `rules/glitchless.md` is updated: text skip, cutscene skip and maximum talk speed are allowed player inputs and settings. The logo speed glitch stays banned.
@@ -925,6 +981,10 @@ Also split one-shot actions whose duration differs from later repeats:
   - an Esc skip shortens the first bar exit (the LeChuck cutscene, 9,492 ticks unskipped);
   - skips are deterministic across two runs;
   - nothing is skipped before `segment_start`.
+- **As built.**
+  - Skips, `no_skip`, `override_choose`, the `timer_next` check and `SPEEDRUN_STEP_STATES` are in the bridge (Phase 8, "Contracts").
+  - Interrupts are in the bridge (C1 `SPEEDRUN_INTERRUPTS`, "Plan-player semantics as implemented") and in `segment.toml` (`map-pirate`).
+  - Tests: `tests/integration/test_skips.py`, `test_interrupts.py` (seed 164 meets the map pirate) and `test_skip_safety.py`, the harness.
 
 ### Task 8.3: Measurement and costing (Python, TDD)
 

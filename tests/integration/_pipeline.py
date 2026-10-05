@@ -22,11 +22,12 @@ from speedrun.trace import Trace, format_table, load_trace, summary
 SEGMENT = "part1"
 
 # The object dump stops at the first idle frame on the dock (tick 9325 with
-# seed 1 at talkspeed 255). These are the CLI's own dump budgets (speedrun.cli).
+# seed 1 at talkspeed 255; skips start only after the segment start, so they do
+# not move it). These are the CLI's own dump budgets (speedrun.cli).
 DUMP_MAX_TICKS = 60000
 DUMP_TIMEOUT_S = 600
-# Seed 1 reaches the goal at about tick 120000 from boot, in about 15 s of wall
-# time. Both caps leave a wide margin for other seeds.
+# Seed 1 reaches the goal at about tick 33000 from boot with skips (about 66000
+# without), in a few seconds of wall time. Both caps leave a wide margin.
 RUN_MAX_TICKS = 300000
 RUN_TIMEOUT_S = 600
 
@@ -77,8 +78,14 @@ def compile_route(work: Path, name: str = SEGMENT) -> CompiledRoute:
     return CompiledRoute(segment=seg, plan=jsonl, steps=steps)
 
 
-def run_route(route: CompiledRoute, out_dir: Path, seed: int) -> RouteRun:
-    """Replay a compiled route headless and fast, with the segment's start, goal and inventory."""
+def run_route(route: CompiledRoute, out_dir: Path, seed: int, *, skips: bool = True, interrupts: bool = True,
+              step_states: bool = False) -> RouteRun:  # fmt: skip
+    """Replay a compiled route headless and fast, as ``speedrun run`` does.
+
+    It uses the segment's start, goal, inventory and interrupts, and text and cutscene
+    skips (on by default, like every v1 run). ``step_states`` writes ``state-step-NNN.json``
+    at every ``step_end``.
+    """
     seg = route.segment
     cfg = EngineConfig(
         out_dir=out_dir,
@@ -86,6 +93,10 @@ def run_route(route: CompiledRoute, out_dir: Path, seed: int) -> RouteRun:
         start=seg.start,
         goal=seg.goal,
         inventory=None if seg.inventory is None else {k: v for k, v in seg.inventory.items() if k != "cite"},
+        interrupts=seg.interrupts if interrupts else [],
+        skip_text=skips,
+        skip_cutscenes=skips,
+        step_states=step_states,
         seed=seed,
         headless=True,
         fast=True,

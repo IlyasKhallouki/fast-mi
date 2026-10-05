@@ -148,6 +148,22 @@ def test_durations_run_from_tick0_and_the_last_action_ends_at_the_goal(tmp_path)
     assert sum(i["ticks"] for i in result.instances) == result.total_ticks == 1360
 
 
+def test_a_restarted_step_is_one_action_whose_duration_includes_the_interrupt(tmp_path):
+    # An interrupt (a random dialogue) cut step 1 short, and the step started over: the trace
+    # has two step_start records for it. The action still lasts from the previous step_end to
+    # its own step_end, interrupt included, and its wait is measured to the first start.
+    from test_trace import INTERRUPTED
+
+    path = tmp_path / "trace.jsonl"
+    path.write_text("".join(json.dumps(r) + "\n" for r in INTERRUPTED))
+    steps = [{"action": "walk a b"}, {"action": "walk b c"}]
+    result = measure.analyse_run(load_trace(path), measure.plan_steps(steps), seed=1, run_dir=tmp_path)
+    assert result.ok, result.failure
+    assert [i["ticks"] for i in result.instances] == [100, 320]
+    assert result.instances[1]["start_tick"] == 210 and result.instances[1]["wait_before"] == 10
+    assert sum(i["ticks"] for i in result.instances) == result.total_ticks == 420
+
+
 def test_a_goal_run_with_a_missing_step_end_is_a_failure(tmp_path):
     lines = (TRACES / "ok.jsonl").read_text().splitlines(keepends=True)
     trace_path = tmp_path / "trace.jsonl"
@@ -295,6 +311,7 @@ def test_each_seed_runs_in_its_own_dir_with_the_segment_config(plan, seg, engine
         assert cfg.inventory == {k: v for k, v in seg.inventory.items() if k != "cite"}
         assert cfg.headless is True and cfg.fast is True and cfg.dump_objects is False
         assert cfg.skip_text is True and cfg.skip_cutscenes is True
+        assert cfg.interrupts == seg.interrupts and cfg.interrupts  # cites are dropped by build_env
         assert cfg.boot_param is None
         assert cfg.timeout_s >= 1800
 

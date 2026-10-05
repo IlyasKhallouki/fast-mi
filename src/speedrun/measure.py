@@ -366,7 +366,8 @@ def analyse_run(trace: Trace, plan: PlanSteps, seed: int, run_dir: Path, timed_o
 
 
 def run_config(seg: Segment, plan: Path, out_dir: Path, seed: int, skips: bool = True) -> EngineConfig:
-    """The engine config of one measured run: what ``speedrun run`` uses, plus the skip switches."""
+    """The engine config of one measured run: what ``speedrun run`` uses (segment start, goal,
+    inventory, interrupts), plus the skip switches."""
     return EngineConfig(
         out_dir=out_dir,
         plan=Path(plan),
@@ -378,6 +379,7 @@ def run_config(seg: Segment, plan: Path, out_dir: Path, seed: int, skips: bool =
         fast=True,
         skip_text=skips,
         skip_cutscenes=skips,
+        interrupts=seg.interrupts,
         timeout_s=MEASURE_TIMEOUT_S,
     )
 

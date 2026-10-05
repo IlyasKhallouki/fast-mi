@@ -1,7 +1,7 @@
 """Load ``pddl/<segment>/segment.toml`` (contract C9)."""
 
 import tomllib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from speedrun import paths
@@ -26,6 +26,9 @@ class Segment:
     # {"verb_first", "count", "var_first", "cite"}: inventory slot verb verb_first+k
     # shows the object in Var[var_first+k]. SPEEDRUN_INVENTORY (C1) is this minus cite.
     inventory: dict | None = None
+    # [{"name", "when", "choose", "cite"}]: fixed, cited answers to dialogues the game
+    # opens at random (C9). SPEEDRUN_INTERRUPTS (C1) is this minus every cite.
+    interrupts: list[dict] = field(default_factory=list)
 
 
 def _str(data: dict, key: str, default: str, where: Path) -> str:
@@ -85,6 +88,40 @@ def _inventory(value: object, where: Path) -> dict | None:
     return {**{k: value[k] for k in _INVENTORY_INTS}, "cite": value["cite"]}
 
 
+_INTERRUPT_FORM = '{name = <string>, when = [<C3 conditions>], choose = [<ASCII strings>], cite = <string>}'
+
+
+def _interrupts(value: object, where: Path) -> list[dict]:
+    if not isinstance(value, list):
+        raise SegmentError(f"{where}: interrupts must be a list of {_INTERRUPT_FORM}, got {value!r}")
+    out: list[dict] = []
+    for i, entry in enumerate(value):
+        what = f"{where}: interrupts[{i}]"
+        if not isinstance(entry, dict) or set(entry) != {"name", "when", "choose", "cite"}:
+            raise SegmentError(f"{what} must be {_INTERRUPT_FORM}, got {entry!r}")
+        name, when, choose, cite = entry["name"], entry["when"], entry["choose"], entry["cite"]
+        if not isinstance(name, str) or not name:
+            raise SegmentError(f"{what}: name must be a non-empty string, got {name!r}")
+        if any(other["name"] == name for other in out):
+            raise SegmentError(f"{what}: the name {name!r} is used twice")
+        try:
+            when = parse_conditions(when)
+        except ConditionError as e:
+            raise SegmentError(f"{what} ({name}): when: {e}") from e
+        if not when:
+            # An empty conjunction would hold for every unexpected menu.
+            raise SegmentError(f"{what} ({name}): when must not be empty")
+        # The bridge matches choices against the game's raw text bytes (docs/plan.md C5).
+        ok = isinstance(choose, list) and choose and all(isinstance(c, str) and c and c.isascii() for c in choose)
+        if not ok:
+            raise SegmentError(f"{what} ({name}): choose must be a non-empty list of non-empty ASCII strings, "
+                               f"got {choose!r}")  # fmt: skip
+        if not isinstance(cite, str) or not cite:
+            raise SegmentError(f"{what} ({name}): cite must be a non-empty string, got {cite!r}")
+        out.append({"name": name, "when": when, "choose": list(choose), "cite": cite})
+    return out
+
+
 def load_segment(name: str, base: Path = paths.PDDL_DIR) -> Segment:
     seg_dir = Path(base) / name
     toml_path = seg_dir / "segment.toml"
@@ -121,4 +158,5 @@ def load_segment(name: str, base: Path = paths.PDDL_DIR) -> Segment:
         goal_cite=list(goal_cite),
         randomized_vars=_randomized_vars(data.get("randomized_vars", []), toml_path),
         inventory=_inventory(data.get("inventory"), toml_path),
+        interrupts=_interrupts(data.get("interrupts", []), toml_path),
     )

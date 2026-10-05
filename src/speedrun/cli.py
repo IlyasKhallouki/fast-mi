@@ -660,6 +660,8 @@ def run_segment(name: str, mode: str, args: argparse.Namespace) -> int:
         "fast": mode == "run",
         "timeout_s": RUN_TIMEOUT_S[mode],
     }
+    if seg.interrupts:
+        config["interrupts"] = seg.interrupts
     if seg.inventory is not None:
         if _engine_supports("inventory"):
             config["inventory"] = {k: v for k, v in seg.inventory.items() if k != "cite"}

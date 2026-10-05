@@ -176,5 +176,37 @@ def test_bridge_inert_without_out(engine_ready, tmp_path, home_scummvm_guard):
     # Inert bridge: no watchdog, so the game keeps running until killed.
     assert timed_out, f"ScummVM exited early (rc={proc.returncode}):\n{log[-4000:]}"
     assert not (cfg.out_dir / "trace.jsonl").exists()
-    assert sorted(p.name for p in cfg.out_dir.iterdir()) == ["scummvm.ini", "stdout.log"]
+    # xdg/ is the run's own XDG data/cache prefix, created by engine.write_ini (not the bridge).
+    assert sorted(p.name for p in cfg.out_dir.iterdir()) == ["scummvm.ini", "stdout.log", "xdg"]
     assert "ERROR:" not in log, log[-4000:]
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    ("name", "value", "fragment"),
+    [
+        ("SPEEDRUN_SKIP_TEXT", "maybe", "SPEEDRUN_SKIP_TEXT"),
+        ("SPEEDRUN_SKIP_CUTSCENES", "2", "SPEEDRUN_SKIP_CUTSCENES"),
+        ("SPEEDRUN_STEP_STATES", "x", "SPEEDRUN_STEP_STATES"),
+        ("SPEEDRUN_INTERRUPTS", '{"name": "p"}', "JSON array"),
+        ("SPEEDRUN_INTERRUPTS", '[{"name": "p", "when": [], "choose": ["x"]}]', "'when' must not be empty"),
+        ("SPEEDRUN_INTERRUPTS", '[{"name": "p", "when": [{"room": 49}], "choose": []}]', "'choose' must not be empty"),
+        ("SPEEDRUN_INTERRUPTS", '[{"name": "p", "when": [{"room": 49}], "choose": ["x"], "cite": "c"}]',
+         "exactly the keys"),
+        ("SPEEDRUN_INTERRUPTS", '[{"name": "p", "when": [{"var": 99999, "eq": 1}], "choose": ["x"]}]',
+         "SPEEDRUN_INTERRUPTS p when"),  # range checked at boot
+    ],
+    ids=lambda v: v if len(v) < 30 else v[:30],
+)
+def test_bad_skip_and_interrupt_env(engine_ready, tmp_path, home_scummvm_guard, name, value, fragment):
+    cfg = EngineConfig(out_dir=tmp_path / "run", fast=True, max_ticks=600)
+    write_ini(cfg)
+    env = build_env(cfg)
+    env[name] = value
+    with (cfg.out_dir / "stdout.log").open("wb") as log:
+        proc = subprocess.run(build_argv(cfg), stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT,
+                              env=env, timeout=20)  # fmt: skip
+    assert proc.returncode != 0
+    records = _read_trace(cfg.out_dir)
+    assert [r["type"] for r in records] == ["error", "end"], records
+    assert records[0]["code"] == "bad_env" and fragment in records[0]["message"], records[0]
