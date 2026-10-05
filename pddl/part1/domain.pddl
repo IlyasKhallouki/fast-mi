@@ -344,6 +344,55 @@
     :effect (and (not (at underwater)) (at cu-dock) (idol-trial-done) (increase (total-cost) 1)))
 
   ;; ===================================================================
+  ;; Alternative exit objects (docs/part1/model.md section 14.8). The blind
+  ;; extraction found three exits that the static links collapse: a second
+  ;; object makes the same transition as a link from another walk point, so
+  ;; its duration may differ. A link key ("walk a b") names only from and to,
+  ;; so each is its own action, with the generic walk's guards.
+  ;; ===================================================================
+
+  ;; Path 686 has no Walk to of its own: any verb on it runs 685's, so it
+  ;; makes 685's transition, and the arrival (687's walk point) is the same.
+
+  ; src: data/scripts/room-058-damnfores/entry.txt [08ED] — at 218 the entry script draws path 686 at strip 28, next to 685 at strip 15 ([08E5])
+  ; src: data/scripts/room-058-damnfores/entry.txt [01D1] — every forest entry makes 686 touchable (class 32 cleared), as 685/687/688
+  ; src: data/scripts/global/script-002.txt [02DB] — the sentence script walks ego to 686's walk point
+  ; src: data/scripts/room-058-damnfores/obj-0686-path.txt [0010] — any verb on 686: startObject(685,11), 685's Walk to
+  ; src: data/scripts/room-058-damnfores/obj-0685-path.txt [0168] — at 218: loadRoomWithEgo(687,215), as walk f218 f215
+  (:action walk-f218-f215-via-686
+    :parameters ()
+    :precondition (and (at f218) (not (store-door-open)) (not (cook-provoked)) (not (following-storekeeper)))
+    :effect (and (not (at f218)) (at f215) (increase (total-cost) 1)))
+
+  ; src: data/scripts/room-058-damnfores/entry.txt [09C1] — at 220 the entry script draws path 686 at strip 15, next to 685 at strip 28 ([09B9])
+  ; src: data/scripts/room-058-damnfores/entry.txt [01D1] — every forest entry makes 686 touchable (class 32 cleared), as 685/687/688
+  ; src: data/scripts/global/script-002.txt [02DB] — the sentence script walks ego to 686's walk point
+  ; src: data/scripts/room-058-damnfores/obj-0686-path.txt [0010] — any verb on 686: startObject(685,11), 685's Walk to
+  ; src: data/scripts/room-058-damnfores/obj-0685-path.txt [018C] — at 220: loadRoomWithEgo(687,210), as walk f220 f210
+  (:action walk-f220-f210-via-686
+    :parameters ()
+    :precondition (and (at f220) (not (store-door-open)) (not (cook-provoked)) (not (following-storekeeper)))
+    :effect (and (not (at f220)) (at f210) (increase (total-cost) 1)))
+
+  ;; Dock 905 is 904's twin at the east edge of room 83. It lands ego at
+  ;; x 566 instead of 308, where room 33's local-201 pins the camera east
+  ;; (RoomScroll(712,848)) until ego walks below x 566 or past 726. The bar
+  ;; door 428 is on screen meanwhile; a walk to the cliffside 426 or the
+  ;; archway 427 crosses a line, after which the camera follows ego, so every
+  ;; dock exit is a legal next sentence (rules/glitchless.md, "Camera visibility").
+
+  ; src: data/scripts/room-083-cu-dock/obj-0905-dock.txt [0010] — any verb on 905 while !Bit[453] (never set in Part I, rooms.md section 0.2)
+  ; src: data/scripts/room-083-cu-dock/obj-0905-dock.txt [0015] — putActorInRoom(ego,33): the dock
+  ; src: data/scripts/room-083-cu-dock/obj-0905-dock.txt [0019] — putActor(ego,566,132), where 904 puts ego at x 308 (obj-0904-dock.txt [0019])
+  ; src: data/scripts/room-033-dock/entry.txt [0032] — arriving from 83 starts local-201
+  ; src: data/scripts/room-033-dock/local-201.txt [0042] — at x 566: RoomScroll(712,848) until ego x < 566 ([004E]) or > 726 ([005F])
+  ; src: data/scripts/room-033-dock/local-201.txt [0070] — then RoomScroll(0,848): the camera follows ego over the whole dock
+  (:action walk-cu-dock-dock-via-905
+    :parameters ()
+    :precondition (and (at cu-dock) (not (store-door-open)) (not (cook-provoked)) (not (following-storekeeper)))
+    :effect (and (not (at cu-dock)) (at dock) (increase (total-cost) 1)))
+
+  ;; ===================================================================
   ;; Doors (no room change).
   ;; ===================================================================
 
@@ -837,15 +886,27 @@
                        (not (cook-provoked)))
     :effect (and (cake-opened) (increase (total-cost) 1)))
 
+  ;; No (has manual) (has lips) guard: the hole tests only the file 420, and
+  ;; the theft hides 641 and 642 whether or not ego holds them (blind
+  ;; extraction, docs/part1/model.md section 14.8). Their deletes are thus not
+  ;; fixed by the precondition. Both are binary facts, which Fast Downward
+  ;; deletes unconditionally (no conditional effect; model.md section 1), and
+  ;; ego holds both here anyway: enter-idol-room, the only adder of
+  ;; (idol-room-visited), adds them, and only this action deletes them.
+
+  ; src: data/scripts/room-053-foyer/obj-0637-gaping-hole.txt [000C] — Walk to 637 reads the owner of 420 and nothing else
   ; src: data/scripts/room-053-foyer/obj-0637-gaping-hole.txt [0018] — Walk to 637 owning 420 with class 6 clear
   ; src: data/scripts/room-053-foyer/obj-0637-gaping-hole.txt [0021] — starts local-211, the theft
+  ; src: data/scripts/room-053-foyer/local-211.txt [0037] — 641 (and 642 at [00CA]) only go to the sentence-line helper local-218
+  ; src: data/scripts/room-053-foyer/local-218.txt [001B] — which only shows them (Var[108]): no owner test
   ; src: data/scripts/room-053-foyer/local-211.txt [016C] — pickupObject(635): the idol
-  ; src: data/scripts/room-053-foyer/local-211.txt [0174] — the file is used up; [008C]/[00E7] hide 641 and 642
+  ; src: data/scripts/room-053-foyer/local-211.txt [0174] — the file is used up (owner 0, then 14)
+  ; src: data/scripts/room-053-foyer/local-211.txt [0088] — 641 is hidden (owner 0, then 14 at [008C]) whoever held it; 642 likewise at [00E3]/[00E7]
   ; src: data/scripts/room-053-foyer/local-212.txt [02BE] — Fester menu ("could have it")
   ; src: data/scripts/global/script-119.txt [01BB] — then three Elaine menus ("Uh", "Um", "Blfft")
   (:action steal-idol
     :parameters ()
-    :precondition (and (at foyer) (idol-room-visited) (has cake) (cake-opened) (has manual) (has lips))
+    :precondition (and (at foyer) (idol-room-visited) (has cake) (cake-opened))
     :effect (and (has foyer-idol) (not (has cake)) (not (has manual)) (not (has lips))
                  (increase (total-cost) 1)))
 

@@ -454,6 +454,21 @@ steps = [{verb = "pick_up", obj = {room = 42, name = "fabulous idol"}, room = 42
 cite = "data/scripts/room-042-underwate/obj-0578-fabulous-idol.txt [001B] Pick up 578 -> local-203 [0024] -> local-200 [0041] startScript(71,[2]) (Bit[85]); Bit[86] already set, so the goal holds here"
 steps = [{verb = "pick_up", obj = {room = 42, name = "fabulous idol"}, room = 42, until = [{room = 42}]}]
 
+# Alternative exit objects (docs/part1/model.md section 14.8): the twin link's
+# step on the other object. Path 686 runs 685's Walk to from its own walk point;
+# dock 905 lands ego at x 566 instead of 904's 308.
+[actions."walk-f218-f215-via-686"]
+cite = "data/scripts/room-058-damnfores/obj-0686-path.txt [0010] any verb on 686 runs 685's Walk to; entry.txt [08ED] 686 drawn at 218; obj-0685-path.txt [0168] at 218 loads 215"
+steps = [{verb = "walk_to", obj = {room = 58, name = "path", id = 686}, until = [{var = 4, eq = 218}]}]
+
+[actions."walk-f220-f210-via-686"]
+cite = "data/scripts/room-058-damnfores/obj-0686-path.txt [0010] any verb on 686 runs 685's Walk to; entry.txt [09C1] 686 drawn at 220; obj-0685-path.txt [018C] at 220 loads 210"
+steps = [{verb = "walk_to", obj = {room = 58, name = "path", id = 686}, until = [{var = 4, eq = 220}]}]
+
+[actions."walk-cu-dock-dock-via-905"]
+cite = "data/scripts/room-083-cu-dock/obj-0905-dock.txt [0015] dock 905: putActorInRoom(ego,33), [0019] putActor(566,132); room-033-dock/local-201.txt [0042] camera pinned east until ego x < 566"
+steps = [{verb = "walk_to", obj = {room = 83, name = "dock", id = 905}, room = 83, until = [{room = 83}]}]
+
 # =====================================================================
 # Doors.
 # =====================================================================

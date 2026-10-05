@@ -571,6 +571,21 @@ F219 : F207b (11,685) ; F208 (11,687)
 F220 : F210 (11,685) | (11,686) ; F213 (11,687) ; F215 (11,688)
 ```
 
+**Correction: the planning model now has 686 and 905** (Phase 7 blind extraction; `docs/extraction-diff.md` §3; `docs/part1/model.md` §14.8).
+
+- **What was missing.** The edges above list three `|` alternatives that the model had collapsed into one link each: `(11,686)` at F218 and at F220, and `(11,905)` at 83.
+  - A link fact names only its two rooms, so one exit object per pair survived: 685 and 904.
+  - The forest links were generated from the switch tables of 685, 687 and 688. 686 has none of its own: it forwards every verb to 685 (`data/scripts/room-058-damnfores/obj-0686-path.txt [0010]`).
+- **Now added as actions.** They are `walk-f218-f215-via-686`, `walk-f220-f210-via-686` and `walk-cu-dock-dock-via-905`. Each makes the same room change as its twin from a different walk point. The two 686 actions also arrive where their twin does, because 686 runs 685's code. 905 lands elsewhere (below). Measured on seeds 1–3:
+  - 686 at F218 takes 162 ticks from the map entrance, against 216 for 685;
+  - 686 at F220 takes 222 ticks from gate 688, against 306 for 685;
+  - 905 takes 132 ticks, against 168 for 904.
+- **905's landing and the dock camera.** 905 lands ego at x 566, not 308 (T37). The dock's local-201, started on every arrival from 83, then pins the camera to `RoomScroll(712,848)` until ego walks below x 566 or past x 726. After that it frees the camera with `RoomScroll(0,848)` (`data/scripts/room-033-dock/local-201.txt [0042]`–`[0070]`).
+  - The cliffside 426 is off screen on that arrival, unlike after 904, where the pin is `RoomScroll(0,160)` (`[0011]`).
+  - A Walk to 426 crosses x 566 at once, so the camera rule still allows it (§7).
+  - The walk to the cliffside is 234 ticks longer from 905's landing.
+- **Still collapsed.** Other `|` alternatives on modelled edges remain single links or actions in the model: 439 for 34M → 36, 421 for 31 → 34T, and 320 for 28L ↔ 28R. Each forwards to the modelled object. They were not reported by the extraction and have not been assessed.
+
 ### 5.3 Phase-B and story edges
 
 These replace the plain destination when their condition holds, or have no sentence of their own:

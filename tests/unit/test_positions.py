@@ -356,6 +356,12 @@ def test_real_model_every_steps_action_has_an_anchor(real):
     ("give-meat-to-poodles", "mansion", "obj:mansion:467"),
     ("dig-treasure", "treasure-site", "obj:treasure-site:749"),
     ("pick-up-petal", "f215", "obj:f215:678"),
+    # Alternative exits (model.md section 14.8): 686 runs 685's code, which loads 215 or 210
+    # with ego at 687, so the arrival is the twin's. 905 lands at x 566, not 904's 308, but a
+    # room change's token names only from and to: both docks give entry:cu-dock:dock.
+    ("walk-f218-f215-via-686", "f218", "entry:f218:f215"),
+    ("walk-f220-f210-via-686", "f220", "entry:f220:f210"),
+    ("walk-cu-dock-dock-via-905", "cu-dock", "entry:cu-dock:dock"),
     ("drug-meat-with-petal", None, None),
     ("open-cake", None, None),
 ])  # fmt: skip

@@ -103,6 +103,19 @@ FOLLOW_ACTIONS = {
     "drug-meat-with-petal",
     "open-cake",
 }
+# Alternative exit objects found by the blind extraction (docs/extraction-diff.md
+# section 3; docs/part1/model.md section 14.8): a second object that makes the
+# same transition as an existing link from another walk point, so its duration
+# may differ. (alternative action, twin ground action, object id)
+ALT_EXITS = [
+    # Path 686 forwards every verb to 685's Walk to (room-058-damnfores/obj-0686-path.txt [0010]);
+    # 218 and 220 draw it next to 685 (entry.txt [08E5]/[08ED], [09B9]/[09C1]).
+    ("walk-f218-f215-via-686", "walk f218 f215", 686),
+    ("walk-f220-f210-via-686", "walk f220 f210", 686),
+    # Dock 905 does what 904 does while !Bit[453], landing at x 566 instead of 308
+    # (room-083-cu-dock/obj-0905-dock.txt [0010]-[0020]; obj-0904-dock.txt [0019]).
+    ("walk-cu-dock-dock-via-905", "walk cu-dock dock", 905),
+]
 
 
 # --- tiny PDDL reader ----------------------------------------------------------
@@ -601,6 +614,54 @@ def test_pirate_leaders_talk_is_the_first_meeting():
     assert (True, ["sword-master-asked"]) in _eff("talk-to-pirate-leaders")
     gate_open = sorted(n for n in _actions() if (True, ["forest-gate-open"]) in _pre(n))
     assert gate_open == ["walk-forest-gate-215-203-open", "walk-forest-gate-215-220-open"]
+
+
+def test_alternative_exits_mirror_their_twins():
+    """Each alternative exit is its twin link with another object: same guards, same effects, same step shape.
+
+    The generic walk's guards (store door, provoke, storekeeper) carry over, so the
+    alternative is applicable exactly where its twin is, and it moves ego the same way.
+    """
+    ground = _ground_actions()
+    steps = _steps()["actions"]
+    for alt, twin, oid in ALT_EXITS:
+        assert alt in ground, f"{alt} is not a domain action"
+        _, a, b = twin.split()
+        pre, neg, add, dele = ground[twin]
+        assert ground[alt] == (pre - {("link", a, b)}, neg, add, dele), f"{alt} must mirror {twin}"
+        assert alt in steps, f"steps.toml has no template for {alt}"
+        (alt_step,) = steps[alt]["steps"]
+        (twin_step,) = steps[twin]["steps"]
+        assert alt_step["obj"]["id"] == oid, alt
+        assert alt_step["obj"]["id"] != twin_step["obj"]["id"], alt
+        same_object = {**alt_step, "obj": {**alt_step["obj"], "id": twin_step["obj"]["id"]}}
+        assert same_object == twin_step, f"{alt} must push {twin}'s step on object {oid}"
+
+
+def test_alternative_exits_compile_to_their_object():
+    _require_index()
+    compiled = _compiled_templates()
+    for alt, twin, oid in ALT_EXITS:
+        assert [s["obj"] for s in compiled[alt]] == [oid], alt
+        assert _sentence(compiled[alt][0]) != _sentence(compiled[twin][0]), alt
+
+
+def test_steal_idol_needs_only_the_opened_cake():
+    """Walk to 637 tests only 420's owner and class 6 (room-053-foyer/obj-0637-gaping-hole.txt [000C]-[0021]).
+
+    The theft (local-211) passes 641 and 642 only to the sentence-line helper local-218, which
+    tests no owner, and then hides both whether or not ego holds them (local-211.txt
+    [0088]/[008C], [00E3]/[00E7]), as it hides the file 420 ([0174]/[0178]).
+    """
+    pre = _pre("steal-idol")
+    assert (True, ["has", "manual"]) not in pre
+    assert (True, ["has", "lips"]) not in pre
+    for fact in (["at", "foyer"], ["idol-room-visited"], ["has", "cake"], ["cake-opened"]):
+        assert (True, fact) in pre, fact
+    eff = _eff("steal-idol")
+    for item in ("manual", "lips", "cake"):
+        assert (False, ["has", item]) in eff, item
+    assert (True, ["has", "foyer-idol"]) in eff
 
 
 def test_breath_gives_keep_the_item():

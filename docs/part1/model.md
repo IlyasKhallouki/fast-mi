@@ -21,6 +21,7 @@ Sources besides the analysis notes:
 
 - **PDDL subset.** `:strips :typing :negative-preconditions :action-costs`. There are no conditional effects, quantifiers, disjunctions or derived predicates (`docs/research/fast-downward.md` §7).
   - Fast Downward turns the delete of a fact that the precondition does not fix into a conditional effect, which lmcut rejects (exit 34). So every delete in the domain is of a fact the precondition requires (§4.3).
+  - One exception: `steal-idol` deletes `(has manual)` and `(has lips)` without requiring them (§14.8). That is safe only because both are binary facts. For a binary variable the translator drops the effect condition and deletes the fact unconditionally. The translated task has no effect condition on any operator: 230 operators, 0 with a condition. A multi-valued fact, such as `(at ?r)`, would still need the rule above.
 - **Costs.** Every action has exactly `(increase (total-cost) 1)`. The problem has `(:metric minimize (total-cost))` and `(= (total-cost) 0)`.
 - **Parameters.**
   - Only the generic `walk ?from ?to` has parameters. Its ground instances are the static `(link a b)` facts, keyed `"walk a b"` in `steps.toml`.
@@ -33,7 +34,7 @@ Sources besides the analysis notes:
 - **Objects in `steps.toml`.**
   - References are `{room, name[, id]}` with the object-dump names.
   - An inventory object is referenced in the room where it starts: pot 41, meat 41, petal 58, mints 30, repellent 53, cake 31, shovel 30.
-  - `id` is given wherever a name repeats in its room: doors in 28, 34, 41 and 53, archways in 34 and 35, the forest paths, and dock 904 in 83.
+  - `id` is given wherever a name repeats in its room: doors in 28, 34, 41 and 53, archways in 34 and 35, the forest paths, and the docks 904 and 905 in 83.
 
 ## 2. Room nodes
 
@@ -73,10 +74,12 @@ There are 39 nodes, all domain constants: 18 outside the forest and 21 forest no
 
 - Every link is in rooms.md §5.2 and carries a trailing `; src:` citation to the object script that changes the room.
 - The forest links were generated from the switch tables in `room-058-damnfores/obj-0685/0687/0688-path.txt`. Only paths the entry script draws in that pseudo-room are included (`entry.txt [01D8]`–`[0A2C]`). They match rooms.md §2.9 and treasure.md §4.3 edge for edge.
-- Three kinds of exit are left out of the link set and are dedicated actions instead:
+  - Path 686 has no switch table of its own. It forwards every verb to 685 (`obj-0686-path.txt [0010]`), so the generation missed it. It is drawn only at 218 and 220 (§14.8).
+- Four kinds of exit are left out of the link set and are dedicated actions instead:
   - the gated exits of 215 (map, Bit[401], or the guide; §14.3);
   - the store exit, which is guarded by `shovel-unpaid` and by 387 being open;
   - the bar exit through 315, which is split on Bit[446] (the first exit plays the LeChuck cutscene; §14.1). This removed the links `bar-left → dock` and `bar-right → dock`.
+  - a second exit object for an existing link: 686 at F218 and F220, and dock 905 at 83 (§14.8). A link key `walk a b` names only its two rooms, so a second object for the same pair needs an action of its own.
 
 **Off-screen exits.** The off-screen rule (`rules/glitchless.md`, "Camera visibility") allows a sentence on an off-screen exit only when the walk it starts brings the exit on screen. Every link is still a cited rooms.md §5 edge.
 
@@ -129,7 +132,7 @@ There are 39 nodes, all domain constants: 18 outside the forest and 21 forest no
 
 ## 4. Action families
 
-### 4.1 Transitions (`walk*`, 34 schemas)
+### 4.1 Transitions (`walk*`, 37 schemas)
 
 | action | sentence (verb, object) | guard | key cites |
 |---|---|---|---|
@@ -149,6 +152,8 @@ There are 39 nodes, all domain constants: 18 outside the forest and 21 forest no
 | `walk-out-of-tent-after-helmet-<g>` ×6 | `click` Use + the slot before the pot, then the Bobbin menu | `has pot`, `pot-guarded-by g`, `has g` | `room-051-circus-te/local-200.txt [0107]`/`[008B]`, `global/script-009.txt [0092]`, `local-207.txt [110E]`/`[114D]` |
 | `walk-past-fester-to-underwater` | Open 633 while owning 635 | `has foyer-idol` | `room-053-foyer/obj-0633-door.txt [0018]`, `local-217.txt [0391]`, `global/script-065.txt [023A]` |
 | `walk-up-ladder-taking-idol`, `walk-up-ladder-taking-idol-last` | Pick up 578 | at `underwater`; split on `treasure-trial-done` (§14.1) | `room-042-underwate/local-203.txt [0024]`, `local-200.txt [0041]`/`[0091]`, `global/script-071.txt [008D]` |
+| `walk-f218-f215-via-686`, `walk-f220-f210-via-686` | Walk to 686 | the generic walk's guards; the transition is that of `walk f218 f215` / `walk f220 f210` (§14.8) | `room-058-damnfores/entry.txt [08ED]`/`[09C1]`, `obj-0686-path.txt [0010]`, `obj-0685-path.txt [0168]`/`[018C]` |
+| `walk-cu-dock-dock-via-905` | Walk to 905 | the generic walk's guards; the transition is that of `walk cu-dock dock`, landing at x 566 (§14.8) | `room-083-cu-dock/obj-0905-dock.txt [0010]`/`[0019]`, `room-033-dock/local-201.txt [0042]`/`[0070]` |
 
 ### 4.2 Doors (6)
 
@@ -250,6 +255,8 @@ The other topics stay hidden on every modelled route:
 | `open-cake` | Open 420 | | `obj-0420-cake.txt [0056]`/`[005F]` |
 | `steal-idol` | Walk to 637 | `could have it`, `Uh`, `Um`, `Blfft` | `obj-0637-gaping-hole.txt [0018]`/`[0021]`, `local-211.txt [016C]`/`[0174]`, `local-212.txt [02BE]`, `global/script-119.txt [01BB]` |
 
+`steal-idol` requires only the foyer, the idol-room visit and the opened cake. Walk to 637 tests nothing but the file 420 (`obj-0637-gaping-hole.txt [000C]`, `[0018]`). The `(has manual) (has lips)` guard it used to carry was not backed by any script, and it was dropped (§14.8).
+
 Then `walk-past-fester-to-underwater` (choice `Buzz off`) and `walk-up-ladder-taking-idol` follow (§4.1).
 
 ### 4.7 Treasure
@@ -299,6 +306,7 @@ Each substring is matched case-insensitively against the visible lines of one me
 - **Which held item guards the pot** (six variants).
 - **When the mints are bought.** Together with the shovel, with or without the files topic, in any order relative to the first idol-room visit.
 - **Which forest gate** is passed at 215 (to 203 or to 220), plus the whole forest graph including F207a/b.
+- **Which exit object** makes a transition that has two: 685 or 686 at F218 and F220, and dock 904 or 905 at 83 (§14.8). Under unit costs they tie.
 - **Added for the time objective** (§14.3). Under unit costs these cost more actions or tie, and the planner chooses once action costs are measured ticks:
   - **provoking the cook** (Open 316 while he is in the kitchen), from either bar half;
   - **how Bit[420] is learnt**: Talk to Otis, or a give he refuses (the meat, or the repellent before the mints);
@@ -364,6 +372,7 @@ These come from `rules/glitchless.md` and the analysis notes.
 
 - The §14 plan replays to the goal on seed 1: `out/runs/20261004T220733Z-run` (§8).
 - A hand-written 70-action plan that uses every §14 alternative replays to the goal on seed 1 (§14.5).
+- The time plan with the three §14.8 exit objects substituted, plus a two-walk detour through 210, replays to the goal on seeds 1–3, with skips on (§14.8).
 
 "Verified" below means these replays ran the risky step and reached the goal.
 
@@ -430,7 +439,7 @@ These come from `rules/glitchless.md` and the analysis notes.
 
 ## 8. Expected optimal plan
 
-`run_planner(domain, problem)` gives **cost 66**: 66 actions, of which 48 are `walk*` and 18 are other. Fast Downward 26.6, `astar(lmcut())`, expands 16,544 states and searches for about 3 s (4,500 states and 0.8 s before the §14 additions; 227 ground operators now). The plan compiles against the index-derived `ObjectIndex` to **67 plan steps**: 66 actions plus the circus tent's second walk (§12). There are no defensive steps (§6).
+`run_planner(domain, problem)` gives **cost 66**: 66 actions, of which 48 are `walk*` and 18 are other. Fast Downward 26.6, `astar(lmcut())`, expands 16,544 states and searches for about 3 s (4,500 states and 0.8 s before the §14 additions). There were 227 ground operators after §14; §14.8 brings them to 230 and leaves the search and the plan unchanged. The plan compiles against the index-derived `ObjectIndex` to **67 plan steps**: 66 actions plus the circus tent's second walk (§12). There are no defensive steps (§6).
 
 The §14 additions left the unit-cost optimum at 66. The plan below changed only within ties:
 
@@ -889,6 +898,10 @@ These change an action's duration but depend on where ego is or on ambient scrip
 - **The "Psst" on High Street.** `room-034-high-stre/local-203.txt` runs while `!Bit[481]` (before the idol-room visit). When ego is within 150 of the alley (`[0002]`–`[0009]`), it prints and parks on `WaitForMessage` (`[0010]`, `[00F8]`), which can hold the idle test.
 - **The store's random presence and lines** (§8): the pay step took 4,956–7,416 on seed 1, depending on the variant.
 - **The map pirates on the 4th map entry** (§7.2). In the treasure-first order that entry is the return from 64.
+- **Where a room change lands, when two exits make it.** `speedrun.positions` names the spot a room change leaves by its two rooms only (`entry:<from>:<to>`).
+  - For 686 this is exact: it runs 685's code, which loads the next room with ego at 687's walk point.
+  - Docks 904 and 905 land at x 308 and x 566 but share the token `entry:cu-dock:dock`. The next dock walk differs by hundreds of ticks between them: `walk dock lookout` measured 642 after 904 and 876 after 905 (§14.8).
+  - A keyed cost for that context would therefore pool both landings. Telling them apart needs a change in `src/speedrun/positions.py`, for example by keying a room change by its object.
 
 ### 14.7 Tests
 
@@ -904,3 +917,75 @@ These tests in `tests/unit/test_pddl_model.py` guard the new structure. They wer
 - `test_pirate_leaders_talk_is_the_first_meeting`: the talk's guards, and the two map-less gates.
 - `test_planner_finds_plan` now also asserts the unit-cost optimum, `UNIT_COST_OPTIMUM = 66`.
 - `test_no_consecutive_duplicate_sentences` now counts a pair only if A also leaves B applicable. A must not end elsewhere or make true a fact B needs false. Without this, the split bar exits and the two provokes were false positives.
+
+The §14.8 tests were written first as well, and each failed before its model change:
+
+- `test_alternative_exits_mirror_their_twins`: for each entry of `ALT_EXITS`, the alternative's ground preconditions and effects are its twin link's minus the `link` fact, and its template is the twin's with only the object `id` changed;
+- `test_alternative_exits_compile_to_their_object`: each template compiles to its own object (686 or 905) against the script index;
+- `test_steal_idol_needs_only_the_opened_cake`: no `(has manual)` or `(has lips)` precondition; the theft still deletes the manual, the lips and the cake;
+- in `tests/unit/test_positions.py`, `test_real_model_anchors` covers the three new actions.
+
+### 14.8 Findings from the blind extraction
+
+Phase 7 rebuilt Part I from the scripts alone. Its review is the "Analysis" section of `docs/extraction-diff.md`. It found three legal alternatives that this model lacked (its §3) and one guard that no script backs (its §4, pair 7, and §6). All four were checked against the scripts and are applied here.
+
+**1. Alternative exit objects.** Each makes the same transition as an existing link, but from another walk point, so its duration may differ. Under unit costs each ties with its twin, so the plan of §8 is unchanged. The time objective decides between them.
+
+| action | twin | sentence | script evidence | arrival |
+|---|---|---|---|---|
+| `walk-f218-f215-via-686` | `walk f218 f215` | Walk to 686 at 218 | 218's entry draws 686 at strip 28, next to 685 at strip 15 (`room-058-damnfores/entry.txt [08E5]`, `[08ED]`). 686 has no Walk to of its own: any verb on it runs `startObject(685,11)` (`obj-0686-path.txt [0010]`), so 685's case for 218 moves ego (`obj-0685-path.txt [0168]`). | 215, at 687's walk point, as the twin |
+| `walk-f220-f210-via-686` | `walk f220 f210` | Walk to 686 at 220 | 220's entry draws 686 at strip 15 and 685 at strip 28 (`entry.txt [09B9]`, `[09C1]`). 685's case for 220 is `[018C]`. | 210, at 687's walk point, as the twin |
+| `walk-cu-dock-dock-via-905` | `walk cu-dock dock` | Walk to 905 | 905 is 904's twin at the east edge of 83. While `!Bit[453]`, which is never set in Part I, it puts ego in room 33 (`room-083-cu-dock/obj-0905-dock.txt [0010]`–`[0020]`). | the dock at (566,132), instead of 904's (308,132) |
+
+- **Guards.** Each alternative carries exactly the generic walk's guards: `¬store-door-open`, `¬cook-provoked` and `¬following-storekeeper`. 685 and 904 carry no other guard at these nodes.
+- **Touchable.** Every forest entry clears class 32 on 685–688 (`entry.txt [01BC]`–`[01D1]`). 905 has no class in the object dump, and no Part I script sets one. Its class 6 (`room-083-cu-dock/local-204.txt [037B]`) matters only in the `Bit[453]` branch.
+- **The camera after 905.** Arriving from 83 starts the dock's local-201 (`room-033-dock/entry.txt [0032]`).
+  - At x 566 local-201 pins the camera to `RoomScroll(712,848)` until ego walks below x 566 or past x 726 (`room-033-dock/local-201.txt [0042]`, `[004E]`, `[005F]`). It then sets `RoomScroll(0,848)`, which frees the camera (`[0070]`).
+  - While the camera is pinned, the cliffside 426 is off screen. A Walk to 426 crosses x 566 at once, and the follow camera then brings 426 into view. That is the case the camera rule allows (`rules/glitchless.md`, "Camera visibility").
+  - From 904's landing at x 308, the pin is `RoomScroll(0,160)` (`[0011]`), which already shows the cliffside.
+- **Not added: following the storekeeper through 686.** At 218, global 67 walks the storekeeper to a point rather than to 685: Local[5] is not set there, so `walkActorTo(11,154,74)` runs (`global/script-067.txt [00D6]`, `[02F6]`). It then waits only for `VAR_ROOM` to change. So a twin of `walk-follow-guide-to-f215` through 686 is probably legal. It is left as a follow-up, because no replay has tried it and no time plan uses the guide yet.
+- **The other `|` alternatives in rooms.md §5.2 for modelled links** were not part of the findings and were not assessed here: 439 for 34M → 36, 421 for 31 → 34T, and 320 for the bar curtain. Each forwards to the modelled object (`room-034-high-stre/obj-0439-deadly-piranha-poodles.txt [000C]`, `room-031-jail/obj-0421-unnamed.txt [0010]`, `room-028-bar/obj-0320-unnamed.txt [000F]`).
+
+**2. Replay.** The current time plan (`out/plans/part1.time.sas_plan`, 67 actions) was replayed with `speedrun measure part1 --seeds 1-3` (skips on) in three versions:
+
+- **P0:** unchanged.
+- **P2:** P0 plus a detour right after `walk-forest-gate-215-220`: `walk f220 f210`, then `walk f210 f220`. No plan visits 210, so P2 gives 686 at 220 a twin to compare with.
+- **P1:** P2 with four substitutions: both `walk f218 f215` steps, `walk cu-dock dock`, and the detour's `walk f220 f210` replaced by the new actions.
+
+All three plans were checked against the domain by STRIPS simulation first. All nine runs reached the goal (`out/measure/20261005T104047Z`, `…104054Z` and `…104100Z`). The per-action ticks of the changed actions were identical on all three seeds:
+
+| P1 action | ticks | P2 twin | ticks | difference |
+|---|---:|---|---:|---:|
+| `walk-f218-f215-via-686` (from the map, ego at 687), twice | 162 | `walk f218 f215` | 216 | −54 each |
+| `walk-f220-f210-via-686` (from gate 688) | 222 | `walk f220 f210` | 306 | −84 |
+| `walk-cu-dock-dock-via-905` | 132 | `walk cu-dock dock` | 168 | −36 |
+| `walk dock lookout` after it (context `entry:cu-dock:dock` in both) | 876 | the same | 642 | +234 |
+
+| seed | P0 | P2 | P1 | P1 − P0 | P1 − P2 |
+|---:|---:|---:|---:|---:|---:|
+| 1 | 22,388 | 22,622 | 22,670 | +282 | +48 |
+| 2 | 22,406 | 22,640 | 22,610 | +204 | −30 |
+| 3 | 22,370 | 22,604 | 22,730 | +360 | +126 |
+
+- **P1 − P0** adds up as follows:
+  - −108 for 686 at 218, used twice;
+  - +198 for 905 together with the longer walk after it;
+  - +150 for the detour. Its two walks take 222 and 30, and the next `walk f220 f213` is 102 shorter because it starts at 685's walk point instead of the gate's;
+  - the rest is the store and jail RNG, which the shifted timing redraws: +42, −36 and +120.
+- **686 at 218 saves 54 ticks per use from the map.** That is 108 per run in this plan, with nothing else changed.
+- **686 at 220 saves 84 ticks from the gate.**
+- **905 saves 36 ticks in room 83, but costs 234 on the walk to the cliffside.** It lands 258 px east, so it pays off only when the next dock exit is east of x 566: the bar door 428 or the archway 427. No route needs either after the idol.
+- **The keyed contexts conflate 904 and 905** (§14.6). `walk dock lookout` is 642 after one dock and 876 after the other under the same token.
+
+**3. The `steal-idol` guard.** The hand model required `(has manual) (has lips)`. The scripts do not.
+
+- Walk to 637 reads the owner of 420 and its class 6, and nothing else (`room-053-foyer/obj-0637-gaping-hole.txt [000C]`, `[0018]`, `[0021]`). The owner test on 641 at `[002D]` lies in the branch where ego does not hold 420, and it only picks the refusal line.
+- In local-211, the manual and the lips go only to the sentence-line helper local-218 (`local-211.txt [0037]`, `[00CA]`). local-218 sets the sentence-line variables and tests no owner (`local-218.txt [001B]`).
+- The theft then hides both items whether or not ego holds them (`local-211.txt [0088]`/`[008C]`, `[00E3]`/`[00E7]`).
+- No other script on the theft path reads their owner. The scripts checked were the foyer's local-207, 209, 212, 213, 215 and 220, and globals 11, 12 and 119. In the whole dump, the owner of 641 or 642 is tested in four other places only, none of them on the theft path:
+  - the idol-room scene (`local-210.txt [0482]`, `[048E]`);
+  - door 634;
+  - the hole's refusal branch;
+  - the foyer's entry, which only loads costumes.
+
+So the guard is dropped. The deletes stay, because the theft hides both items in every case (§1). The guard was harmless, because `enter-idol-room` grants both items together with the repellent. The plans did not change.
