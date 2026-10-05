@@ -30,6 +30,32 @@ held-out seeds, with a stdev of 61. The visible demo reproduces the headless run
 tick. `docs/optimization.md` describes the method and `docs/comparison.md` compares the
 route with the human route.
 
+## Where this is going
+
+The long-term goal is a system that plans and replays glitchless speedruns for all, or
+most, of the games ScummVM supports. Monkey Island Part I is the first target, and it was
+chosen to prove the pipeline end to end.
+
+Some parts are already game-agnostic:
+
+- The engine bridge works at the level of the SCUMM engine, not the game. It pushes
+  sentences into the engine's sentence queue, clicks verb slots through the game's input
+  script, answers dialogue menus (which are ordinary verbs), detects when the game accepts
+  input, keeps a tick clock, advances audio in ticks, and presses `.` and Esc through the
+  engine's own key handling.
+- The Python pipeline (extract data, dump objects, plan, compile, measure, optimize) only
+  needs a segment definition (`segment.toml`), step templates (`steps.toml`) and a PDDL
+  model.
+- Phase 7 showed that six blind extractor agents, reading only decompiled scripts, can
+  produce a cited model over engine-state atoms. Once three defects were fixed, it reached
+  the hand-written model's optimum (`docs/extraction-diff.md`). That is the route to new
+  games without hand-writing a model for each one.
+
+Other parts are still specific to Monkey Island: the dialogue verb range (120 to 128), the
+inventory slot layout, the island map's hover-label idle rule, the Mac disk extraction, and
+the `monkeycdalt` id used by the script dumper. `docs/next.md` lists the steps toward other
+games.
+
 ## Quick start
 
 Requirements: Linux, a C++ toolchain, SDL2, CMake, git and

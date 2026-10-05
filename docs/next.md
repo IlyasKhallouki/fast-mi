@@ -1,5 +1,29 @@
 # Follow-ups after v1
 
+The final goal is a system that can speedrun all, or most, ScummVM games. Monkey Island
+Part I proved the pipeline; most of the items below are steps toward that goal.
+
+## Generalising beyond Monkey Island
+
+1. **A per-game profile.** Move the game-specific constants out of the bridge and the model
+   into a per-game file. That covers the dialogue verb range, the inventory slot verbs and
+   vars, the skip keys, idle exceptions (like the map hover label), the start and goal
+   conditions, and random-event interrupts. The bridge then reads the profile instead of
+   hard-coding MI1 values.
+2. **Other SCUMM v5 games first.** They share the opcodes the bridge relies on (the sentence
+   queue, verb slots, cutscene overrides), so they are the cheapest next targets. Each one
+   still needs its own data extraction, script dump id and verified profile.
+3. **Later SCUMM versions** (v6, v7/v8, HE). Their verb and dialogue systems differ, so the
+   bridge's input and idle code must be checked against each version's opcodes before reuse.
+4. **Other ScummVM engines** (for example SCI or AGI). These need an engine-specific bridge
+   that implements the same contract: object and state dumps, a tick clock, idle detection,
+   action injection and a trace. The Python side can stay as it is.
+5. **Automated extraction as the default.** Run the Phase 7 pipeline per game, feed its
+   findings into the model, and let replay in the real engine act as the judge, as it did
+   for MI1.
+6. **Reactive policies** for games or segments with random encounters (see the swordfight
+   below).
+
 v1 delivered Part I (treasure and idol trials) on a time-optimal route: text and cutscene
 skips, maximum talk speed, measured position-keyed costs, and a route chosen by mean
 ticks over many seeds (`docs/optimization.md`). These remain open.
