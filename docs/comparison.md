@@ -2,11 +2,11 @@
 
 This report compares the bot's Part I segment with the human speedrun route. The segment runs from free control on the Dock until the treasure trial (`Bit[86]`) and the idol trial (`Bit[85]`) are both complete (`pddl/part1/segment.toml`).
 
-Our route is the time-optimal plan `out/plans/part1.time.sas_plan` (67 actions), compiled to `out/plans/part1.time.jsonl` (68 steps). `speedrun optimize part1` chose it (candidate `sample-02`) on bridge v2 with a position-keyed surrogate (`docs/optimization.md`). Action numbers `#1` to `#67` are the plan's lines.
+Our route is the time-optimal plan `out/plans/part1.time.sas_plan` (67 actions), compiled to `out/plans/part1.time.jsonl` (68 steps). `speedrun optimize part1` chose it (candidate `sample-16`) on bridge v2 with the position-keyed surrogate and every room keyed (`docs/optimization.md`; run `out/optimize/20261005T111318Z`). Compared with the first time-optimal plan, `sample-02`, it takes forest path 686 instead of 685 at the Fork, twice (D12), and drugs the meat at the petal screen instead of in the jail (D6). Action numbers `#1` to `#67` are the plan's lines.
 
 The human route is `docs/human-route.md`, and step numbers `H1` to `H74` are its §3.2 steps. Its timed sources are saruya's 2025 Part 1 individual-level run (IL, DOS VGA floppy) and the 2026 world record (WR, DOS CD). Both runs press `.` and Esc, and both use the logo speed glitch, which is banned for us (§2).
 
-Every tick number below comes from runs with text skip and cutscene skip on, talk speed at maximum (`talkspeed` 255, var 37 = 0) and bridge v2. The bot defers input in frames where a human's input would be lost (§6.3). Seed-1 ticks come from `out/runs/20261005T094110Z-run/trace.jsonl`, read with `speedrun.trace.load_trace`. Trace steps 0 to 10 are `#1` to `#11`, steps 11 and 12 are the two pushes of `#12`, and from step 13 on the trace index equals the plan number.
+Every tick number below comes from runs with text skip and cutscene skip on, talk speed at maximum (`talkspeed` 255, var 37 = 0) and bridge v2. The bot defers input in frames where a human's input would be lost (§6.3). Seed-1 ticks come from `out/runs/20261005T122038Z-run/trace.jsonl`, read with `speedrun.trace.load_trace`. Trace steps 0 to 10 are `#1` to `#11`, steps 11 and 12 are the two pushes of `#12`, and from step 13 on the trace index equals the plan number.
 
 The earlier unit-cost comparison (66 actions, no skips, talk speed 60) is condensed in the Appendix. Its classified differences are reused here wherever the two routes still agree.
 
@@ -48,17 +48,17 @@ The human times are re-based to the same start as ours: the first frame of contr
 
 | run | time | ticks | ours (held-out mean) minus this run |
 |---|---:|---:|---:|
-| **ours, held-out mean, seeds 31-60** (stdev 60.6, range 22370-22514) | **6:13.60** | **22416.2** | |
-| ours, seed 1, headless (`out/runs/20261005T094110Z-run`) | 6:13.13 | 22388 | |
-| ours, seed 1, visible demo with fast boot (`out/runs/20261005T095854Z-demo`); end record and `state-end.json` byte-identical to headless | 6:13.13 | 22388 | |
-| IL raw: dock control → T-shirt (logo glitch on; swordfight and crew detours included) | 6:29 | 389 s | −15.4 s |
-| **IL adjusted** (swordfight removed, ±5 s) | **5:31** | 331 s | **+42.6 s (+12.9%)** |
-| IL crew-free | 5:22 | 322 s | +51.6 s (+16.0%) |
-| WR raw: dock control → dig (logo glitch on; swordfight, insult-fight and crew detours included) | 7:00 | 420 s | −46.4 s |
-| **WR adjusted** (±5 s, plus 0-3 s at the end) | **5:29** | 329 s | **+44.6 s (+13.6%)** |
-| WR crew-free | 5:14 | 314 s | +59.6 s (+19.0%) |
+| **ours, held-out mean, seeds 31-60** (stdev 48.3, range 22262-22400) | **6:11.53** | **22292.0** | |
+| ours, seed 1, headless (`out/runs/20261005T122038Z-run`) | 6:13.03 | 22382 | |
+| ours, seed 1, visible demo with fast boot (`out/runs/20261005T122053Z-demo`); end record and `state-end.json` byte-identical to headless | 6:13.03 | 22382 | |
+| IL raw: dock control → T-shirt (logo glitch on; swordfight and crew detours included) | 6:29 | 389 s | −17.5 s |
+| **IL adjusted** (swordfight removed, ±5 s) | **5:31** | 331 s | **+40.5 s (+12.2%)** |
+| IL crew-free | 5:22 | 322 s | +49.5 s (+15.4%) |
+| WR raw: dock control → dig (logo glitch on; swordfight, insult-fight and crew detours included) | 7:00 | 420 s | −48.5 s |
+| **WR adjusted** (±5 s, plus 0-3 s at the end) | **5:29** | 329 s | **+42.5 s (+12.9%)** |
+| WR crew-free | 5:14 | 314 s | +57.5 s (+18.3%) |
 
-All deltas use the held-out mean, 373.60 s. Seed 1 is 0.47 s faster.
+All deltas use the held-out mean, 371.53 s. Seed 1 (373.03 s) is 1.50 s slower, so its deltas are 1.50 s larger: +42.0 s against IL adjusted (+12.7%), +44.0 s against WR adjusted (+13.4%), +51.0 s against IL crew-free (+15.8%) and +59.0 s against WR crew-free (+18.8%). On seed 1 the storekeeper was away, which costs 120 ticks (2.0 s) against a run where he is present (D7).
 
 ### 1.3 Our progression
 
@@ -68,32 +68,35 @@ All deltas use the held-out mean, 373.60 s. Seed 1 is 0.47 s faster.
 | maximum talk speed | the same era's compiled plan | talk speed 255, no skips | 57,098 (seed 1) | 15:51.63 | `docs/plan.md` Task 8.2 "Results" |
 | with skips | the same plan | `.` and Esc on, bridge v1 | 23,888 (seed 1) | 6:38.13 | `docs/plan.md` Task 8.2 "Results" |
 | with skips, bridge v2 | `unit` candidate (66 actions) | with input deferral | 23,988.2 (mean, seeds 1-30) | 6:39.80 | `docs/optimization.md` Candidates |
-| **time-optimal** | `sample-02` (67 actions) | the same | **22,416.2** (held-out mean); 22,395.6 (select mean); 22,388 (seed 1) | **6:13.60** | `docs/optimization.md` |
+| time-optimal, first run | `sample-02` (67 actions) | the same | 22,416.2 (held-out mean); 22,395.6 (select mean); 22,388 (seed 1) | 6:13.60 | `out/optimize/20261005T084713Z/report.json` |
+| **time-optimal, final** | `sample-16` (67 actions): path 686 at the Fork (D12), the meat drugged at the petal screen (D6) | the same | **22,292.0** (held-out mean); 22,291.4 (select mean); 22,382 (seed 1) | **6:11.53** | `docs/optimization.md` |
 
-Against the `unit` candidate, the time-optimal plan's select mean differs by −1592.6 ticks. That is about −1544 for provoking the cook from bar-left (D2), −24 for two pickups instead of one sentence (D3), and −30 for Talk to Otis instead of the refused give (#25).
+Against the `unit` candidate, the final plan's select mean differs by −1696.8 ticks (22291.4 against 23988.2). The main parts are about −1532 for provoking the cook from bar-left (D2), −24 for two pickups instead of one sentence (D3), −30 for Talk to Otis instead of the refused give (#26) and −108 for the two hops through path 686 (D12).
+
+Against the first time-optimal plan, paired on the same held-out seeds 31 to 60, the final plan is 124.2 ± 14.0 ticks per seed faster (standard error); it was faster on 27 seeds and slower on 3. The two hops through 686 give −108 on every seed. The pay step gives −16.0 on the mean, because the storekeeper was away on 6 of the seeds instead of 10, and every other step together gives −0.2. These figures come from the per-seed traces in `out/optimize/20261005T084713Z/candidates/sample-02/report` and `out/optimize/20261005T111318Z/candidates/sample-16/report`.
 
 The segment start moved from boot tick 12865 in the unskipped runs to 9325, because maximum talk speed shortens the pre-segment intro. Ticks count from the segment start, so the move does not enter any total.
 
 ### 1.4 What explains the remaining gap
 
-We are about 43 to 45 s (13 to 14%) slower than the adjusted human runs, and about 52 to 60 s slower than the crew-free figures. The route does not account for this. The comparison finds no modelling bug (§5), and our route uses two transitions fewer than the corrected human list. The gap is pace, and it grows along the route:
+We are about 40.5 to 42.5 s (12 to 13%) slower than the adjusted human runs, and about 49.5 to 57.5 s slower than the crew-free figures. The route does not account for this. The comparison finds no modelling bug (§5), and our route uses two transitions fewer than the corrected human list. The gap is pace, and it grows along the route:
 
 | stretch (from dock control) | ours, seed 1 | IL, re-based | ratio |
 |---|---:|---:|---:|
-| control → start of Otis #1 | 167.2 s | 150 s (165 s less fish 6 s and chicken 9 s) | 1.11 |
-| Otis #1 → Lookout → Map | 159.7 s | 134 s (138 s less about 4 s of sword) | 1.19 |
-| Map → T-shirt | 46.2 s | 38 s (86 s less the 42-s detour and the 6-s pirate dodge) | 1.22 |
-| of which the 9 forest hops | 36.3 s | 29.3 s | 1.24 |
-| **total** | **373.1 s** | **322 s** (crew-free) | **1.16** |
+| control → start of Otis #1 | 166.4 s | 150 s (165 s less fish 6 s and chicken 9 s) | 1.11 |
+| Otis #1 → Lookout → Map | 161.3 s | 134 s (138 s less about 4 s of sword) | 1.20 |
+| Map → T-shirt | 45.3 s | 38 s (86 s less the 42-s detour and the 6-s pirate dodge) | 1.19 |
+| of which the 9 forest hops | 35.4 s | 29.3 s | 1.21 |
+| **total** | **373.0 s** | **322 s** (crew-free) | **1.16** |
 
 These ratios are derived here from the §4 timestamps, which have about 1 s resolution. Three things explain the gap:
 
 - **The logo speed glitch (banned for us, Banned 2).** It leaves var 19 (`VAR_TIMER_NEXT`) at 5 for the whole run, so every frame is 5 jiffies instead of 6 (`docs/research/skips-engine.md` §6). Frame-paced motion (walk steps, animation, `breakHere` loops, a skipped line's one frame) runs 6/5 as fast. `delay()` and talk timers count jiffies and keep their length.
-  - The forest is the cleanest test, because it is 9 identical exits on both sides. At 5/6, our 36.3 s becomes 30.3 s, against 29.3 s (IL) and about 28 s (WR). The glitch accounts for about 6 of the 7 s there.
-  - The middle stretch runs at 1.19, close to 6/5.
+  - The forest is the cleanest test, because both sides make the same 9 transitions. At 5/6, our 35.4 s becomes 29.5 s, against 29.3 s (IL) and about 28 s (WR). The glitch accounts for about 5.9 of the 6.1 s gap to the IL there.
+  - The middle stretch runs at 1.20, about 6/5. Seed 1 had the storekeeper away, which adds 2.0 s to this stretch (D7), while the IL runner found him in; without those 2 s the ratio is 1.19.
   - The first stretch runs at only 1.11. Part of the reason is our route: we provoke the cook from bar-left (D2) and leave the bar in one sentence (D4). Part is fixed time on both sides, such as the cook's 600-jiffy wait (10 s at any frame rate).
-  - If every one of our ticks were frame-paced, 5/6 would give 18,680 ticks (5:11.3), a saving of 62 s. That is only an upper bound on the glitch's effect, because fixed jiffy waits do not shrink. Even so, it is larger than the whole gap.
-- **Pixel and timing tricks (banned for us, Banned 4).** These are early door entry, "shmoovement" (repeated clicks during walks), floor clicks and clicks on the nearest pixel of an exit (`docs/human-route.md` §2.3). They plausibly explain the residual 1 to 2 s in the forest after the glitch. None was measured.
+  - If every one of our ticks were frame-paced, 5/6 would give 18,577 ticks (5:09.6), a saving of 62 s. That is only an upper bound on the glitch's effect, because fixed jiffy waits do not shrink. Even so, it is larger than the whole gap.
+- **Pixel and timing tricks (banned for us, Banned 4).** These are early door entry, "shmoovement" (repeated clicks during walks), floor clicks and clicks on the nearest pixel of an exit (`docs/human-route.md` §2.3). They plausibly explain the residual 0.2 to 1.5 s in the forest after the glitch. None was measured.
 - **Version.** We run the Mac release; the IL is DOS VGA floppy and the WR is DOS CD. Walk speeds, animation lengths and interface timings were not compared (§2.1), so our per-step ticks say nothing about DOS. The WR is also a CD run with a different interface (9 verbs, icon inventory).
 
 The only known route-level saving that a human has and we do not is D7: Talk to the storekeeper when he is present. It is estimated at about 100 ticks (1.7 s) on the mean and needs a plan that can branch.
@@ -155,58 +158,58 @@ These are the aligner's rows, in our plan order, with light copy-editing. The ti
 | #13 walk-out-of-tent-after-helmet-meat | H20 [A] Give pot to Fettucini brothers; H21 [T] Circus tent → Clearing | different-method | D5 | 1062 (1:36.33); 8 text + 3 cutscene skips; 2 verb-slot clicks | IL 1:27 (give), 1:39-1:42 (out), 478 in the inventory at 1:42; WR 1:25 (give) | Click Use, then the slot before the pot (`room-051-circus-te/local-200.txt [0107]` → `[0021]`, `[008B]`), then choose "nibboB". The human clicks Give pot on a brother, which resolves the brother with `actorFromPos`: pixel input. The walk-out is scripted (`local-207.txt [114D]`); both routes count it as 1 transition. |
 | #14 walk clearing melee-map | H22 [T] Clearing → Map | same | - | 576 (1:45.93) | IL 1:45-1:48 | Walk to 622; map entry 2. |
 | #15 walk melee-map f218 | H23 [T] Map → Fork | same | - | 210 (1:49.43) | IL 1:48-1:51 | The Fork is pseudo-room 218. |
-| #16 walk f218 f215 | H24 [T] Fork → Petal screen | same | - | 216 (1:53.03) | IL 1:51-1:54 | Walk to 685 (Back). |
-| #17 pick-up-petal | H25 [A] Pick up plants (yellow petal) | same | - | 78 (1:54.33) | IL 1:54 | Pick up 678 at room 215; the plants give petal 689 (`room-058-damnfores/obj-0678-plants.txt [0086]` to `[0092]`). The runner-up optimiser candidate `mean` drugs the meat right here; our final plan does not (D6). |
-| #18 walk f215 f218 | H26 [T] Petal screen → Fork | same | - | 102 (1:56.03) | IL 1:57-1:58 | Walk to 687. |
-| #19 walk f218 melee-map | H27 [T] Fork → Map | same | - | 234 (1:59.93) | IL 1:59-2:00 | Map entry 3. |
-| #20 walk melee-map dock | H28 [T] Map → Village (lands on the Dock) | same | - | 714 (2:11.83) | IL 2:00-2:03 | Walk to 917 → loadRoomWithEgo(426,33). The human drugs the meat next (H29); we do it at #26. |
-| #21 walk dock low-street | H30 [T] Dock → Low street | same | - | 930 (2:27.33) | IL 2:09-2:21 | Walk to archway 427. |
-| #22 buy-map | H31 [A] Talk to Citizen of Mêlée (Dia 4, Esc, 2) | same | - | 198 (2:30.63); 6 text + 1 cutscene skip | IL 2:23 (talk), 2:27 (map bought, 378 left) | Talk to 441, choices "barber" and "swell gift". The human's chicken detour (H32-H36) follows here and is out of scope. |
-| #23 walk low-street high-street-town | H37 [T] Low street → High street | same | - | 516 (2:39.23) | IL 2:36-2:42 | Walk to archway 451. |
-| #24 walk high-street-town jail | H38 [T] High street → Jail | same | - | 480 (2:47.23); 1 text skip | IL 2:45-2:47 | Walk to doorway 434. |
-| #25 talk-to-prisoner | H39 [A] Talk to prisoner (Otis #1) | same | N1 | 204 (2:50.63); 1 cutscene skip | IL 2:48; WR 2:45 | Talk to 405 sets `Bit[420]` (`room-031-jail/obj-0405-prisoner.txt [001A]`). This is the human's method. With skips it beats the refused give (`give-meat-to-prisoner`, 234) that the unit-era §14 plan used. Jail before store is also the human's order, and it is forced (N1). |
-| #26 drug-meat-with-petal | H29 [A] Use yellow petal with hunk of meat | different-order | D6 | 6 (2:50.73) | IL 2:06 (on the Dock, after H28) | Use 566 with 689 in the jail (room 31), not on the Dock. Inventory-only, one frame: obj-0566 `[007E]` setClass(566,[134]); the petal forwards doSentence(7,566,689) (`room-058-damnfores/obj-0689-yellow-petal.txt [0049]`). |
-| #27 walk jail high-street-town | H40 [T] Jail → High street | same | - | 192 (2:53.93); 2 text skips | IL 2:50 | Walk to doorway 400. |
-| #28 open-store-door | H41 [A] Open door (store) | same | - | 348 (2:59.73) | IL 2:53-2:56 | Open 437. The walk in follows at once (`docs/part1/model.md` §6). |
-| #29 walk-into-store | H42 [T] High street → Store | same | - | 6 (2:59.83) | IL 2:57 | Walk to 437. In the WR, Credit Early happens here (out of scope). |
-| #30 pick-up-shovel | H43 [A] Pick up shovel | same | - | 396 (3:06.43); 1 text skip | IL 3:00-3:02 | Pick up 396, unpaid. The human's sword pickup (H44, IL 3:03-3:04) is out of scope. |
-| #31 pay-for-shovel-and-mints | H45 [A] Talk to storekeeper (the mint and shovel part) | different-method | D7 | 708 (3:18.23); 9 text + 3 cutscene skips | IL 3:05-3:13 (6 picks, including the sword); WR Credit Early at 3:00 | Walk to 387 with the shovel unpaid → `room-030-store/local-204.txt [042B]` startScript(211). Picks "shovel", "I want it", "breath mint" (3); the menu then closes itself (`local-211.txt [03EB]`). |
-| #32 walk-out-of-store | H46 [T] Store → High street | same | - | 138 (3:20.53) | IL 3:15-3:16 | A second Walk to 387, now that the shovel is paid. |
-| #33 walk high-street-town high-street-mansion | H47 [T] High street → Trail | same | - | 594 (3:30.43); 1 text skip | IL 3:17-3:21 | Walk to archway 436. |
-| #34 walk high-street-mansion mansion | H48 [T] Trail → Mansion exterior | same | - | 390 (3:36.93) | IL 3:24-3:30 | Walk to 431. |
-| #35 give-meat-to-poodles | H49 [A] Use meat with condiment with poodles | different-method | D8 | 636 (3:47.53) | IL 3:30-3:38 | Give 566 to 467 runs the same verb-80 handler (`room-036-mansion-e/local-201.txt [0087]` sets `Bit[15]`). |
-| #36 open-mansion-door | H50 [A] Open door (mansion front door) | same | - | 204 (3:50.93) | IL 3:39 | Open 465. |
-| #37 walk-into-foyer | H51 [T] Mansion exterior → Mansion interior | same | - | 6 (3:51.03) | IL 3:42 | Walk to 465 → room 53. |
-| #38 open-idol-room-door | H52 [A] Open door (foyer, right) | same | D9 (with #39) | 108 (3:52.83) | IL 3:42-3:45 | Open 632 only opens the door (`room-053-foyer/obj-0632-door.txt [0028]` → global 25). |
-| #39 enter-idol-room | - | only-ours | D9 | 60 (3:53.83); 2 text + 1 cutscene skip | within IL 3:42-3:45 (the human's click on the open door is inferred) | Walk to the open 632 starts local-210 (obj-0632 `[0024]`), which gives the repellent, the manual, the lips and the staple remover. The cutscene is skipped with Esc. |
-| #40 walk-foyer-to-mansion | H53 [T] Mansion interior → Mansion exterior | same | - | 546 (4:02.93) | IL 3:48-3:52 | Walk to 633. |
-| #41 walk mansion high-street-mansion | H54 [T] Mansion exterior → Trail | same | - | 294 (4:07.83) | IL 3:51-3:57 | Walk to 466. |
-| #42 walk high-street-mansion high-street-town | H55 [T] Trail → High street | same | - | 642 (4:18.53) | IL 4:00-4:02 | Walk to 435. |
-| #43 walk high-street-town jail | H56 [T] High street → Jail | same | - | 144 (4:20.93) | IL 4:05-4:07 | Walk to 434. |
-| #44 give-mints-to-prisoner | H57 [A] Give breath mints to prisoner (Dia 2) | same | - | 306 (4:26.03); 2 text + 2 cutscene skips | IL 4:07 | Choice "stiff upper lip" is the human's Dia 2. |
-| #45 give-repellent-to-prisoner | H58 [A] Give gopher repellent to prisoner | same | - | 156 (4:28.63); 4 text skips | IL 4:12-4:14 | Otis gives the cake (`room-031-jail/local-203.txt [01E0]`). |
-| #46 walk jail high-street-town | H60 [T] Jail → High street | same | (D10) | 174 (4:31.53) | IL 4:16-4:17 | We leave the jail before opening the cake. |
-| #47 open-cake | H59 [A] Open cake (in the jail) | different-order | D10 | 6 (4:31.63) | IL 4:15 | Open 420 on High Street, after the jail (`room-031-jail/obj-0420-cake.txt [0056]`/`[005F]`). Inventory-only, one frame. |
-| #48 walk high-street-town high-street-mansion | H61 [T] High street → Trail | same | - | 354 (4:37.53) | IL 4:17-4:18 | Walk to 436. |
-| #49 walk high-street-mansion mansion | H62 [T] Trail → Mansion exterior | same | - | 390 (4:44.03) | IL 4:24-4:27 | Walk to 431; the poodles are still asleep. |
-| #50 walk-into-foyer | H63 [T] Mansion exterior → Mansion interior (no Open) | same | - | 276 (4:48.63) | IL 4:28-4:30 | 465 is still open from #36. |
-| #51 steal-idol | H64 [A] Walk to gaping hole | same | - | 726 (5:00.73); 8 text + 4 cutscene skips | IL 4:32 (walk to), 4:35 (idol in the inventory), 4:39 (Fester) | Walk to 637, with 1 pick, "could have it" (the human picks 1, "any"). The Uh/Um/Blfft menus lie inside the Esc-skipped override region (`global/script-119.txt [0000]` → `[08A1]`), so they never show. |
-| #52 walk-past-fester-to-underwater | H65 [A] Open door (leave; Fester); H66 [S] Mansion interior → Pier → Underwater | same | - | 264 (5:05.13); 3 cutscene skips | IL 4:42, 4:45-4:46 | Open 633 while owning 635. The "Buzz off" menu lies inside the skipped override region (`room-053-foyer/local-217.txt [000F]` → `[034B]`). Both sides count the scripted 53 → 83 → 42 chain as 0 transitions. |
-| #53 walk-up-ladder-taking-idol | H67 [A] Pick up idol; H68 [S] Underwater → Pier | same | - | 378 (5:11.43); 1 cutscene skip | IL 4:46-4:47 (idol), 4:52-4:53 (climb out) | Pick up 578. `Bit[85]` is set at `room-042-underwate/local-200.txt [0041]` → `global/script-071.txt [008D]`. The Elaine scene is skipped with Esc. The idol comes before the treasure, as in both human runs; the idol-last variant was available and not chosen. |
-| #54 walk cu-dock dock | H69 [T] Pier → Dock | same | - | 168 (5:14.23) | IL 4:53-4:55 | Walk to 904 in room 83. |
-| #55 walk dock lookout | H70 [T] Dock → Lookout | same | - | 642 (5:24.93) | IL 4:56-5:02 | Walk to 426. |
-| #56 walk lookout melee-map | H71 [T] Lookout → Map | same | - | 120 (5:26.93) | IL 5:03-5:06 | Map entry 4, so wandering pirates are possible (`room-085-melee/entry.txt [009B]`). None came on seed 1: the trace has no interrupt records. The human swordfight detour follows here (out-of-scope row). |
-| #57 walk melee-map f218 | H72 [T] Map → Fork | same | - | 234 (5:30.83) | IL 5:48-5:57 (after the detour, including a pirate dodge); WR 6:32-6:33 (after the insult fight) | Walk to 911. |
-| #58 walk f218 f215 | H73 move 1: Back (Fork → Petal screen) | same | - | 216 (5:34.43) | IL cut at 5:59.2; WR dance 6:33-7:01 | 685 Back. |
-| #59 walk-forest-gate-215-220 | H73 move 2: Left | same | - | 276 (5:39.03) | IL cut at 6:02.9 | 688 Left: the map gate. It checks for the treasure map (`room-058-damnfores/obj-0688-path.txt [004F]`), sets `Bit[401]` (`[0066]`) and loads room 220 (`[006B]`). |
-| #60 walk f220 f213 | H73 move 3: Right | same | - | 276 (5:43.63) | IL cut at 6:06.9 | 687 Right. |
-| #61 walk f213 f212 | H73 move 4: Left | same | - | 276 (5:48.23) | IL cut at 6:10.5 | 688 Left. |
-| #62 walk f212 f204 | H73 move 5: Right | same | - | 300 (5:53.23) | IL cut at 6:14.0 | 687 Right. |
-| #63 walk f204 f211 | H73 move 6: Back | same | - | 240 (5:57.23) | IL cut at 6:18.1 (the black frame at 6:16.3 is not a room change) | 685 Back. |
-| #64 walk f211 f216 | H73 move 7: Right | same | - | 228 (6:01.03) | IL cut at 6:21.2 | 687 Right. |
-| #65 walk f216 f201 | H73 move 8: Left | same | - | 168 (6:03.83) | IL cut at 6:23.2 | 688 Left. |
-| #66 walk f201 treasure-site | H73 move 9: Back (→ X clearing) | same | - | 198 (6:07.13) | IL cut at 6:26.3; WR about 7:01 | 685 Back → room 64. Forest total: ours 2178 ticks = 36.3 s (5:30.83 → 6:07.13); IL 29.3 s (5:57 → 6:26.3); WR about 28 s. |
-| #67 dig-treasure | H74 [A] Walk right, use shovel with X (T-shirt) | same | - | 360, up to the goal frame (6:13.13 = 22388 ticks); 1 cutscene skip | IL 6:29 (use), 6:32 (T-shirt); WR 7:05 | Use 396 with 749. `Bit[86]` is set at `room-064-treasure/local-200.txt [0214]` → `global/script-071.txt [008D]`. |
+| #16 walk-f218-f215-via-686 | H24 [T] Fork → Petal screen | different-method | D12 | 162 (1:52.13) | IL 1:51-1:54 | Walk to 686, the second "back" path at the Fork. Any verb on it runs 685's exit (`room-058-damnfores/obj-0686-path.txt [0010]`), so the transition and the arrival are 685's. Only the walk to the object differs: the same hop through 685 takes 216. |
+| #17 pick-up-petal | H25 [A] Pick up plants (yellow petal) | same | - | 78 (1:53.43) | IL 1:54 | Pick up 678 at room 215; the plants give petal 689 (`room-058-damnfores/obj-0678-plants.txt [0086]` to `[0092]`). The meat is drugged right after it, at #18 (D6). |
+| #18 drug-meat-with-petal | H29 [A] Use yellow petal with hunk of meat | different-order | D6 | 6 (1:53.53) | IL 2:06 (on the Dock, after H28) | Use 566 with 689 at the petal screen (room 215), not on the Dock. Inventory-only, one frame: obj-0566 `[007E]` setClass(566,[134]); the petal forwards doSentence(7,566,689) (`room-058-damnfores/obj-0689-yellow-petal.txt [0049]`). |
+| #19 walk f215 f218 | H26 [T] Petal screen → Fork | same | - | 102 (1:55.23) | IL 1:57-1:58 | Walk to 687. |
+| #20 walk f218 melee-map | H27 [T] Fork → Map | same | - | 234 (1:59.13) | IL 1:59-2:00 | Map entry 3. |
+| #21 walk melee-map dock | H28 [T] Map → Village (lands on the Dock) | same | - | 714 (2:11.03) | IL 2:00-2:03 | Walk to 917 → loadRoomWithEgo(426,33). The human drugs the meat next (H29); we did it at #18. |
+| #22 walk dock low-street | H30 [T] Dock → Low street | same | - | 930 (2:26.53) | IL 2:09-2:21 | Walk to archway 427. |
+| #23 buy-map | H31 [A] Talk to Citizen of Mêlée (Dia 4, Esc, 2) | same | - | 198 (2:29.83); 6 text + 1 cutscene skip | IL 2:23 (talk), 2:27 (map bought, 378 left) | Talk to 441, choices "barber" and "swell gift". The human's chicken detour (H32-H36) follows here and is out of scope. |
+| #24 walk low-street high-street-town | H37 [T] Low street → High street | same | - | 516 (2:38.43) | IL 2:36-2:42 | Walk to archway 451. |
+| #25 walk high-street-town jail | H38 [T] High street → Jail | same | - | 480 (2:46.43); 2 text skips | IL 2:45-2:47 | Walk to doorway 434. |
+| #26 talk-to-prisoner | H39 [A] Talk to prisoner (Otis #1) | same | N1 | 204 (2:49.83); 1 cutscene skip | IL 2:48; WR 2:45 | Talk to 405 sets `Bit[420]` (`room-031-jail/obj-0405-prisoner.txt [001A]`). This is the human's method. With skips it beats the refused give (`give-meat-to-prisoner`, 234) that the unit-era §14 plan used. Jail before store is also the human's order, and it is forced (N1). |
+| #27 walk jail high-street-town | H40 [T] Jail → High street | same | - | 174 (2:52.73) | IL 2:50 | Walk to doorway 400. |
+| #28 open-store-door | H41 [A] Open door (store) | same | - | 348 (2:58.53); 1 text skip | IL 2:53-2:56 | Open 437. The walk in follows at once (`docs/part1/model.md` §6). |
+| #29 walk-into-store | H42 [T] High street → Store | same | - | 6 (2:58.63) | IL 2:57 | Walk to 437. In the WR, Credit Early happens here (out of scope). |
+| #30 pick-up-shovel | H43 [A] Pick up shovel | same | - | 396 (3:05.23) | IL 3:00-3:02 | Pick up 396, unpaid. The human's sword pickup (H44, IL 3:03-3:04) is out of scope. |
+| #31 pay-for-shovel-and-mints | H45 [A] Talk to storekeeper (the mint and shovel part) | different-method | D7 | 828 (3:19.03); 11 text + 3 cutscene skips | IL 3:05-3:13 (6 picks, including the sword); WR Credit Early at 3:00 | Walk to 387 with the shovel unpaid → `room-030-store/local-204.txt [042B]` startScript(211). Picks "shovel", "I want it", "breath mint" (3); the menu then closes itself (`local-211.txt [03EB]`). The storekeeper was away on seed 1; with him present the step takes 708 (D7). |
+| #32 walk-out-of-store | H46 [T] Store → High street | same | - | 138 (3:21.33) | IL 3:15-3:16 | A second Walk to 387, now that the shovel is paid. |
+| #33 walk high-street-town high-street-mansion | H47 [T] High street → Trail | same | - | 594 (3:31.23); 1 text skip | IL 3:17-3:21 | Walk to archway 436. |
+| #34 walk high-street-mansion mansion | H48 [T] Trail → Mansion exterior | same | - | 390 (3:37.73) | IL 3:24-3:30 | Walk to 431. |
+| #35 give-meat-to-poodles | H49 [A] Use meat with condiment with poodles | different-method | D8 | 636 (3:48.33) | IL 3:30-3:38 | Give 566 to 467 runs the same verb-80 handler (`room-036-mansion-e/local-201.txt [0087]` sets `Bit[15]`). |
+| #36 open-mansion-door | H50 [A] Open door (mansion front door) | same | - | 204 (3:51.73) | IL 3:39 | Open 465. |
+| #37 walk-into-foyer | H51 [T] Mansion exterior → Mansion interior | same | - | 6 (3:51.83) | IL 3:42 | Walk to 465 → room 53. |
+| #38 open-idol-room-door | H52 [A] Open door (foyer, right) | same | D9 (with #39) | 108 (3:53.63) | IL 3:42-3:45 | Open 632 only opens the door (`room-053-foyer/obj-0632-door.txt [0028]` → global 25). |
+| #39 enter-idol-room | - | only-ours | D9 | 60 (3:54.63); 2 text + 1 cutscene skip | within IL 3:42-3:45 (the human's click on the open door is inferred) | Walk to the open 632 starts local-210 (obj-0632 `[0024]`), which gives the repellent, the manual, the lips and the staple remover. The cutscene is skipped with Esc. |
+| #40 walk-foyer-to-mansion | H53 [T] Mansion interior → Mansion exterior | same | - | 546 (4:03.73) | IL 3:48-3:52 | Walk to 633. |
+| #41 walk mansion high-street-mansion | H54 [T] Mansion exterior → Trail | same | - | 294 (4:08.63) | IL 3:51-3:57 | Walk to 466. |
+| #42 walk high-street-mansion high-street-town | H55 [T] Trail → High street | same | - | 642 (4:19.33) | IL 4:00-4:02 | Walk to 435. |
+| #43 walk high-street-town jail | H56 [T] High street → Jail | same | - | 144 (4:21.73) | IL 4:05-4:07 | Walk to 434. |
+| #44 give-mints-to-prisoner | H57 [A] Give breath mints to prisoner (Dia 2) | same | - | 306 (4:26.83); 2 text + 2 cutscene skips | IL 4:07 | Choice "stiff upper lip" is the human's Dia 2. |
+| #45 give-repellent-to-prisoner | H58 [A] Give gopher repellent to prisoner | same | - | 156 (4:29.43); 4 text skips | IL 4:12-4:14 | Otis gives the cake (`room-031-jail/local-203.txt [01E0]`). |
+| #46 walk jail high-street-town | H60 [T] Jail → High street | same | (D10) | 174 (4:32.33) | IL 4:16-4:17 | We leave the jail before opening the cake. |
+| #47 open-cake | H59 [A] Open cake (in the jail) | different-order | D10 | 6 (4:32.43) | IL 4:15 | Open 420 on High Street, after the jail (`room-031-jail/obj-0420-cake.txt [0056]`/`[005F]`). Inventory-only, one frame. |
+| #48 walk high-street-town high-street-mansion | H61 [T] High street → Trail | same | - | 354 (4:38.33) | IL 4:17-4:18 | Walk to 436. |
+| #49 walk high-street-mansion mansion | H62 [T] Trail → Mansion exterior | same | - | 390 (4:44.83) | IL 4:24-4:27 | Walk to 431; the poodles are still asleep. |
+| #50 walk-into-foyer | H63 [T] Mansion exterior → Mansion interior (no Open) | same | - | 276 (4:49.43) | IL 4:28-4:30 | 465 is still open from #36. |
+| #51 steal-idol | H64 [A] Walk to gaping hole | same | - | 726 (5:01.53); 8 text + 4 cutscene skips | IL 4:32 (walk to), 4:35 (idol in the inventory), 4:39 (Fester) | Walk to 637, with 1 pick, "could have it" (the human picks 1, "any"). The Uh/Um/Blfft menus lie inside the Esc-skipped override region (`global/script-119.txt [0000]` → `[08A1]`), so they never show. |
+| #52 walk-past-fester-to-underwater | H65 [A] Open door (leave; Fester); H66 [S] Mansion interior → Pier → Underwater | same | - | 264 (5:05.93); 3 cutscene skips | IL 4:42, 4:45-4:46 | Open 633 while owning 635. The "Buzz off" menu lies inside the skipped override region (`room-053-foyer/local-217.txt [000F]` → `[034B]`). Both sides count the scripted 53 → 83 → 42 chain as 0 transitions. |
+| #53 walk-up-ladder-taking-idol | H67 [A] Pick up idol; H68 [S] Underwater → Pier | same | - | 378 (5:12.23); 1 cutscene skip | IL 4:46-4:47 (idol), 4:52-4:53 (climb out) | Pick up 578. `Bit[85]` is set at `room-042-underwate/local-200.txt [0041]` → `global/script-071.txt [008D]`. The Elaine scene is skipped with Esc. The idol comes before the treasure, as in both human runs; the idol-last variant was available and not chosen. |
+| #54 walk cu-dock dock | H69 [T] Pier → Dock | same | - | 168 (5:15.03) | IL 4:53-4:55 | Walk to 904 in room 83. |
+| #55 walk dock lookout | H70 [T] Dock → Lookout | same | - | 642 (5:25.73) | IL 4:56-5:02 | Walk to 426. |
+| #56 walk lookout melee-map | H71 [T] Lookout → Map | same | - | 120 (5:27.73) | IL 5:03-5:06 | Map entry 4, so wandering pirates are possible (`room-085-melee/entry.txt [009B]`). None came on seed 1: the trace has no interrupt records. The human swordfight detour follows here (out-of-scope row). |
+| #57 walk melee-map f218 | H72 [T] Map → Fork | same | - | 234 (5:31.63) | IL 5:48-5:57 (after the detour, including a pirate dodge); WR 6:32-6:33 (after the insult fight) | Walk to 911. |
+| #58 walk-f218-f215-via-686 | H73 move 1: Back (Fork → Petal screen) | different-method | D12 | 162 (5:34.33) | IL cut at 5:59.2; WR dance 6:33-7:01 | 686, the second back path, as at #16. |
+| #59 walk-forest-gate-215-220 | H73 move 2: Left | same | - | 276 (5:38.93) | IL cut at 6:02.9 | 688 Left: the map gate. It checks for the treasure map (`room-058-damnfores/obj-0688-path.txt [004F]`), sets `Bit[401]` (`[0066]`) and loads room 220 (`[006B]`). |
+| #60 walk f220 f213 | H73 move 3: Right | same | - | 276 (5:43.53) | IL cut at 6:06.9 | 687 Right. |
+| #61 walk f213 f212 | H73 move 4: Left | same | - | 276 (5:48.13) | IL cut at 6:10.5 | 688 Left. |
+| #62 walk f212 f204 | H73 move 5: Right | same | - | 300 (5:53.13) | IL cut at 6:14.0 | 687 Right. |
+| #63 walk f204 f211 | H73 move 6: Back | same | - | 240 (5:57.13) | IL cut at 6:18.1 (the black frame at 6:16.3 is not a room change) | 685 Back. |
+| #64 walk f211 f216 | H73 move 7: Right | same | - | 228 (6:00.93) | IL cut at 6:21.2 | 687 Right. |
+| #65 walk f216 f201 | H73 move 8: Left | same | - | 168 (6:03.73) | IL cut at 6:23.2 | 688 Left. |
+| #66 walk f201 treasure-site | H73 move 9: Back (→ X clearing) | same | - | 198 (6:07.03) | IL cut at 6:26.3; WR about 7:01 | 685 Back → room 64. Forest total: ours 2124 ticks = 35.4 s (5:31.63 → 6:07.03); IL 29.3 s (5:57 → 6:26.3); WR about 28 s. |
+| #67 dig-treasure | H74 [A] Walk right, use shovel with X (T-shirt) | same | - | 360, up to the goal frame (6:13.03 = 22382 ticks); 1 cutscene skip | IL 6:29 (use), 6:32 (T-shirt); WR 7:05 | Use 396 with 749. `Bit[86]` is set at `room-064-treasure/local-200.txt [0214]` → `global/script-071.txt [008D]`. |
 
 ## 4. Segment timing
 
@@ -247,30 +250,30 @@ The doc has fewer WR timestamps, so more of this is inferred.
 
 ### 4.4 Against ours
 
-- **Headline deltas** (held-out mean, 6:13.60): +42.6 s against IL adjusted (+12.9%) and +44.6 s against WR adjusted (+13.6%). Against the crew-free figures: +51.6 s (IL) and +59.6 s (WR). Seed 1 (6:13.13) is 0.47 s less in each case.
+- **Headline deltas** (held-out mean, 6:11.53): +40.5 s against IL adjusted (+12.2%) and +42.5 s against WR adjusted (+12.9%). Against the crew-free figures: +49.5 s (IL) and +57.5 s (WR). Seed 1 (6:13.03) is 1.50 s more in each case.
 - **Pace anchors**, ours against the IL, both measured from control:
 
 | anchor | ours (seed 1) | IL |
 |---|---:|---:|
 | kitchen entry | 0:28.1 | 0:35 |
 | tent exit | 1:36.3 | 1:39 |
-| start of Otis #1 | 2:47.2 | 2:45 (the IL still carries about 15 s of fish and chicken here) |
-| gaping hole | 4:48.6 | 4:29 |
-| Lookout → Map | 5:26.9 | 5:03 |
+| start of Otis #1 | 2:46.4 | 2:45 (the IL still carries about 15 s of fish and chicken here) |
+| gaping hole | 4:49.4 | 4:29 |
+| Lookout → Map | 5:27.7 | 5:03 |
 
 - We gain early from the route: the provoke from bar-left, the one-sentence bar exit, and no fish or chicken. From Otis #1 on we lose to slower walking. §1.4 gives the ratios by stretch.
-- The cleanest pure-walking comparison is the 9 forest hops, the same 9 exits on both sides. Ours take 2178 ticks = 36.3 s (#58 to #66), the IL 29.3 s (5:57 → 6:26.3) and the WR about 28 s (6:33 → 7:01). The humans walk about 1.24 to 1.30 times faster. The dig is similar on both sides: ours 6.0 s (#67), the IL about 5.7 s (6:26.3 → 6:32).
+- The cleanest pure-walking comparison is the 9 forest hops, the same 9 transitions on both sides (our first one goes through path 686, D12). Ours take 2124 ticks = 35.4 s (#58 to #66), the IL 29.3 s (5:57 → 6:26.3) and the WR about 28 s (6:33 → 7:01). The humans walk about 1.21 to 1.26 times faster. The dig is similar on both sides: ours 6.0 s (#67), the IL about 5.7 s (6:26.3 → 6:32).
 
 ### 4.5 Our numbers
 
-Seed 1 is `out/runs/20261005T094110Z-run/trace.jsonl`, read with `speedrun.trace.load_trace`.
+Seed 1 is `out/runs/20261005T122038Z-run/trace.jsonl`, read with `speedrun.trace.load_trace`.
 
 - **Row convention.** Each row runs from the previous step's end to this step's end, so the rows sum to the segment total. Until-waits are folded into the step that follows: #4 = 822 + 42, matching `docs/optimization.md`. `docs/part1/model.md` §14.1 describes the opposite convention.
-- **#12 merges its two pushes** (204 + 644), so 67 actions compile to 68 steps. The 67 rows sum to 22388.
+- **#12 merges its two pushes** (204 + 644), so 67 actions compile to 68 steps. The 67 rows sum to 22382.
 - **#13's 1062 includes a 6-tick deferral.** The trace step itself lasts 1056 ticks (14049 → 15105). It is preceded by a 6-tick `esc_frame` deferral after #12.
-- The run has 62 text skips, 24 cutscene skips, 11 dialogue choices, 2 verb-slot clicks and 10 input deferrals (6 `esc_frame`, 4 `clicks_cleared`). There is no map-pirate interrupt.
-- **Demo parity.** `out/runs/20261005T095854Z-demo` (boot record `"fast": false, "fast_boot": true`) has the same goal record (tick 31713, 22388 ticks) and the same end record (`vars_fnv1a` `1aadd179`, `audio_frames` 11654144). Its `state-end.json` is byte-identical to the headless run's.
-- **Held-out spread.** Over seeds 31 to 60 the winner has stdev 60.6 and a range of 22370 to 22514 (`docs/optimization.md` "Held-out seeds"). Most of the spread is the storekeeper: the pay step takes 708 ticks when he is present and 828 when he is away (D7).
+- The run has 63 text skips, 24 cutscene skips, 11 dialogue choices, 2 verb-slot clicks and 10 input deferrals (6 `esc_frame`, 4 `clicks_cleared`). There is no map-pirate interrupt.
+- **Demo parity.** `out/runs/20261005T122053Z-demo` (boot record `"fast": false, "fast_boot": true`) has the same goal record (tick 31707, 22382 ticks) and the same end record (`vars_fnv1a` `190be7cb`, `audio_frames` 11652096). Its `state-end.json` is byte-identical to the headless run's.
+- **Held-out spread.** Over seeds 31 to 60 the winner has stdev 48.3 and a range of 22262 to 22400 (`docs/optimization.md` "Held-out seeds"). Most of the spread is the storekeeper: the pay step takes 708 ticks when he is present and 828 when he is away (D7). He was away on 6 of the 30 seeds, and those 6 have the highest totals (22382 to 22400). The other 24 lie between 22262 and 22298.
 
 ## 5. Differences
 
@@ -286,21 +289,23 @@ Seed 1 is `out/runs/20261005T094110Z-run/trace.jsonl`, read with `speedrun.trace
 - Where both skeptics refuted a classification, their better classification is adopted. That happened once: D7, which the classifier called a rules difference.
 - One item is split 1-1: D4. Its label is kept, and the split is stated there. It raises an open rules question (§6.4).
 - Where skeptics upheld a label but corrected supporting claims, the corrections are applied and noted.
+- D12 came with the final route and has not been through this review.
 
 | ID | rows | human-comparable delta (actions, transitions) | ticks against the human method | classification | skeptics |
 |---|---|---|---|---|---|
 | D1 | H1 | 0, 0 against 47 (−1 transition against the listed 48) | 0 | genuine shortcut (counting convention) | 2 of 2 upheld |
-| D2 | #3 + #4 against H4 + H5 + H6 | 0, −1 | at least −18 against the bot's two-sentence form, plus one input; a human's pan wait (unmeasured) would add more; −1544 against the old unit plan | genuine shortcut (camera rule; different method) | 2 of 2 upheld |
+| D2 | #3 + #4 against H4 + H5 + H6 | 0, −1 | at least −18 against the bot's two-sentence form, plus one input; a human's pan wait (unmeasured) would add more; −1532 against the old unit plan | genuine shortcut (camera rule; different method) | 2 of 2 upheld |
 | D3 | #5 + #6 against H10 + H11 | 0, 0 | 0 (order only); −24 against the old one-sentence pickup | genuine shortcut (different order, forced by the helmet quirk) | 2 of 2 upheld |
 | D4 | #8 against H13 + H14 | 0, −1 | about −180 (estimate) plus one input | genuine shortcut (off-screen exit) | **split 1-1** |
 | D5 | #13 against H20 + H21 | 0, 0 | 0 (one uncounted click fewer) | genuine shortcut (different method; the human's method is banned, and the ban costs nothing) | 2 of 2 upheld |
-| D6 | #26 against H29 | 0, 0 | 0 (tie) | genuine shortcut (different order, tie) | 2 of 2 upheld |
+| D6 | #18 against H29 | 0, 0 | 0 (tie) | genuine shortcut (different order, tie) | 2 of 2 upheld |
 | D7 | #31 against H45 | 0, 0 | about +100 on the mean (estimate, unmeasured) | genuine shortcut (fixed-plan limitation: replay feasibility) | **2 of 2 refuted "rules difference"; their label adopted** |
 | D8 | #35 against H49 | 0, 0 | 0 (exact tie, inferred) | genuine shortcut (equivalent verb, exact tie) | 2 of 2 upheld |
 | D9 | #38 + #39 against H52 | +1, 0 against the listed 22 (0, 0 against the corrected 23) | 0 | genuine shortcut (counting convention) | 2 of 2 upheld, with corrections |
 | D10 | #46 + #47 against H59 + H60 | 0, 0 | 0 (tie) | genuine shortcut (different order, tie) | 2 of 2 upheld |
 | D11 | the out-of-scope row | 0 (the human run as played has +10 actions, +6 transitions) | removed from the human times (§4) | genuine shortcut (out of scope) | 2 of 2 upheld, with corrections |
-| N1 | #24-#32 against H38-H46 | none | 0 | not a difference: genuine shortcut (agreement) | 2 of 2 upheld, with corrections |
+| D12 | #16 + #58 against H24 + H73 move 1 | 0, 0 | −54 per hop against 685, −108 per run (measured); which path the human clicks was not checked | genuine shortcut (equivalent exit with a closer walk point, found by blind extraction) | not reviewed |
+| N1 | #25-#32 against H38-H46 | none | 0 | not a difference: genuine shortcut (agreement) | 2 of 2 upheld, with corrections |
 
 **Modelling bugs: 0.**
 
@@ -334,7 +339,7 @@ The human's intro Esc, and with it the logo speed glitch, is a separate, run-lon
 - `data/scripts/room-096-part1/local-200.txt [0000]`, `[0004]`/`[0006]` (override → `[0033]`), `[0037]`, `[003B]`
 - `pddl/part1/segment.toml` (start condition); `docs/part1/rooms.md` T01, T02; `docs/part1/start.md` TL;DR
 - `docs/human-route.md` §3.1 ([S] listed but not counted), §3.2 Start and step 1, §4.2, §4.3
-- `out/runs/20261005T094110Z-run/trace.jsonl`: stall `userput` room 38 tick 7201; `segment_start` tick 9325; first skip tick 10123
+- `out/runs/20261005T122038Z-run/trace.jsonl`: stall `userput` room 38 tick 7201; `segment_start` tick 9325; first skip tick 10123
 
 **Fix and follow-up.** No model change. The documentation follow-ups carried over from the old report are listed in §8.
 
@@ -359,9 +364,9 @@ The human's intro Esc, and with it the logo speed glitch, is a separate, run-lon
 
 **Time (seed 1).**
 
-- #3 runs from tick 9685 to 10147 (462 ticks). Then the until-wait is 822 ticks, and the walk-in takes 42. Bar entry to the kitchen is 1326 ticks (22.1 s). `docs/optimization.md` shows no variance: 462 (n = 490) and 864 (n = 735).
+- #3 runs from tick 9685 to 10147 (462 ticks). Then the until-wait is 822 ticks, and the walk-in takes 42. Bar entry to the kitchen is 1326 ticks (22.1 s). `docs/optimization.md` shows no variance: 462 (n = 1042) and 864 (n = 1445).
 - **Against the human's method.** Curtain, then Open from the right half, then walk-in, measured in our engine: 198 (`walk bar-left bar-right`) + 282 (`provoke-cook`) + 864 = 1344, against our 462 + 864 = 1326. So the gain over the human method is one sentence and about 18 ticks, in our engine only. A human may also have to wait for the camera pan before clicking 316; that wait was not measured.
-- **Against the old unit-cost plan.** The unprovoked route costs the curtain walk (198) plus `walk-into-kitchen` with the cook's own timer (2671.7 mean, n = 35, range 2118 to 3198): about 2870. The provoke saves about 1544 ticks (25.7 s) per run, the largest gain from time optimisation. It reverses the old D2: the human's Open was the faster choice all along.
+- **Against the old unit-cost plan.** The unprovoked route costs the curtain walk (198) plus `walk-into-kitchen` with the cook's own timer (2659.7 mean, n = 70, range 2118 to 3198): about 2858. The provoke saves about 1532 ticks (25.5 s) per run, the largest gain from time optimisation. It reverses the old D2: the human's Open was the faster choice all along.
 - **The IL.** Bar entry to the kitchen takes about 20 s (0:18 → 0:38). `docs/human-route.md` §5 Q4 says the IL's cook came out after a "generic failure line" (0:21 to 0:27). The timing fits a provoke: a line, then the cook about 10 s later (local-212's 600 jiffies). An unprovoked cook needs at least 30 s after bar entry (local-211 `[000D]`). Because local-214 prints with talker 255 at a fixed position, the cook's line can look like narration on screen. This is an inference; the DOS scripts were not checked.
 
 **The cook-freeze gap** (`rules/glitchless.md` "Known fidelity gap") is unchanged, but it now matters much less. Ego is already at 316, the walk-in takes 42 ticks, and the cook is walking away. local-218's cutscene then freezes him (`global/script-018.txt [0070]`). See §6.5.
@@ -375,8 +380,8 @@ The human's intro Esc, and with it the logo speed glitch, is a separate, run-lon
 - `data/scripts/global/script-002.txt [02DB]`, `[02E0]`, `[039D]`; `data/scripts/global/script-018.txt [0070]`
 - `rules/glitchless.md` Click equivalence, Camera visibility, Known fidelity gap
 - `docs/part1/rooms.md` §2.4, §7; `docs/part1/model.md` §2, §14.1, §14.3
-- `docs/optimization.md` per-action costs (`provoke-cook` 282, `walk bar-left bar-right` 198, `walk-into-kitchen` 2671.7, `walk-into-kitchen-after-provoking-cook` 864, `walk-to-kitchen-door-provoking-cook` 462)
-- `out/runs/20261005T094110Z-run/trace.jsonl` trace steps 2 to 3
+- `docs/optimization.md` per-action costs (`provoke-cook` 282, `walk bar-left bar-right` 198, `walk-into-kitchen` 2659.7, `walk-into-kitchen-after-provoking-cook` 864, `walk-to-kitchen-door-provoking-cook` 462)
+- `out/runs/20261005T122038Z-run/trace.jsonl` trace steps 2 to 3
 - `docs/human-route.md` §3.2 steps 4 to 6, §5 Q4
 
 **Fix and follow-up.** No model change.
@@ -418,9 +423,9 @@ One skeptic added a nuance. Pot-first is a dead end only in the model. In the ga
 
 **Time.**
 
-- 60 + 60 = 120 ticks on every sample: `pick-up-meat` n = 735; `pick-up-pot-not-first-meat` after `pick-up-meat`, n = 555, all 60.
-- The pooled row for `pick-up-pot-not-first-meat` (64.4 ± 7.7, max 78) mixes in a different route, where it follows `pick-up-stewed-meat-plain`.
-- The old one-sentence `use-meat-with-pot` measures 144 ticks (n = 35), because it ends in the meat's refusal line (obj-0566 `[00BD]` → global 3).
+- 60 + 60 = 120 ticks on every sample: `pick-up-meat` n = 1439; `pick-up-pot-not-first-meat` after `pick-up-meat`, n = 1259, all 60.
+- The pooled row for `pick-up-pot-not-first-meat` (62.3 ± 6.0, max 78) mixes in a different route, where it follows `pick-up-stewed-meat-plain`.
+- The old one-sentence `use-meat-with-pot` measures 144 ticks (n = 76), because it ends in the meat's refusal line (obj-0566 `[00BD]` → global 3).
 - So the time plan spends one more action to save 24 ticks. Route selection by mean ticks intends exactly that.
 - The IL takes about 2 s (0:45 → 0:47); ours takes 2.0 s.
 
@@ -434,7 +439,7 @@ One skeptic added a nuance. Pot-first is a dead end only in the model. In the ga
 - `pddl/part1/domain.pddl`: `pick-up-meat` (line 474), `pick-up-pot-first` (485), `pick-up-pot-not-first-meat` (494), `use-meat-with-pot` (540)
 - `docs/part1/model.md` §4.3, §14.4; `docs/part1/money.md` B1, B4
 - `docs/optimization.md` per-action costs and per-context rows
-- `out/runs/20261005T094110Z-run/trace.jsonl` trace steps 4, 5 and 13
+- `out/runs/20261005T122038Z-run/trace.jsonl` trace steps 4, 5 and 13
 
 **Fix and follow-up.** No model change. Keep `pot-guarded-by` and the dead end `pick-up-pot-first`, and never model Give pot to a brother. `docs/part1/model.md` §8 and §9 ("−1: pot and meat in one sentence") describe the unit-cost plan; label them as such.
 
@@ -453,7 +458,7 @@ One skeptic added a nuance. Pot-first is a dead end only in the model. In the ga
 - Our single Walk to 315 walks ego left across x 320, and the camera pans. That is the case "Camera visibility" allows.
 - A human in the right half must cross first. That is H13, and it must be the curtain (obj-0323 `[000C]` to `[0022]`, `walkActorTo` 310,137) or its alias, object 320: one skeptic found that a floor click cannot cross the bar from the right half. So the −1 holds against any human, and the old caveat about an uncounted floor click is dropped.
 
-**Time (seed 1, trace step 7, ticks 11179 → 11635 = 456; n = 455, stdev 0).**
+**Time (seed 1, trace step 7, ticks 11179 → 11635 = 456; n = 900, stdev 0).**
 
 - 11179 to 11557: 378 ticks of walking. At 11557 the cutscene starts and clears the click queue.
 - Then 72 ticks while script 120 runs `delay(60)` (`[0007]`) and reaches `beginOverride` (`[000E]`). Esc can do nothing before that. The skip at 11629 has `offs` 24, the instruction just after the override is installed, so it fired on the first frame it could take effect. A human pays the same wait.
@@ -481,8 +486,8 @@ The IL takes about 6 s for H13 and H14 (0:48 to 0:54, ±1 s); ours takes 7.6 s. 
 - `data/scripts/global/script-120.txt [0007]`, `[000E]`, `[052D]` to `[0538]`
 - `rules/glitchless.md` Camera visibility; Allowed 5
 - `docs/part1/rooms.md` §2.4, T25a; `docs/part1/model.md` §2, §13.5, §14.1
-- `docs/optimization.md` per-context rows: `walk bar-right bar-left` @ `entry:kitchen:bar-right` 210; `walk-out-of-bar-from-left-meanwhile` @ `entry:bar-right:bar-left` 252; `walk-out-of-bar-from-right-meanwhile` 456 (n = 455)
-- `out/runs/20261005T094110Z-run/trace.jsonl` trace step 7 (clicks cleared at 11557; skip at 11629, script 120, `offs` 24)
+- `docs/optimization.md` per-context rows: `walk bar-right bar-left` @ `entry:kitchen:bar-right:570` 210; `walk-out-of-bar-from-left-meanwhile` @ `entry:bar-right:bar-left:323` 252; `walk-out-of-bar-from-right-meanwhile` @ `entry:kitchen:bar-right:570` 456 (n = 900)
+- `out/runs/20261005T122038Z-run/trace.jsonl` trace step 7 (clicks cleared at 11557; skip at 11629, script 120, `offs` 24)
 - `docs/human-route.md` §3.2 steps 13 to 14
 
 **Fix and follow-up.** No model change. Both forms are modelled and measured, and the optimiser picked the faster one. The rules decision on the camera rule's premise is open (§6.4, §8).
@@ -511,7 +516,7 @@ The IL takes about 6 s for H13 and H14 (0:48 to 0:54, ±1 s); ours takes 7.6 s. 
 - The ban costs us nothing. Our path is legal and named in `rules/glitchless.md` (Allowed 1; Click equivalence, for the off-by-one and for effects that live only in an input script), and it is never slower: 2 clicks against 3, with everything after `[0021]` shared. Even with pixel input allowed, the optimiser would still pick Use plus slot.
 - It is not a version difference. The human's path exists in our Mac scripts, and our path was open to the IL runner too, who held the fish before the pot.
 
-**Time.** 1062 ticks on every sample (n = 770), with 8 text and 3 cutscene skips. That is the surrogate's convention: the trace step lasts 1056 ticks, and the 6-tick `esc_frame` deferral before it is included. On the same span as the IL (the helmet line at tick 14139 to room 52 at 15075), ours takes 936 ticks (15.6 s), against about 15 s for the IL (1:27 → 1:42). Those agree within the video's 1 s resolution.
+**Time.** 1062 ticks on every sample (n = 1515), with 8 text and 3 cutscene skips. That is the surrogate's convention: the trace step lasts 1056 ticks, and the 6-tick `esc_frame` deferral before it is included. On the same span as the IL (the helmet line at tick 14139 to room 52 at 15075), ours takes 936 ticks (15.6 s), against about 15 s for the IL (1:27 → 1:42). Those agree within the video's 1 s resolution.
 
 **Citations:**
 
@@ -522,18 +527,18 @@ The IL takes about 6 s for H13 and H14 (0:48 to 0:54, ±1 s); ours takes 7.6 s. 
 - `docs/part1/money.md` B1; `docs/part1/model.md` §4.3, §5
 - `pddl/part1/domain.pddl` `walk-out-of-tent-after-helmet-meat` (line 258; precondition `(pot-guarded-by meat)` at line 260)
 - `out/plans/part1.time.jsonl` (click `[{verb:7},{inventory:567,offset:-1}]`, choose `nibboB`, until var 32 == 200)
-- `out/runs/20261005T094110Z-run/trace.jsonl` trace step 13; `docs/optimization.md` (1062.0, sd 0, n = 770)
+- `out/runs/20261005T122038Z-run/trace.jsonl` trace step 13; `docs/optimization.md` (1062.0, sd 0, n = 1515)
 - `docs/human-route.md` §3.2 steps 9, 20, 21
 
 **Fix and follow-up.** None. Keep the `(pot-guarded-by g)` precondition and the `pick-up-pot-not-first-*` actions, and keep Give pot to a brother out of the model.
 
-### D6. The meat is drugged in the jail, not on the Dock
+### D6. The meat is drugged at the petal screen, not on the Dock
 
-- **Classification: genuine shortcut (different order, tie).** This was the old D9, which had no skeptic review; it now has two.
+- **Classification: genuine shortcut (different order, tie).** This was the old D9, which had no skeptic review. Two skeptics reviewed it for the first time plan, which drugged the meat in the jail. The script argument below is the same for both places.
 - **Delta:** 0 actions, 0 transitions and 0 ticks.
-- **Ours:** #26 `drug-meat-with-petal`, the sentence (verb 7, 566, 689), in the jail (room 31), right after #25 Otis #1.
+- **Ours:** #18 `drug-meat-with-petal`, the sentence (verb 7, 566, 689), at the petal screen (room 215), right after #17 picks up the petal.
 - **Human:** H29 Use yellow petal with hunk of meat, on the Dock after H28 Map → Village (IL 2:06).
-- The final plan does not drug the meat in the forest; the runner-up candidate `mean` does.
+- The first time plan, `sample-02`, drugged the meat in the jail (room 31), right after Otis #1. In the final run that placement is the candidate `mean`.
 
 **Explanation.** It is the same sentence in a different place.
 
@@ -544,9 +549,13 @@ The IL takes about 6 s for H13 and H14 (0:48 to 0:54, ±1 s); ours takes 7.6 s. 
 - The model excludes only the map, where every click becomes Walk to (`room-085-melee/local-201.txt [0035]`), the tent, an open store door and a provoked cook (`pddl/part1/domain.pddl` `drug-meat-with-petal`, line 562).
 - The human's Dock placement would be a tie too. `speedrun.positions` leaves the position token unchanged for an inventory-only sentence, so drugging on the Dock would cost the same surrogate 6 ticks.
 
-**Time.** 6 ticks (one frame) in all 9 measured contexts (n = 770). On seed 1, trace step 26 runs from tick 19563 to 19569.
+**Time.** 6 ticks (one frame) on every pooled sample (n = 1515), and in all 8 contexts measured in the final run. On seed 1, trace step 18 runs from tick 16131 to 16137.
 
-**Against the runner-up.** `mean` is the same plan with the drug at f215, right after #17. A `diff` of the two plan files shows that one line and nothing else. Paired per-seed differences, `mean` minus the winner:
+**Petal screen against jail.** Both optimiser runs measured the two placements as a pair of plans that differ only in where this one line sits; a `diff` of the two plan files shows nothing else.
+
+In the final run, `mean` (jail) minus the winner `sample-16` (petal screen) on select seeds 1 to 30 is +11.6 ± 14.9 ticks per seed (standard error). The winner was faster on 11 seeds, `mean` on 10, and 9 tied. `mean` was not measured on the held-out seeds.
+
+The first run (`out/optimize/20261005T084713Z`, with path 685 at the Fork) had them the other way round: the winner `sample-02` drugged in the jail and the runner-up `mean` at the petal screen. Paired per-seed differences there, `mean` minus `sample-02`:
 
 | seeds | ticks per seed |
 |---|---:|
@@ -555,9 +564,10 @@ The IL takes about 6 s for H13 and H14 (0:48 to 0:54, ±1 s); ours takes 7.6 s. 
 | pooled, 60 seeds | −6.0 ± 8.8 |
 
 - The pooled value is consistent with zero.
-- Steps #1 to #25 have identical durations on all 60 seeds. The steps that differ are #27, #28, #31 and #32.
-- The pay step, #31, gives −600 of the held-out −546 sum (and +240 of the select +186). That is the storekeeper's random line choice (`room-030-store/local-211.txt [043D]`, `[060B]`, `[08FF]`). The two placements shift the store's random draws by one frame, so the gap is RNG, not route cost.
-- Under `rules/glitchless.md` "Route selection", the choice made on seeds 1 to 30 stands. Switching to `mean` because of the held-out seeds would be selecting on the report set, and on noise.
+- Plan numbers in these bullets are `sample-02`'s. Steps #1 to #25 had identical durations on all 60 seeds. The steps that differed were #27, #28, #31 and #32.
+- The pay step, #31, gave −600 of the held-out −546 sum (and +240 of the select +186). That is the storekeeper's random line choice (`room-030-store/local-211.txt [043D]`, `[060B]`, `[08FF]`). The two placements shift the store's random draws by one frame, so the gap is RNG, not route cost.
+- The two runs lean in opposite directions, each by less than one standard error: the first run's select seeds favoured the jail by 6.2 ticks, and the final run's favoured the petal screen by 11.6. The placement is a tie, and the store's RNG decides it on any given set of seeds.
+- Under `rules/glitchless.md` "Route selection", the choice made on seeds 1 to 30 stands. Choosing by the held-out seeds would be selecting on the report set, and on noise.
 
 **Not verified.** G19 says to drug "while walking". Under our sequential step player the step takes one idle frame. ScummVM defers a queued sentence while the sentence script runs (`script.cpp` `checkAndRunSentenceScript`), so a sentence-walk would not overlap. Whether a push during a scripted (non-sentence) walk would overlap is not established. It could save at most 6 ticks per inventory-only step.
 
@@ -571,11 +581,11 @@ The IL takes about 6 s for H13 and H14 (0:48 to 0:54, ±1 s); ours takes 7.6 s. 
 - `data/scripts/room-030-store/local-211.txt [043D]`, `[060B]`, `[08FF]`
 - `pddl/part1/domain.pddl` `drug-meat-with-petal`; `src/speedrun/positions.py`
 - `docs/part1/model.md` §4.3, §8; `docs/optimization.md` Candidates, Held-out seeds
-- `out/optimize/20261005T084713Z/candidates/{mean,sample-02}/plan.sas_plan`
-- `out/runs/20261005T094110Z-run/trace.jsonl` trace step 26
+- `out/optimize/20261005T084713Z/candidates/{mean,sample-02}/plan.sas_plan`; `out/optimize/20261005T111318Z/candidates/{mean,sample-16}/plan.sas_plan` and their `select` traces
+- `out/runs/20261005T122038Z-run/trace.jsonl` trace step 18
 - `docs/human-route.md` §3.2 step 29; `rules/glitchless.md` Route selection
 
-**Fix and follow-up.** No model change. `docs/part1/model.md` §8 ("moved … to the town half of High Street") describes the old unit plan; note that the time plan drugs in the jail. Optional: test a push during a scripted walk for the inventory-only steps (#26, #47).
+**Fix and follow-up.** No model change. `docs/part1/model.md` §8 ("moved … to the town half of High Street") describes the old unit plan; note that the time plan drugs at the petal screen. Optional: test a push during a scripted walk for the inventory-only steps (#18, #47).
 
 ### D7. The store menu, opened through the door
 
@@ -600,8 +610,9 @@ The IL takes about 6 s for H13 and H14 (0:48 to 0:54, ±1 s); ours takes 7.6 s. 
 
 **Time.**
 
-- Across 524 measured traces of the current plan, the pay step is exactly 708 ticks when he is present (390 cases) and 828 when he is away (134 cases, about 26%). That gives the pooled mean of 740.1.
-- On seed 1 he was present. Inside #31: the walk to the door runs 20511 → 20889, where local-204's cutscene starts. The "pay for that?" line, the walk to 394 and `endCutscene` take 138 ticks (20889 → 21027). The first choice is at 21033.
+- Across the 832 pooled samples in `docs/optimization.md`, the pay step is exactly 708 ticks when he is present (620 cases) and 828 when he is away (212 cases, about 25%). That gives the pooled mean of 738.6. On the winner's held-out seeds he was away 6 times in 30.
+- On seed 1 of the final route he was away, and #31 took 828 ticks (trace step 31, 20439 → 21267). The walk to the door ends at 20817, where local-204's cutscene starts, and the first choice comes at 21081, 264 ticks later.
+- In the first time plan's seed-1 run (`out/runs/20261005T094110Z-run`) he was present. Inside #31 there: the walk to the door runs 20511 → 20889, where local-204's cutscene starts. The "pay for that?" line, the walk to 394 and `endCutscene` take 138 ticks (20889 → 21027). The first choice is at 21033, 144 ticks after the cutscene starts.
 - local-204 has no `beginOverride`, so Esc cannot shorten that window. All 3 cutscene skips in the step are inside 211.
 - Talk to would avoid the door-to-394 leg, but add one skipped frame for the greeting (211 skips it only when `Bit[309]` is set, `[0020]` to `[002D]`). The walk to 394 is about as long as the walk to the door: roughly 9 against 10 frames, from walkbox geometry.
 - **Estimated saving:** about 120 to 140 ticks (2 to 2.3 s) on present entries and nothing on away entries, so about 100 ticks on the mean. This comes from walkbox geometry plus the measured window; Talk to itself was not measured.
@@ -613,8 +624,9 @@ The IL takes about 6 s for H13 and H14 (0:48 to 0:54, ±1 s); ours takes 7.6 s. 
 - `data/scripts/room-030-store/obj-0394-storekeeper.txt [0015]`
 - `data/scripts/room-030-store/local-211.txt [0017]`, `[0020]` to `[002D]`, `[03EB]`, `[1DB6]` to `[1DD2]`
 - `data/scripts/room-030-store/entry.txt [002B]`, `[0042]` to `[0057]`; `local-200.txt [0000]`
-- `out/runs/20261005T094110Z-run/trace.jsonl` trace step 31 (20511 start, 20889 cutscene, 21027 `endCutscene`, 21033 first choice, 21219 end)
-- `out/optimize/20261005T084713Z` and `out/measure` traces: 708 × 390, 828 × 134
+- `out/runs/20261005T122038Z-run/trace.jsonl` trace step 31 (storekeeper away: 20439 start, 20817 cutscene, 21081 first choice, 21267 end)
+- `out/runs/20261005T094110Z-run/trace.jsonl` trace step 31 (first time plan, storekeeper present: 20511 start, 20889 cutscene, 21027 `endCutscene`, 21033 first choice, 21219 end)
+- `out/optimize/20261005T111318Z/measured-costs.json`: 708 × 620, 828 × 212; the winner's held-out traces (`candidates/sample-16/report`): 708 × 24, 828 × 6. Earlier count, `out/optimize/20261005T084713Z` and `out/measure` traces: 708 × 390, 828 × 134
 - `pddl/part1/segment.toml` (`interrupts`); `pddl/part1/steps.toml` `pay-for-shovel-and-mints`
 - `rules/glitchless.md` Allowed 2, Route selection, Engine settings ("plan must remain valid")
 - `docs/part1/model.md` §4.5, §5; `docs/human-route.md` §3.2 step 45; `docs/next.md` "Optimisation"
@@ -641,7 +653,7 @@ The IL takes about 6 s for H13 and H14 (0:48 to 0:54, ±1 s); ours takes 7.6 s. 
 - **Reach.** The old worry about "≤ 16 against locked boxes" is unfounded. Before the dogs sleep, room 36's entry sets boxes 1-6 to flag 128 (`entry.txt [002B]` to `[0038]`). That flag is `kBoxInvisible`, not `kBoxLocked` (0x40) (`boxes.h:39-41`). `adjustXYToBeInBox` skips invisible boxes (`actor.cpp` about line 2040), and `getObjActToObjActDist` adjusts the object point the same way (`object.cpp:546-550`). So the walk target and the distance target are the same point, and the distance after the walk is 0. The IL shows Use working.
 - **Click equivalence.** In trace step 35, `Var[32]` (`VAR_VERB_SCRIPT`) goes 4 → 203. So the default input script was active when the sentence was pushed, and room 36 had no guard; local-201 `[01B9]` installs input script 203 only afterwards.
 
-**Time.** local-201 sets `Bit[15]` at `[0087]` (it needs the drugged class 6, `[0079]`). It contains five `delay(60)` calls, a fixed 300 jiffies, and no `beginOverride`, so Esc cannot shorten it in either variant. Give costs 636 ticks on every sample (n = 770, stdev 0); on seed 1, trace step 35 runs from tick 22341 to 22977. Use has never been replayed; its tie is inferred from the scripts.
+**Time.** local-201 sets `Bit[15]` at `[0087]` (it needs the drugged class 6, `[0079]`). It contains five `delay(60)` calls, a fixed 300 jiffies, and no `beginOverride`, so Esc cannot shorten it in either variant. Give costs 636 ticks on every sample (n = 1515, stdev 0); on seed 1, trace step 35 runs from tick 22389 to 23025. Use has never been replayed; its tie is inferred from the scripts.
 
 **Gap to the human** (about 8 s against our 10.6 s). The verb does not cause this gap, because the fixed delays are the same for both. It falls in the walk to the dogs and in frame-paced animation. The likely causes are the human's logo speed glitch, DOS against Mac timing, and the human clicking during the walk-in. The whole-second timestamps also blur it.
 
@@ -652,7 +664,7 @@ The IL takes about 6 s for H13 and H14 (0:48 to 0:54, ±1 s); ours takes 7.6 s. 
 - `data/scripts/room-036-mansion-e/obj-0467-deadly-piranha-poodles.txt [00B2]`, `[00D5]`
 - `data/scripts/room-036-mansion-e/local-201.txt [0079]`, `[0087]`, `[01B9]`; `entry.txt [002B]` to `[0038]`
 - `third_party/scummvm/engines/scumm/boxes.h:39-41`, `actor.cpp` (about 2040), `object.cpp:546-550`, `script.cpp:1689-1715` (`abortCutscene` needs the pointer that `beginOverride` sets)
-- `out/runs/20261005T094110Z-run/trace.jsonl` trace step 35; `docs/optimization.md` (636.0, n = 770)
+- `out/runs/20261005T122038Z-run/trace.jsonl` trace step 35; `docs/optimization.md` (636.0, n = 1515)
 - `docs/human-route.md` §3.2 step 49; `rules/glitchless.md` Allowed 1, Click equivalence
 
 **Fix and follow-up.** No model change; the model keeps Give, the variant that has been replayed. Doc fixes carried over from the old D7 (§8): `docs/part1/model.md` §5 (the "Use meat with poodles" row), `docs/part1/idol.md` §2.5 and idol.md open question 3 still describe Use as riskier against "locked" boxes. Optional: one headless replay of [7,566,467] would turn the inferred tie into a measurement.
@@ -668,12 +680,12 @@ The IL takes about 6 s for H13 and H14 (0:48 to 0:54, ±1 s); ours takes 7.6 s. 
 
 - **#38, Open 632 (108 ticks).** obj-0632 `[0028]` runs global 25. Script 25 opens the door only when it is in state 0 and class 6 is clear (`classOfIs(Local[0],[6])` at `[0016]`, then `setState(…,1)` at `[0024]`); otherwise it prints that the door is locked (`[0040]`). So class 6 set means locked, as the old report said. Script 25 starts nothing else, and trace step 38 changes no bits and no inventory.
 - **#39, Walk to the open 632 (60 ticks).** obj-0632 `[0018]`/`[001D]` checks for state 1, then `[0024]` starts local-210. local-210 is a cutscene. It sets `Bit[481]` at `[0002]`, before its override is installed at `[0007]`/`[0009]`.
-- **What ran on seed 1: the override path.** The Esc on script 210 came at tick 23301, while 210 was still waiting for 205 (`[000C]` to `[0014]`). The abort resumes at the override target `[042F]` with `VAR_OVERRIDE` set (`script.cpp:1689-1726`). That path:
+- **What ran on seed 1: the override path.** The Esc on script 210 came at tick 23349, while 210 was still waiting for 205 (`[000C]` to `[0014]`). The abort resumes at the override target `[042F]` with `VAR_OVERRIDE` set (`script.cpp:1689-1726`). That path:
   - closes the door (`[0467]` `setState(632,0)`);
   - locks it for good (`[046B]` `setClass(632,[134])`, which sets class 6);
   - gives the four items directly, through the nested owner checks: 643, 641, 642 and 640 (`[04A6]`, `[04AA]`, `[04AE]`, `[04B2]`).
 
-  The trace adds them in that order (vars 137 to 140), with `Bit[481]` going 0 → 1 and no room change. Then come two `.` skips (23331, 23337) and `clicks_cleared` by script 19 (23349).
+  The trace adds them in that order (vars 137 to 140), with `Bit[481]` going 0 → 1 and no room change. Then come two `.` skips (23379, 23385) and `clicks_cleared` by script 19 (23397).
 - **The unskipped body** gives the same items another way (`[01FB]`, `[0236]` → `local-204.txt [0047]`, `[0267]`, `[02B8]`). The skip-safety harness found no route-relevant difference (§6.2), so no `no_skip` is needed.
 
 **There is no one-sentence path, so this is not a modelling bug.**
@@ -686,7 +698,7 @@ The IL takes about 6 s for H13 and H14 (0:48 to 0:54, ±1 s); ours takes 7.6 s. 
 
 **The human list's own rules count the Walk to.** §3.1 defines [A] as one verb/object sentence. By that rule the list counts H64 "Walk to gaping hole", which has the same shape: a Walk to inside the room that starts a cutscene. G19 also folds this step into "Open door on right, SKIP cutscene, leave".
 
-**Time.** 108 + 60 = 168 ticks (2.80 s) on every sample (n = 770, stdev 0). The IL window 3:42 to 3:45 starts at the H51 entry; adding our 6-tick #37 gives 174 ticks (2.90 s) on the same basis, against about 3 s for the IL. Unskipped, #39 took 10140 ticks (Appendix).
+**Time.** 108 + 60 = 168 ticks (2.80 s) on every sample (n = 1515, stdev 0). The IL window 3:42 to 3:45 starts at the H51 entry; adding our 6-tick #37 gives 174 ticks (2.90 s) on the same basis, against about 3 s for the IL. Unskipped, #39 took 10140 ticks (Appendix).
 
 **Caveat.** We only have Mac scripts. If the DOS version started 210 on Open alone, this would be a version difference instead. It would still not be a modelling bug, and nothing points to it.
 
@@ -697,7 +709,7 @@ The IL takes about 6 s for H13 and H14 (0:48 to 0:54, ±1 s); ours takes 7.6 s. 
 - `data/scripts/room-053-foyer/local-210.txt [0002]`, `[0007]`/`[0009]` (override → `[042F]`), `[000C]` to `[0014]`, `[0467]`, `[046B]`, `[04A6]` to `[04B2]`; unskipped body `[01FB]`, `[0236]`, `[0267]`, `[02B8]`
 - `data/scripts/room-053-foyer/local-204.txt [0047]`; `local-206.txt [0016]`; `local-216.txt [0077]`; `data/scripts/global/script-102.txt [0071]`
 - `third_party/scummvm/engines/scumm/script_v5.cpp` `o5_ifClassOfIs`, `o5_setClass`; `script.cpp:1689-1726`
-- `out/runs/20261005T094110Z-run/trace.jsonl` trace steps 38, 39 (Esc on 210 at 23301; text skips at 23331, 23337; `clicks_cleared` at 23349)
+- `out/runs/20261005T122038Z-run/trace.jsonl` trace steps 38, 39 (Esc on 210 at 23349; text skips at 23379, 23385; `clicks_cleared` at 23397)
 - `pddl/part1/domain.pddl` `open-idol-room-door` (line 430), `enter-idol-room` (838); `pddl/part1/measured-costs.json`
 - `docs/human-route.md` §3.1, §3.2 steps 51 to 53 and 63 to 64, §4.1 row 15
 
@@ -715,7 +727,7 @@ The IL takes about 6 s for H13 and H14 (0:48 to 0:54, ±1 s); ours takes 7.6 s. 
 - The Open entry, `room-031-jail/obj-0420-cake.txt [0056]`, tests only that 420 still has class 6 (`classOfIs(VAR_ME,[134])`). It has no room or position check. `[005F]` `setClass(420,[6,131])` clears class 6, which is the model's `(cake-opened)`.
 - For an inventory object the sentence script adds no reach animation and goes straight to the verb (`global/script-002.txt [0364]`/`[0369]`, `[0398]`/`[039D]`).
 - A real Open on the cake on High Street would go through plain script 4. The stale mansion input script 203 is already gone: trace step 43 shows `Var[32]` going 203 → 4 (`room-034-high-stre/exit.txt [0021]`). High Street's own local 201 is installed only while global 67 (the storekeeper guide) runs (`entry.txt [0007]` to `[0010]`), which is not on this route.
-- The open took effect: in trace step 47 (ticks 25617 to 25623), `Var[376]` goes 1037 → 1003, which is the class-6-cleared branch of the cake's verb-91 script (`[0027]`/`[0030]`). `steal-idol` later succeeds with the file.
+- The open took effect: in trace step 47 (ticks 25665 to 25671), `Var[376]` goes 1037 → 1003, which is the class-6-cleared branch of the cake's verb-91 script (`[0027]`/`[0030]`). `steal-idol` later succeeds with the file.
 
 **Time.** Per-context means, all with stdev 0 (`out/optimize/20261005T084713Z/report.json`):
 
@@ -724,7 +736,7 @@ The IL takes about 6 s for H13 and H14 (0:48 to 0:54, ±1 s); ours takes 7.6 s. 
 | in the jail (the human's) | 6 | 174 | 354 | 534 |
 | on High Street (ours) | 6 | 174 | 354 | 534 |
 
-`steal-idol` costs 726 in every context, so nothing downstream changes. Every optimiser candidate except `unit` puts the open on High Street; `unit` puts it in the jail. That is the search's tie-break. No measured candidate pair differs only by this swap, so the tie rests on the per-context means.
+`steal-idol` costs 726 in every context, so nothing downstream changes. In both optimiser runs, every candidate except `unit` puts the open on High Street; `unit` puts it in the jail. That is the search's tie-break. No measured candidate pair differs only by this swap, so the tie rests on the per-context means.
 
 **Citations:**
 
@@ -732,8 +744,8 @@ The IL takes about 6 s for H13 and H14 (0:48 to 0:54, ±1 s); ours takes 7.6 s. 
 - `data/scripts/global/script-002.txt [0364]`, `[0369]`, `[0398]`, `[039D]`
 - `data/scripts/room-034-high-stre/exit.txt [0021]`; `entry.txt [0007]`, `[0010]`
 - `docs/part1/model.md` §4.3; `docs/part1/input-scripts.md` §1.2, §3.2
-- `docs/optimization.md` (`open-cake` 6.0 in 3 contexts, n = 770); `out/optimize/20261005T084713Z/report.json` `context_flags`
-- `out/runs/20261005T094110Z-run/trace.jsonl` trace steps 43, 46, 47, 48
+- `docs/optimization.md` (`open-cake` 6.0, n = 1515; 2 contexts in the final run); `out/optimize/20261005T084713Z/report.json` `context_flags`
+- `out/runs/20261005T122038Z-run/trace.jsonl` trace steps 43, 46, 47, 48
 - `docs/human-route.md` §3.2 steps 59 to 60
 
 **Fix and follow-up.** No model change: the model allows `open-cake` in both places. Optional: a paired measurement of the winner against a copy with the open moved back into the jail would rule out any hidden context effect. It is low priority, because every context involved has stdev 0.
@@ -769,15 +781,53 @@ The IL takes about 6 s for H13 and H14 (0:48 to 0:54, ±1 s); ours takes 7.6 s. 
 - `rules/glitchless.md` Out of scope for v1, Banned 3
 - `docs/human-route.md` §3.2 steps 7 to 9, 32 to 36, 44 to 45, 71; §4.3
 - `docs/part1/model.md` §2, §7.2, §14.3; `docs/part1/skips.md` row A51; `docs/part1/money.md` B4
-- `out/runs/20261005T094110Z-run/trace.jsonl` (inventory adds); `out/plans/part1.time.sas_plan`
+- `out/runs/20261005T122038Z-run/trace.jsonl` (inventory adds); `out/plans/part1.time.sas_plan`
 
 **Fix and follow-up.** None for this segment. The swordfight segment is tracked in `docs/next.md` "Segment coverage", and it needs `docs/part1/money.md` B4 settled first. The only goal-relevant use of the sword is the `Bit[98]` guide unlock, which `docs/part1/model.md` §14.3 defers; the humans buy the map instead.
+
+### D12. The Fork → Petal screen hop goes through path 686
+
+- **Classification: genuine shortcut (equivalent exit with a closer walk point, found by blind extraction).** New with the final route. It has not been through the skeptic review.
+- **Delta:** 0 actions and 0 transitions. In time, −54 ticks per hop against the same hop through 685, measured, so −108 per run.
+- **Ours:** #16 and #58, `walk-f218-f215-via-686`: Walk to 686 at the Fork (pseudo-room 218).
+- **Human:** H24 (IL 1:51 to 1:54) and H73 move 1, "Back" from the Fork to the petal screen. `docs/human-route.md` §3.2 step 73 calls "Back" the top exit. Which of the two back paths, 685 or 686, the human clicks was not checked. If it is 686, the two rows are `same`.
+
+**Explanation.** 686 is a second back path at the Fork, and it runs 685's exit code.
+
+- The Fork's entry draws 686 at strip 28, next to 685 at strip 15 (`room-058-damnfores/entry.txt [08E5]`, `[08ED]`).
+- 686 has no Walk to of its own. Any verb on it runs `startObject(685,11)` (`obj-0686-path.txt [0010]`), and 685's case for 218 moves ego to 215 (`obj-0685-path.txt [0168]`). So the transition is the same as through 685, and so is the arrival: 215, at 687's walk point.
+- The only difference is the sentence's walk before that code runs. It goes to 686's walk point instead of 685's. Entering the Fork from the map leaves ego at 687's walk point, and from there the walk to 686 is the shorter one.
+- Every forest entry clears class 32 on 685 to 688 (`entry.txt [01BC]` to `[01D1]`), so 686 is touchable.
+- The action carries exactly the guards of the generic walk: `¬store-door-open`, `¬cook-provoked` and `¬following-storekeeper` (`docs/part1/model.md` §14.8).
+
+**How it was found.** The hand model generated its forest links from paths 685, 687 and 688 only. The Phase 7 blind extraction rebuilt Part I from the scripts alone and listed Walk to 686 at 218 as a legal alternative (`docs/extraction-diff.md` "Analysis" §3). `docs/part1/model.md` §14.8 checked it against the scripts and added it. Under unit costs it ties with its twin, so only the time objective tells them apart.
+
+**Time.**
+
+- In the §14.8 replay of the first time plan on seeds 1 to 3, with the new exits substituted, the hop from the map took 162 ticks through 686 and 216 through 685 on every seed: −54 per use (`out/measure/20261005T104047Z`, `…104054Z`, `…104100Z`).
+- The final run's pooled costs agree: `walk-f218-f215-via-686` 162.0 (n = 1296, stdev 0) and `walk f218 f215` 216.0 (n = 1708, stdev 0) (`docs/optimization.md`).
+- On seed 1, #16 takes 162 ticks (trace step 16, 15891 → 16053) and #58 takes 162 (29223 → 29385). The first time plan's seed-1 run took 216 for each (`out/runs/20261005T094110Z-run`).
+- Against the first time plan on the held-out seeds, the two hops give exactly −108 on every seed, out of a mean difference of −124.2 per seed (§1.3).
+- Seed 1 is only 6 ticks faster than the first time plan's seed 1 (22382 against 22388). The hops give −108 and #27 gives −18 (174 ticks against 192), but #31 gives +120, because the storekeeper was away in this seed-1 run and present in the earlier one (D7).
+
+**Citations:**
+
+- `data/scripts/room-058-damnfores/entry.txt [08E5]`, `[08ED]`, `[01BC]` to `[01D1]`
+- `data/scripts/room-058-damnfores/obj-0686-path.txt [0010]`; `obj-0685-path.txt [0168]`
+- `docs/part1/model.md` §14.8, points 1 and 2; `docs/extraction-diff.md` "Analysis" §3
+- `out/measure/20261005T104047Z`, `…104054Z`, `…104100Z`
+- `docs/optimization.md` per-action costs (`walk-f218-f215-via-686`, `walk f218 f215`)
+- `out/runs/20261005T122038Z-run/trace.jsonl` and `out/runs/20261005T094110Z-run/trace.jsonl`, trace steps 16 and 58
+- `out/optimize/20261005T084713Z/candidates/sample-02/report` and `out/optimize/20261005T111318Z/candidates/sample-16/report` (paired held-out seeds)
+- `docs/human-route.md` §3.2 steps 24 and 73
+
+**Fix and follow-up.** No model change; `docs/part1/model.md` §14.8 already added the action. Optional: check in the IL video (1:51 to 1:54) which back path the human clicks at the Fork.
 
 ### N1. Checked, not a difference: the jail and store order
 
 - **Classification: not a difference.** In the binary scheme it is a genuine shortcut (agreement): legal, not a bug, and the same as the human's.
 - **Delta:** 0.
-- **Ours:** #24 to #27 the jail (Otis #1), #28 to #32 the store, #33 to #41 mansion #1, #43 to #46 Otis #2, #47 the cake, #48 to #53 mansion #2.
+- **Ours:** #25 to #27 the jail (Otis #1), #28 to #32 the store, #33 to #41 mansion #1, #43 to #46 Otis #2, #47 the cake, #48 to #53 mansion #2.
 - **Human:** H38 to H40 Otis #1, H41 to H46 the store, H47 to H55 mansion #1, H56 to H60 Otis #2, H61 on, mansion #2. In room numbers, both sides run 34 → 31 → 34 → 30 → 34 → 36 → 53 → 36 → 34 → 31 → 34 → 36 → 53.
 
 **Why the scripts force jail before store.**
@@ -790,14 +840,14 @@ The IL takes about 6 s for H13 and H14 (0:48 to 0:54, ±1 s); ours takes 7.6 s. 
 - **Wording, corrected.** "The mints can be bought only together with the shovel, through the door path" is a restriction of our model (D7), not of the scripts. Talk to the storekeeper opens the same menu script 211. Every path to the mint topic still needs `Bit[420]` first.
 - The scripts force only jail before store. Where mansion #1 goes is the optimiser's choice by measured mean.
 
-**The optimiser's pool.** The one other order was `sample-06`: mansion #1, then Otis #1, then the store with the files topic, which appears while ego owns the repellent 640 (`local-211.txt [032D]`). Its select mean was 22404.0, against the winner's 22395.6 (`docs/optimization.md` Candidates).
+**The optimiser's pool.** In the final run, 11 of the 23 candidates visit mansion #1 before the store, and all 11 then pay through the files topic, which appears while ego owns the repellent 640 (`local-211.txt [032D]`). Ten go mansion #1, jail, store; `perturb-02` goes jail, mansion #1, store. The best of the 11, `perturb-13` (mansion #1 first), had a select mean of 22316.8, against the winner's 22291.4 (`docs/optimization.md` Candidates). In the first run the one other order was `sample-06` (mansion #1, then Otis #1, then the store), at 22404.0 against that winner's 22395.6.
 
 **Seed-1 ticks.**
 
-- Jail block #24 to #27: 882 ticks (walk 480, talk 204 setting `Bit[420]`, drug 6, walk out 192).
-- Store block #28 to #32: 1596 ticks (open 348, enter 6, shovel 396, pay 708 setting `Bit[312]`, exit 138 including a 6-tick deferral).
+- Jail block #25 to #27: 858 ticks (walk 480, talk 204 setting `Bit[420]`, walk out 174).
+- Store block #28 to #32: 1716 ticks (open 348, enter 6, shovel 396, pay 828 setting `Bit[312]` with the storekeeper away, exit 138 including a 6-tick deferral).
 
-Differences inside these blocks are classified elsewhere: the drug at #26 instead of H29 (D6), paying through door 387 instead of Talk to 394 (D7), and the human's sword pickup H44 (D11).
+Differences inside these blocks are classified elsewhere: paying through door 387 instead of Talk to 394 (D7) and the human's sword pickup H44 (D11). The drug is no longer in the jail block (D6).
 
 **Citations:**
 
@@ -805,8 +855,8 @@ Differences inside these blocks are classified elsewhere: the drug at #26 instea
 - `data/scripts/room-031-jail/obj-0405-prisoner.txt [001A]`; `local-203.txt [00BF]`, `[011F]`, `[01E0]`, `[0351]`
 - `data/scripts/global/script-001.txt [0AD0]`
 - `pddl/part1/domain.pddl` `talk-to-prisoner`, `pay-for-shovel-and-mints`, `give-repellent-to-prisoner`
-- `docs/optimization.md` Candidates (`sample-02` 22395.6, `sample-06` 22404.0)
-- `out/plans/part1.time.sas_plan` #24 to #53; `out/optimize/20261005T084713Z/candidates/sample-06/plan.keyed.sas_plan`
+- `docs/optimization.md` Candidates (`sample-16` 22291.4, `perturb-13` 22316.8, `perturb-02` 22425.6); for the first run, `out/optimize/20261005T084713Z/report.json` (`sample-02` 22395.6, `sample-06` 22404.0)
+- `out/plans/part1.time.sas_plan` #25 to #53; `out/optimize/20261005T111318Z/candidates/perturb-13/plan.keyed.sas_plan`; `out/optimize/20261005T084713Z/candidates/sample-06/plan.keyed.sas_plan`
 - `docs/human-route.md` §3.2 steps 38 to 60, §5 Q2
 
 **Fix and follow-up.** None for the model. Record in `docs/human-route.md` §5 Q2 that Otis #1 is required because it sets `Bit[420]`, which gates the mint topic.
@@ -828,7 +878,7 @@ Differences inside these blocks are classified elsewhere: the drug at #26 instea
 - **Safety.** The skip-safety harness (`tests/integration/test_skip_safety.py`, seeds 1 to 3) diffed bits, inventory and owners at every `step_end` with and without skips. The only differences were `Bit[561]` from the LeChuck exit on and the owner of vase 630 from `enter-idol-room` on (both `docs/part1/skips.md` §4.4 items), plus `Bit[324]`, which is RNG drift at the store. So no step needs `no_skip`.
 - **Var 19.** It must be 6 at every `step_end` and after every cutscene skip (the `timer_next` check). This guards against the mid-game members of the logo-glitch family (`docs/research/skips-engine.md` §6).
 - **Menus inside overrides.** With Esc on, #51's "Uh"/"Um"/"Blfft" menus and #52's "Buzz off" menu never show. Their answers are `override_choose` entries, so the same plan replays with and without skips (`docs/part1/skips.md` §4.3).
-- **What skips cannot shorten** on this route: script 120's `delay(60)` before its override (72 ticks in #8), local-204's store cutscene, which has no override (138 ticks in #31), local-201's five `delay(60)` at the poodles (300 jiffies in #35) and the cook's 600-jiffy wait (in #4). A human pays all four too.
+- **What skips cannot shorten** on this route: script 120's `delay(60)` before its override (72 ticks in #8), local-204's store cutscene, which has no override (138 ticks in #31 when the storekeeper is present), local-201's five `delay(60)` at the poodles (300 jiffies in #35) and the cook's 600-jiffy wait (in #4). A human pays all four too.
 
 ### 6.3 Input deferral (bridge v2)
 
@@ -837,7 +887,7 @@ Differences inside these blocks are classified elsewhere: the drug at #26 instea
   - **`clicks_cleared`:** a script called `clearClickedStatus()` between `processInput()` and `checkExecVerbs()`.
 
   The text skip `.` uses up nothing.
-- Seed 1 has 10 deferrals of one frame (6 ticks) each: in #12 (2), #13 (2), #22 (2), #32, #45, #51 and #54. Six are `esc_frame` and four are `clicks_cleared`.
+- Seed 1 has 10 deferrals of one frame (6 ticks) each: in #12 (2), #13 (2), #23 (2), #32, #45, #51 and #54. Six are `esc_frame` and four are `clicks_cleared`.
 - **Cost.** On seeds 1 to 10 the mean total went from 22,331 to 22,393 ticks (+62). Single seeds moved by −54 to +186 ticks, because the shifted frames change NPC and RNG timing (`docs/plan.md` "Plan-player semantics as implemented").
 - **Rules gap.** `rules/glitchless.md` does not state this rule. It should (§8).
 
@@ -861,7 +911,7 @@ Differences inside these blocks are classified elsewhere: the drug at #26 instea
 `rules/glitchless.md` "Known fidelity gap": a real click on 316 freezes the cook (`room-028-bar/local-203.txt [0030]`), but a pushed sentence does not.
 
 - **Exposure now.** In the time plan, #3's Open already leaves ego at 316. #4's walk-in takes 42 ticks, while the cook walks away toward targets at x ≤ 285. local-218's cutscene then freezes him (`global/script-018.txt [0070]`), and the room change ends his script.
-- **Status.** #4 took 864 ticks in all 735 measured samples, so no race was lost.
+- **Status.** #4 took 864 ticks in all 1445 measured samples, so no race was lost.
 - **Rules text is stale.** It names `walk-into-kitchen` as the race window; the time plan uses `walk-into-kitchen-after-provoking-cook`. The gap can still only make things harder for the bot.
 
 ### 6.6 The circus inventory quirk
@@ -879,42 +929,43 @@ Differences inside these blocks are classified elsewhere: the drug at #26 instea
 
 ### 6.8 Route selection by mean ticks
 
-- The winner was chosen on select seeds 1 to 30 (22395.6) and reported on held-out seeds 31 to 60 (22416.2) (`docs/optimization.md`).
-- On the held-out seeds the runner-up `mean` was 18.2 ± 13.4 ticks per seed faster, and the two tied on 10 of 30. Pooled over 60 seeds the difference is −6.0 ± 8.8, consistent with zero (D6). Switching would mean selecting on the report set, so the winner stands (`rules/glitchless.md` "Route selection").
-- The keyed surrogate predicted 22370.9 for the winner, 24.7 ticks below its measured select mean.
+- The winner was chosen on select seeds 1 to 30 (22291.4) and reported on held-out seeds 31 to 60 (22292.0) (`docs/optimization.md`; `rules/glitchless.md` "Route selection").
+- On the held-out seeds the runner-up `perturb-04` was 30.8 ± 13.5 ticks per seed slower (standard error). The winner was faster on 23 seeds and the runner-up on 7. `perturb-04` has the same 67 actions in another order: it fetches the petal and drugs the meat before the circus, not after. Its select mean was 22299.4, 8.0 ticks above the winner's.
+- The winner's twin with the drug in the jail, `mean`, was 11.6 ± 14.9 ticks per seed slower on the select seeds, a tie within noise (D6). The held-out seeds are run only for the winner and the runner-up, so `mean` has no held-out figure.
+- The keyed surrogate predicted 22298.8 for the winner, 7.4 ticks above its measured select mean.
 
 ### 6.9 Headless against demo, and audio
 
 - `rules/glitchless.md` requires a run to produce the same tick count headless and in the visible demo. Seed 1 does: the goal and end records match, and the `state-end.json` files are byte-identical (§4.5).
-- Audio is silent and tick-locked (`--disable-sdl-audio`; the bridge advances audio in game ticks), so sound-dependent waits take the same ticks in every run. Both runs end with `audio_frames` 11654144. The cost is that the demo is silent.
+- Audio is silent and tick-locked (`--disable-sdl-audio`; the bridge advances audio in game ticks), so sound-dependent waits take the same ticks in every run. Both runs end with `audio_frames` 11652096. The cost is that the demo is silent.
 
 ## 7. Where the ticks go now
 
-Seed 1, `out/runs/20261005T094110Z-run/trace.jsonl`, using the row convention of §4.5 (until-waits folded in, #12's two pushes merged). The rows sum to 22388.
+Seed 1, `out/runs/20261005T122038Z-run/trace.jsonl`, using the row convention of §4.5 (until-waits folded in, #12's two pushes merged). The rows sum to 22382.
 
 | plan action | ticks | share | seconds | what takes the time |
 |---|---:|---:|---:|---|
 | #13 walk-out-of-tent-after-helmet-meat | 1062 | 4.7% | 17.7 | two verb-slot clicks, the helmet and cannon cutscenes, the reversed menu, the 478 payout and the scripted walk-out; 8 text and 3 cutscene skips |
 | #9 walk dock lookout | 1008 | 4.5% | 16.8 | the full width of the Dock, from the bar door to the cliffside (from the pier, #55 takes 642) |
-| #21 walk dock low-street | 930 | 4.2% | 15.5 | from the map's arrival point on the Dock to archway 427 |
+| #22 walk dock low-street | 930 | 4.2% | 15.5 | from the map's arrival point on the Dock to archway 427 |
 | #4 walk-into-kitchen-after-provoking-cook | 864 | 3.9% | 14.4 | 822 waiting for the cook (the rest of local-212's 600 jiffies after his line, then his walk out to x ≤ 310), then 42 walking in |
 | #12 walk-into-tent-with-pot | 848 | 3.8% | 14.1 | the walk in (stopped once by local-202), the Fettucini argument and 3 menus; 16 text and 3 cutscene skips |
+| #31 pay-for-shovel-and-mints | 828 | 3.7% | 13.8 | the walk to door 387, local-204's cutscene (no override), 3 picks; the storekeeper was away on seed 1, and the step takes 708 when he is present |
 | #51 steal-idol | 726 | 3.2% | 12.1 | the walk to the hole, the theft cutscene and 1 pick; 8 text and 4 cutscene skips |
-| #20 walk melee-map dock | 714 | 3.2% | 11.9 | the map walk to the village |
-| #31 pay-for-shovel-and-mints | 708 | 3.2% | 11.8 | the walk to door 387, local-204's 138 unskippable ticks, 3 picks; 828 when the storekeeper is away |
+| #21 walk melee-map dock | 714 | 3.2% | 11.9 | the map walk to the village |
 | #42 walk high-street-mansion high-street-town | 642 | 2.9% | 10.7 | the scripted walk through 435 back to the town half |
 | #55 walk dock lookout | 642 | 2.9% | 10.7 | from the pier end of the Dock to the cliffside |
 | #35 give-meat-to-poodles | 636 | 2.8% | 10.6 | the walk to the dogs, then local-201's five `delay(60)` (300 jiffies, no override) |
 | #33 walk high-street-town high-street-mansion | 594 | 2.7% | 9.9 | the walk from the store door to archway 436 and the scripted walk to the mansion half |
-| the other 55 actions | 13014 | 58.1% | 216.9 | |
-| **total** | **22388** | 100% | **373.1 (6:13.13)** | |
+| the other 55 actions | 12888 | 57.6% | 214.8 | |
+| **total** | **22382** | 100% | **373.0 (6:13.03)** | |
 
 Shares are rounded.
 
-- **Walking now dominates.** The 34 plain `walk a b` transitions take 11826 ticks (52.8%). With the 14 composite `walk-*` actions, the 48 walk actions take 17414 ticks (77.8%). The 19 other actions take 4974 (22.2%).
-- The three Dock walks (#9, #21, #55) alone take 2580 ticks (11.5%). The nine forest hops (#58 to #66) take 2178 (9.7%).
+- **Walking now dominates.** The 32 plain `walk a b` transitions take 11376 ticks (50.8%). With the 16 `walk-*` actions (the 14 composites and the two hops through 686), the 48 walk actions take 17288 ticks (77.2%). The 19 other actions take 5094 (22.8%).
+- The three Dock walks (#9, #22, #55) alone take 2580 ticks (11.5%). The nine forest hops (#58 to #66) take 2124 (9.5%).
 - This is the reverse of the unskipped run, where the ten largest actions were 78.5% of 107,660 ticks and every one was mostly cutscene or dialogue (Appendix). Skips cut those to a few hundred ticks each: the idol theft went from 18,744 ticks to 726, the idol pickup and the Elaine scene from 12,738 to 378, and the idol room from 10,140 to 60.
-- **What is left to gain within the rules is small.** Glitchless walking speed is fixed. The known levers are Talk to the storekeeper when he is present (D7, about 100 ticks on the mean, estimated) and, at most 6 ticks each, inventory-only sentences during scripted walks (D6). The deferrals (+62 on the mean) are the price of input fidelity, and a strict camera rule would add about 200 (§6.4). The held-out stdev is 60.6.
+- **What is left to gain within the rules is small.** Glitchless walking speed is fixed. The known levers are Talk to the storekeeper when he is present (D7, about 100 ticks on the mean, estimated) and, at most 6 ticks each, inventory-only sentences during scripted walks (D6). The deferrals (+62 on the mean) are the price of input fidelity, and a strict camera rule would add about 200 (§6.4). The held-out stdev is 48.3.
 
 ## 8. Follow-ups
 
@@ -929,14 +980,14 @@ The project-level follow-ups are in `docs/next.md`. The ones this comparison bea
 **Plans and measurement**
 
 4. **A conditional store step** (D7): Talk to 394 when the storekeeper is present, Walk to 387 when he is away. Then measure the estimated saving of about 100 ticks on the mean. This is the reactive-plan mechanism `docs/next.md` also needs for the swordfight.
-5. *Optional.* Push an inventory-only sentence during a scripted walk (D6; #26 and #47, at most 6 ticks each).
+5. *Optional.* Push an inventory-only sentence during a scripted walk (D6; #18 and #47, at most 6 ticks each).
 6. *Optional.* A headless replay of [7,566,467] at the poodles (D8), and a paired measurement with the cake opened in the jail (D10).
 
 **Human comparison**
 
 7. **Reaction time** (`docs/next.md`). The bot acts on the first frame a human could. A configurable reaction delay would give a "human-plausible" comparison.
 8. **A glitched category** (`docs/next.md`). Modelling the logo speed glitch in a separately labelled category would turn §1.4's bound on the glitch's share of the gap into a measurement.
-9. *Optional video checks.* IL 0:21 to 0:27, to confirm that the "generic failure line" is the cook's line (D2). IL 3:42 to 3:45, for a "Walk to door" sentence line (D9). The WR's map arrival before the detour (§4.3).
+9. *Optional video checks.* IL 0:21 to 0:27, to confirm that the "generic failure line" is the cook's line (D2). IL 3:42 to 3:45, for a "Walk to door" sentence line (D9). The WR's map arrival before the detour (§4.3). IL 1:51 to 1:54, for which back path the human clicks at the Fork (D12).
 
 **Documentation corrections.** These have not been applied to the files they concern.
 
@@ -950,7 +1001,7 @@ The project-level follow-ups are in `docs/next.md`. The ones this comparison bea
   - §5: Q2 is answered (Otis #1 is required, N1), Q4 is answered (the Open is not required but is faster, D2), and Q8 is answered (`Bit[85]` is set at the underwater pickup, #53).
 - `docs/part1/model.md`:
   - §9: counts for the time plan (23 actions and 45 transitions, against 23 and 47), with `walk-to-kitchen-door-provoking-cook` as a fourth composite. Also "falls away with the intro skip" becomes "is scripted on every boot" (D1, D2).
-  - §8 and §9: label the step lists and the "−1: pot and meat in one sentence" note as the unit-cost plan (D3), and note that the time plan drugs the meat in the jail (D6).
+  - §8 and §9: label the step lists and the "−1: pot and meat in one sentence" note as the unit-cost plan (D3), and note that the time plan drugs the meat at the petal screen (D6).
   - §5: reword the "Use meat with poodles" row. It is an exact tie kept to one variant, not a riskier one (D8).
   - §14.1: note that its until-wait convention differs from `docs/optimization.md` (§4.5).
 - `docs/part1/idol.md` §2.5 and open question 3: box flag 128 is invisible, not locked (D8).
@@ -994,14 +1045,14 @@ Seed 1 ran in `out/runs/20261004T213031Z-run` (with a byte-identical trace in `2
 | old ID | old classification | now |
 |---|---|---|
 | D1 Lookout → Dock | genuine shortcut (counting convention) | **D1**, unchanged |
-| D2 no kitchen Open: wait for the cook's own timer (1884-2964 ticks) | genuine shortcut (skips an intended step); a time saving of 600-1700 ticks was estimated for the Open | **reversed by D2**: the time plan makes the Open, from bar-left, saving about 1544 ticks against the unit plan |
+| D2 no kitchen Open: wait for the cook's own timer (1884-2964 ticks) | genuine shortcut (skips an intended step); a time saving of 600-1700 ticks was estimated for the Open | **reversed by D2**: the time plan makes the Open, from bar-left, saving about 1532 ticks against the unit plan |
 | D3 one-sentence pickup, `use-meat-with-pot` (−1 action) | genuine shortcut (one-sentence pickup) | **replaced by D3**: two pickups, +1 action, −24 ticks |
 | D4 bar exit in one sentence | genuine shortcut (off-screen exit); "−6 ticks" and a floor-click caveat | **D4**, the same label; the time comparison and the caveat are corrected, and the skeptics now split |
 | D5 circus helmet | genuine shortcut; skeptics split 1-1 | **D5**, now upheld 2 of 2 |
 | D6 store menu through the door | genuine shortcut (different method, equal cost) | **D7**, reclassified: a fixed-plan limitation, and slower than the human's Talk to by about 100 ticks on the mean |
 | D7 poodles, Give for Use | genuine shortcut (equivalent verb, exact tie) | **D8**, unchanged |
 | D8 idol room, Open plus Walk to | genuine shortcut (counting convention) | **D9**, unchanged; the script reading is corrected for the skipped path |
-| D9 drugging the meat in the jail | genuine shortcut (different order; not reviewed) | **D6**, now reviewed 2 of 2 |
+| D9 drugging the meat in the jail | genuine shortcut (different order; not reviewed) | **D6**, now reviewed 2 of 2 for the jail placement; the final plan drugs at the petal screen |
 | D10 swordfight and crew steps | genuine shortcut (out of scope; not reviewed) | **D11**, now reviewed 2 of 2; the Fester time note is corrected |
 
 **Claims of the old report that no longer hold:**

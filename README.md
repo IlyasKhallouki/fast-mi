@@ -22,11 +22,11 @@ from bit variables 85 and 86.
 ```
 $ uv run speedrun run part1
 ...
-TOTAL: 22388 ticks (6:13.13 at 60 Hz)
+TOTAL: 22382 ticks (6:13.03 at 60 Hz)
 ```
 
-The time-optimal route has 67 actions and averages 22,416 ticks (6:13.6) over 30 held-out
-seeds, with a stdev of 61. The visible demo reproduces the headless run tick for tick.
+The time-optimal route has 67 actions and averages 22,292 ticks (6:11.5) over 30 held-out
+seeds, with a stdev of 48. The visible demo reproduces the headless run tick for tick.
 `docs/optimization.md` describes the method, and `docs/comparison.md` compares the route
 with the human route.
 
@@ -49,6 +49,9 @@ Some parts are already game-agnostic:
 - Phase 7 showed that six blind extractor agents, reading only decompiled scripts, can
   produce a cited model over engine-state atoms. After three defects were fixed, the
   extracted model reached the hand-written model's optimum (`docs/extraction-diff.md`).
+  The extraction also found a second exit at the forest fork, path 686, that the
+  hand-written model lacked. The route takes it twice, 54 ticks faster each time than the
+  usual exit, and it gave the route its last improvement.
   Extracting the model from decompiled scripts is the route to new games without
   hand-writing a model for each one.
 
