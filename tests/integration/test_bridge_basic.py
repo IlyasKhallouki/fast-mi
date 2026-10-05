@@ -90,18 +90,30 @@ def test_ticks_deterministic_boot(engine_ready, tmp_path, home_scummvm_guard):
 
 
 @pytest.mark.integration
-def test_trace_survives_kill(engine_ready, tmp_path, home_scummvm_guard, monkeypatch):
+def test_trace_survives_kill(engine_ready, tmp_path, home_scummvm_guard):
     # A crash, SIGKILL or wall-clock kill must keep every record flushed so far
     # in $SPEEDRUN_OUT/trace.jsonl (C5), not lose it in an unrenamed temp file.
-    # run_engine's own SIGTERM lets ScummVM quit cleanly, so kill outright.
-    def kill(proc):
-        proc.kill()
-        proc.wait()
-
-    monkeypatch.setattr(engine, "_stop", kill)
-    cfg = EngineConfig(out_dir=tmp_path / "run", fast=True, max_ticks=10**9, timeout_s=8)
-    result = run_engine(cfg)
-    assert result.timed_out and result.returncode < 0, result
+    # The engine is launched with run_engine's own isolated ini, argv and env,
+    # then killed outright (SIGKILL) once the segment-start record is on disk.
+    # Waiting for that record, not a fixed delay, keeps the test independent of
+    # machine load.
+    cfg = EngineConfig(out_dir=tmp_path / "run", fast=True, max_ticks=10**9)
+    cfg.out_dir.mkdir(parents=True)
+    engine.write_ini(cfg)
+    trace = cfg.out_dir / "trace.jsonl"
+    with (cfg.out_dir / "stdout.log").open("wb") as log:
+        proc = subprocess.Popen(engine.build_argv(cfg), env=engine.build_env(cfg),
+                                stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT)
+        try:
+            deadline = time.monotonic() + 120
+            while time.monotonic() < deadline and proc.poll() is None:
+                if trace.is_file() and '"segment_start"' in trace.read_text(errors="replace"):
+                    break
+                time.sleep(0.05)
+        finally:
+            proc.kill()
+            proc.wait()
+    assert proc.returncode < 0, proc.returncode  # killed, not exited
 
     records = _read_trace(cfg.out_dir)  # every line parses, the last one is complete
     types = [r["type"] for r in records]
